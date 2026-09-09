@@ -407,7 +407,7 @@ uvloop==0.22.1
     # via uvicorn
 watchfiles==1.2.0
     # via uvicorn
-wcwidth==0.8.2
+wcwidth==0.8.3
     # via prettytable
 websocket-client==1.9.1
     # via kubernetes
