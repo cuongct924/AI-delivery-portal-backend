@@ -925,7 +925,7 @@ tqdm==4.70.0
     #   optuna
     #   scmrepo
     #   transformers
-transformers==5.14.1
+transformers==5.16.1
     # via -r infra/argo-workflows/training-image/requirements.txt
 truststore==0.10.4 ; sys_platform != 'emscripten'
     # via
