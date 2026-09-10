@@ -74,7 +74,7 @@ cycler==0.12.1
     # via matplotlib
 dask==2026.7.1
     # via feast
-databricks-sdk==0.133.0
+databricks-sdk==0.136.0
     # via
     #   mlflow-skinny
     #   mlflow-tracing
