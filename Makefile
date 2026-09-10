@@ -83,8 +83,7 @@ gitleaks:
 ## IaC misconfig scan — same framework/skip-path as CI.
 checkov:
 	checkov --directory . --framework dockerfile,argo_workflows,github_actions \
-		--skip-path node_modules --skip-path .venv --skip-path packages --skip-path plugins \
-		--compact --quiet
+		--skip-path .venv --compact --quiet
 
 ## Builds the 4 service images, then Trivy-scans each — needs Docker running.
 trivy:

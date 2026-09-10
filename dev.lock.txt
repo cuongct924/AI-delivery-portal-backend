@@ -5,7 +5,7 @@
 
 accelerate==1.11.0
     # via -r infra/argo-workflows/training-image/requirements.txt
-aiobotocore==3.9.0
+aiobotocore==2.17.0
     # via
     #   dvc-s3
     #   s3fs
@@ -75,10 +75,14 @@ billiard==4.2.4
     # via celery
 blinker==1.9.0
     # via flask
-botocore==1.43.56
+boto3==1.35.49
+    # via -r adapters/requirements.txt
+botocore==1.35.93
     # via
     #   aiobotocore
+    #   boto3
     #   dvc-s3
+    #   s3transfer
 cachetools==7.1.7
     # via
     #   mlflow-skinny
@@ -261,7 +265,7 @@ frozenlist==1.8.0
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2026.6.0
+fsspec==2026.1.0
     # via
     #   dask
     #   datasets
@@ -388,6 +392,7 @@ jinja2==3.1.6
 jmespath==1.1.0
     # via
     #   aiobotocore
+    #   boto3
     #   botocore
 joblib==1.5.3
     # via
@@ -793,8 +798,10 @@ ruamel-yaml==0.19.1
     #   gto
 ruff==0.16.4
     # via -r requirements-dev.txt
-s3fs==2026.6.0
+s3fs==2026.1.0
     # via dvc-s3
+s3transfer==0.10.4
+    # via boto3
 safetensors==0.8.0
     # via
     #   accelerate
@@ -991,6 +998,7 @@ ujson==5.13.0
     # via evidently
 urllib3==2.7.0
     # via
+    #   aiobotocore
     #   botocore
     #   databricks-sdk
     #   docker
@@ -1044,7 +1052,7 @@ werkzeug==3.1.8
     # via
     #   flask
     #   flask-cors
-wrapt==2.4.0
+wrapt==1.17.3
     # via
     #   aiobotocore
     #   formulaic

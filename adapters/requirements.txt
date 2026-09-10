@@ -3,3 +3,4 @@ kubernetes==36.0.3
 httpx==0.28.1
 qdrant-client==1.19.0
 feast==0.66.0
+boto3==1.35.49

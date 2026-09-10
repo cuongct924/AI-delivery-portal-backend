@@ -28,9 +28,10 @@ from adapters.factory import (
     get_feature_store_adapter,
     get_kserve_adapter,
     get_model_registry_adapter,
+    get_object_storage_adapter,
     get_workflow_adapter,
 )
-from adapters.interfaces import IDeployTrafficStrategy, IReleaseStrategy
+from adapters.interfaces import DatasetInfo, IDeployTrafficStrategy, IReleaseStrategy
 
 router = APIRouter(tags=["models"])
 
@@ -39,6 +40,7 @@ router = APIRouter(tags=["models"])
 mlflow_adapter = get_model_registry_adapter()
 argo_adapter = get_workflow_adapter()
 feast_adapter = get_feature_store_adapter()
+object_storage_adapter = get_object_storage_adapter()
 
 # One WorkflowTemplate covers both train and fine-tune; mode is a parameter.
 TRAIN_REGISTER_TEMPLATE: Final[str] = "train-register-golden-path"
@@ -91,6 +93,14 @@ class TriggerTrainingRequest(BaseModel):
 
 class TriggerTrainingResponse(BaseModel):
     workflow_name: str
+
+
+class DatasetColumnsResponse(BaseModel):
+    columns: list[str]
+
+
+class ListDatasetsResponse(BaseModel):
+    datasets: list[DatasetInfo]
 
 
 class ValidateDatasetRequest(BaseModel):
@@ -294,6 +304,31 @@ def register_model(request: RegisterModelRequest) -> RegisterModelResponse:
         result["name"], result["version"], "task_type", request.task_type
     )
     return RegisterModelResponse(**result)
+
+
+@router.get("/datasets", response_model=ListDatasetsResponse)
+def list_datasets(user: dict = Depends(get_current_user)) -> ListDatasetsResponse:
+    """Lists datasets already pushed to the object store, for the
+    Scaffolder UI's dataset picker (StepLayoutField's `datasetPicker`).
+    """
+    return ListDatasetsResponse(datasets=object_storage_adapter.list_datasets())
+
+
+@router.get("/datasets/columns", response_model=DatasetColumnsResponse)
+def get_dataset_columns(
+    dataset_uri: str, user: dict = Depends(get_current_user)
+) -> DatasetColumnsResponse:
+    """Reads a dataset's CSV header so the Scaffolder UI can offer real column names.
+
+    Backs StepLayoutField's column pickers (Target column, ID columns,
+    Time column, Text column) instead of making the user guess/type column
+    names blind. A dataset that isn't a CSV (architecture=cv's `.zip` of
+    images) legitimately fails here — the frontend falls back to a plain
+    text/array input in that case.
+    """
+    csv_path = Path(dataset_uri.removeprefix("file://"))
+    columns = pd.read_csv(csv_path, nrows=0).columns.tolist()
+    return DatasetColumnsResponse(columns=columns)
 
 
 @router.post("/datasets/validate", response_model=list[CheckResultResponse])

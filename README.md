@@ -11,38 +11,35 @@ An MLOps/LLMOps platform built as an Internal Developer Platform (IDP) for AI/ML
 - Scope is the internal MLOps/LLMOps flow itself — integrating generic CI/CD with external systems is out of scope (see [`docs/playbook-ai-delivery-portal.md`](docs/playbook-ai-delivery-portal.md))
 
 Official structure: Portal (Backstage) + Orchestration API (FastAPI) + AI Agent/MCP
-+ Adapter layer + GitOps infrastructure.
++ Adapter layer + GitOps infrastructure, split across two repos: this one is
+the **backend**; the Portal frontend (Backstage + OpenChoreo plugins +
+Viettel Cloud branding) lives in a separate repo,
+[`cuongct924/backstage-plugins`](https://github.com/cuongct924/backstage-plugins).
 
 ## Directory structure
 
 ```
 AI-delivery-portal/
-├── packages/            ← Portal (Backstage) — app-backstage (React/TS UI) + backend
-├── plugins/              ← Backstage plugins — prompt-registry (Prompt version UI)
 ├── services/             ← orchestration-api — FastAPI BFF, MCP client, auth, evaluations
 ├── agents/               ← AI Agent & MCP — mcp-servers/, skills/, prompts/
 ├── adapters/             ← Adapter Pattern — MLflow, KServe, Argo, Qdrant, LiteLLM, Feast, JupyterHub
 ├── infra/                ← GitOps infra — monitoring/vector-dbs/llm-gateways (active); helm-charts/argocd/opa-policies (not yet implemented)
 ├── data/                 ← datasets versioned with DVC (S3-compatible remote, see data/README.md)
-├── examples/             ← Catalog entity + 2 Golden Path templates (train-track-register, register-deploy)
 ├── scripts/              ← run-mcp-local.sh
 ├── docs/                 ← playbook, LLMOps draft plan
-├── app-config.yaml       ← shared Backstage config (catalog, scaffolder, auth, proxy...)
 ├── docker-compose.yml    ← full local stack (mlflow, keycloak, prometheus, grafana, qdrant, minio, litellm, orchestration-api, MCP servers)
 └── README.md
 ```
+
+Portal frontend (Golden Path Scaffolder templates, Catalog entities, custom
+Scaffolder actions/fields) lives entirely in the separate frontend repo —
+not here.
 
 See [`docs/playbook-ai-delivery-portal.md`](docs/playbook-ai-delivery-portal.md) for the full component breakdown and design rationale.
 
 ## Usage
 
 ```bash
-yarn install && yarn start      # run the Backstage Portal (packages/app-backstage + packages/backend)
-yarn tsc                        # type check the whole TS workspace
-yarn lint                       # lint — only files changed vs origin/master (fast, day-to-day)
-yarn lint:all                   # lint — whole repo (what CI runs)
-yarn fix                        # auto-fix what's fixable
-yarn workspace <name> add <pkg> # add a dependency to one workspace (packages/app-backstage, backend, plugins/prompt-registry...)
 cp .env.example .env            # fill in ANTHROPIC_API_KEY before running orchestration-api/litellm
 docker compose --profile mlops up -d       # MLOps only: mlflow, keycloak, minio, orchestration-api
 docker compose --profile llmops up -d      # LLMOps only: qdrant, litellm
@@ -61,9 +58,10 @@ make test       # pytest (tests/)
 make check      # lint + typecheck + test
 ```
 
-- Portal UI: `http://localhost:3000` & Backend: `http://localhost:7007`
-- Catalog is preconfigured in [`app-config.yaml`](app-config.yaml) to read [`examples/catalog/model-entity.yaml`](examples/catalog/model-entity.yaml) and the [`train-track-register`](examples/templates/train-track-register/template.yaml) / [`register-deploy`](examples/templates/register-deploy/template.yaml) templates
-- **Prompt Registry** (sidebar page, from [`plugins/prompt-registry/`](plugins/prompt-registry/)) reads data through the `/orchestration-api` proxy — [`orchestration-api`](services/orchestration-api/) must be running (`docker compose up` or local `uvicorn`) for data to appear
+- Portal UI + Golden Path templates/Catalog config: see the frontend repo,
+  [`cuongct924/backstage-plugins`](https://github.com/cuongct924/backstage-plugins)
+  — [`orchestration-api`](services/orchestration-api/) must be running
+  (`docker compose up` or local `uvicorn`) for its Scaffolder actions to work
 
 ### Test CI locally
 

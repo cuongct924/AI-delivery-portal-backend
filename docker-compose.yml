@@ -46,7 +46,7 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
     ports:
-      - "3001:3000"  # host 3001 — Backstage's dev server already owns 3000
+      - "3001:3000"  # host 3001 — the Portal frontend (separate repo) dev server typically runs on 3000
     depends_on:
       - prometheus
     profiles: ["observability"]

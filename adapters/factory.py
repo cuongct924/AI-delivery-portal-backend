@@ -19,10 +19,12 @@ from functools import lru_cache
 
 from adapters.argo_adapter import ArgoAdapter
 from adapters.feature_store_adapter import FeastAdapter
-from adapters.interfaces import ILLMGatewayAdapter, IVersionRegistryAdapter
+from adapters.interfaces import ILLMGatewayAdapter, IObjectStorageAdapter, IVersionRegistryAdapter
 from adapters.kserve_adapter import KServeAdapter
 from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
 from adapters.mlflow_adapter import MlflowAdapter
+from adapters.object_storage_adapter import MinioObjectStorageAdapter
+from adapters.prompt_registry_adapter import MlflowPromptRegistryAdapter
 from adapters.vector_db_adapter import QdrantAdapter
 from adapters.version_registry_adapter import JsonFileVersionRegistryAdapter
 
@@ -39,7 +41,15 @@ def get_vector_store_adapter() -> QdrantAdapter:
 
 @lru_cache
 def get_registry_adapter() -> IVersionRegistryAdapter:
+    """Backs kind="rag-index" (routers/rag.py). kind="prompt" moved to
+    get_prompt_registry_adapter() below — see that adapter's docstring for
+    why the two kinds don't share one backend."""
     return JsonFileVersionRegistryAdapter()
+
+
+@lru_cache
+def get_prompt_registry_adapter() -> IVersionRegistryAdapter:
+    return MlflowPromptRegistryAdapter()
 
 
 @lru_cache
@@ -55,6 +65,11 @@ def get_workflow_adapter() -> ArgoAdapter:
 @lru_cache
 def get_feature_store_adapter() -> FeastAdapter:
     return FeastAdapter()
+
+
+@lru_cache
+def get_object_storage_adapter() -> IObjectStorageAdapter:
+    return MinioObjectStorageAdapter()
 
 
 def get_kserve_adapter(tenant: str) -> KServeAdapter:

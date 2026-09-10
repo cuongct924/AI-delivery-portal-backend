@@ -282,3 +282,27 @@ class INotebookAdapter(ABC):
 
     @abstractmethod
     def delete_notebook(self, notebook_id: str) -> NotebookDeletion: ...
+
+
+class DatasetInfo(TypedDict):
+    name: str
+    uri: str
+    size_bytes: int
+
+
+class IObjectStorageAdapter(ABC):
+    """Discovers datasets already pushed to the versioned object store
+    (`.dvc/config`'s remote "storage": MinIO locally, S3-compatible in
+    general) — backs the Scaffolder UI's dataset picker so a user chooses
+    from what's actually there instead of typing a `file://` path blind.
+
+    `DatasetInfo.uri` is a `file:///mnt/data/<name>` path, not the raw
+    `s3://` object key: the training pod reads from the kind cluster's
+    hostPath mount (see train-track-register/template.yaml's `datasetUri`
+    description), not straight from the bucket, so the picker must hand
+    back whatever the training pipeline can actually open — the object
+    store is only consulted here for what dataset *names* exist.
+    """
+
+    @abstractmethod
+    def list_datasets(self, prefix: str = "") -> list[DatasetInfo]: ...

@@ -3,10 +3,12 @@ separate from the Model Registry (unlike traditional MLOps, see docs/architectur
 The Portal reads this data through the `plugins/prompt-registry/` plugin
 (Backstage), via the `/orchestration-api` proxy declared in app-config.yaml.
 
-Backed by JsonFileVersionRegistryAdapter (kind="prompt") — the same
-registry routers/rag.py uses for "rag-index", just a different kind. Two
-personas ("mlops", "k8s") are seeded at import time so existing behavior
-survives a first restart unchanged; new personas register via POST /prompts.
+Backed by MlflowPromptRegistryAdapter (kind="prompt") — MLflow's native
+Prompt Registry (mlflow.genai.*), not the file-backed adapter
+routers/rag.py uses for "rag-index" (a prompt is a real MLflow-tracked
+artifact; a RAG index pointer isn't). Two personas ("mlops", "k8s") are
+seeded at import time so existing behavior survives a first restart
+unchanged; new personas register via POST /prompts.
 """
 
 from auth.keycloak import get_current_user
@@ -15,12 +17,12 @@ from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from adapters.factory import get_llm_gateway_adapter, get_registry_adapter
+from adapters.factory import get_llm_gateway_adapter, get_prompt_registry_adapter
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 llm_gateway_adapter = get_llm_gateway_adapter()
-registry_adapter = get_registry_adapter()
+registry_adapter = get_prompt_registry_adapter()
 
 
 class PromptVersion(BaseModel):

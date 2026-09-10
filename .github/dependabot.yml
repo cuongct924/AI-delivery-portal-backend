@@ -1,15 +1,5 @@
 version: 2
 updates:
-  # Yarn workspaces (packages/*, plugins/*) — see root package.json
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    groups:
-      backstage:
-        patterns:
-          - "@backstage/*"
-
   # Python — each service resolves its own requirements.txt (see Makefile SERVICE_REQS).
   # NOTE: major bumps excluded — Dependabot edits *.lock.txt without re-resolving.
   - package-ecosystem: "pip"
@@ -63,10 +53,6 @@ updates:
       interval: "weekly"
   - package-ecosystem: "docker"
     directory: "/services/orchestration-api"
-    schedule:
-      interval: "weekly"
-  - package-ecosystem: "docker"
-    directory: "/packages/backend"
     schedule:
       interval: "weekly"
   - package-ecosystem: "docker"

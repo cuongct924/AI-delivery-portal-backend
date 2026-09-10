@@ -31,6 +31,12 @@ bigtree==1.5.3
     # via feast
 blinker==1.9.0
     # via flask
+boto3==1.35.49
+    # via -r adapters/requirements.txt
+botocore==1.35.99
+    # via
+    #   boto3
+    #   s3transfer
 cachetools==7.1.7
     # via
     #   mlflow-skinny
@@ -155,6 +161,10 @@ jinja2==3.1.6
     # via
     #   feast
     #   flask
+jmespath==1.1.0
+    # via
+    #   boto3
+    #   botocore
 joblib==1.5.3
     # via scikit-learn
 kiwisolver==1.5.0
@@ -289,6 +299,7 @@ pyparsing==3.3.2
     # via matplotlib
 python-dateutil==2.9.0.post0
     # via
+    #   botocore
     #   graphene
     #   kubernetes
     #   matplotlib
@@ -318,6 +329,8 @@ requests==2.34.2
     #   requests-oauthlib
 requests-oauthlib==2.0.0
     # via kubernetes
+s3transfer==0.10.4
+    # via boto3
 scikit-learn==1.9.0
     # via
     #   mlflow
@@ -391,6 +404,7 @@ tzdata==2026.3
     # via pandas
 urllib3==2.7.0
     # via
+    #   botocore
     #   databricks-sdk
     #   docker
     #   kubernetes

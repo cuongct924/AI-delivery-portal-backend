@@ -36,8 +36,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker run --rm -v "${{ github.workspace }}:/repo" -w /repo
           bridgecrew/checkov:3.3.9 --directory . --framework dockerfile,argo_workflows,github_actions
-          --skip-path node_modules --skip-path .venv --skip-path packages --skip-path plugins
-          --compact --quiet
+          --skip-path .venv --compact --quiet
 
   # ---------------------------------------------------------------------
   # Python — ruff (lint + format), pyright (types), pytest (tests + coverage)
@@ -86,32 +85,13 @@ jobs:
             report.xml
             coverage.xml
 
-  # ---------------------------------------------------------------------
-  # TypeScript — Portal (packages/app-backstage, packages/backend, plugins/*)
-  # ---------------------------------------------------------------------
-  frontend-checks:
-    needs: [security-gitleaks, security-checkov]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    container:
-      image: node:22-bookworm
-    steps:
-      - uses: actions/checkout@v4
-      - run: apt-get update -qq && apt-get install -y --no-install-recommends libsqlite3-dev
-      - uses: actions/cache@v4
-        with:
-          path: .yarn/cache
-          key: yarn-${{ hashFiles('yarn.lock') }}
-      - run: corepack enable
-      - run: yarn install --immutable
-      - run: yarn tsc
-      - run: yarn lint:all
-
   # Docker — build all 4 service images, then Trivy-scan each.
   # --ignore-unfixed: skip upstream CVEs with no available patch yet.
-  # NOTE: packages/backend (Backstage) isn't built/scanned here yet.
+  # NOTE: the Portal frontend now lives in a separate repo
+  # (cuongct924/backstage-plugins, forked from openchoreo/backstage-plugins)
+  # and is built/checked there, not here.
   docker-build-and-scan:
-    needs: [python-checks, frontend-checks]
+    needs: [python-checks]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
