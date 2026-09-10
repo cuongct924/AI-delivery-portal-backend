@@ -1,1 +1,0 @@
-export { rootRouteRef } from './routes';
