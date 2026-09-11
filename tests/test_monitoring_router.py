@@ -17,7 +17,7 @@ def test_setup_monitoring_creates_a_deterministically_named_cron_workflow() -> N
     request = SetupMonitoringRequest(
         model_name="fraud-detection",
         model_version="3",
-        reference_data_uri="file:///mnt/data/fraud-detection-sample.csv",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         production_data_uri="file:///mnt/monitoring/fraud-detection-recent.csv",
         schedule="0 * * * *",
     )
@@ -31,7 +31,7 @@ def test_setup_monitoring_creates_a_deterministically_named_cron_workflow() -> N
         {
             "model-name": "fraud-detection",
             "model-version": "3",
-            "reference-data-uri": "file:///mnt/data/fraud-detection-sample.csv",
+            "reference-data-uri": "file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
             "production-data-uri": "file:///mnt/monitoring/fraud-detection-recent.csv",
             "drift-threshold": "0.5",
             "on-drift-detected": "alert-only",
@@ -44,7 +44,7 @@ def test_setup_monitoring_forwards_retrain_request_json_for_auto_retrain() -> No
     request = SetupMonitoringRequest(
         model_name="fraud-detection",
         model_version="3",
-        reference_data_uri="file:///mnt/data/fraud-detection-sample.csv",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         production_data_uri="file:///mnt/monitoring/fraud-detection-recent.csv",
         schedule="0 0 * * *",
         on_drift_detected="auto-retrain",
@@ -61,7 +61,7 @@ def test_setup_monitoring_requires_retrain_request_json_for_auto_retrain() -> No
     request = SetupMonitoringRequest(
         model_name="fraud-detection",
         model_version="3",
-        reference_data_uri="file:///mnt/data/fraud-detection-sample.csv",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         production_data_uri="file:///mnt/monitoring/fraud-detection-recent.csv",
         schedule="0 0 * * *",
         on_drift_detected="auto-retrain",

@@ -22,7 +22,7 @@ from routers.recommendations import (  # noqa: E402
 def test_trigger_rec_training_forwards_required_fields() -> None:
     request = TriggerRecTrainingRequest(
         model_name="product-recommender",
-        interactions_uri="file:///mnt/data/interactions-sample.csv",
+        interactions_uri="file:///mnt/data/recsys/interactions-sample.csv",
         user_id_column="user_id",
         item_id_column="item_id",
         timestamp_column="timestamp",
@@ -36,7 +36,7 @@ def test_trigger_rec_training_forwards_required_fields() -> None:
         "rec-train-register-golden-path",
         {
             "model-name": "product-recommender",
-            "interactions-uri": "file:///mnt/data/interactions-sample.csv",
+            "interactions-uri": "file:///mnt/data/recsys/interactions-sample.csv",
             "user-id-column": "user_id",
             "item-id-column": "item_id",
             "timestamp-column": "timestamp",
@@ -50,14 +50,14 @@ def test_trigger_rec_training_forwards_required_fields() -> None:
 def test_trigger_rec_training_forwards_optional_fields_when_set() -> None:
     request = TriggerRecTrainingRequest(
         model_name="content-recommender",
-        interactions_uri="file:///mnt/data/interactions-sample.csv",
+        interactions_uri="file:///mnt/data/recsys/interactions-sample.csv",
         user_id_column="user_id",
         item_id_column="item_id",
         timestamp_column="timestamp",
         algorithm="tfidf_cosine",
         k=5,
         hyperparameters_json="{}",
-        item_features_uri="file:///mnt/data/item-features-sample.csv",
+        item_features_uri="file:///mnt/data/recsys/item-features-sample.csv",
         item_id_column_features="item_id",
         item_text_column="description",
     )
@@ -66,7 +66,7 @@ def test_trigger_rec_training_forwards_optional_fields_when_set() -> None:
         trigger_rec_training(request)
 
     call_args = mock_argo.trigger_workflow.call_args.args
-    assert call_args[1]["item-features-uri"] == "file:///mnt/data/item-features-sample.csv"
+    assert call_args[1]["item-features-uri"] == "file:///mnt/data/recsys/item-features-sample.csv"
     assert call_args[1]["item-id-column-features"] == "item_id"
     assert call_args[1]["item-text-column"] == "description"
     assert call_args[1]["k"] == "5"

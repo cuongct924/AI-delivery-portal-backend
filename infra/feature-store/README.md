@@ -27,7 +27,7 @@ hardcodes that column name in its `entity_df`/`entity_rows`, so any new
 feature view must key on it the same way) and one feature view,
 `transaction_features` (`amount`, `merchant_category`, `hour_of_day`),
 sourced from `data/transaction_features.parquet` — the same rows as
-`data/fraud-detection-sample.csv` (Golden Path #1's fraud-detection sample),
+`data/traditional-ml/fraud-detection-sample.csv` (Golden Path #1's fraud-detection sample),
 with `transaction_id` renamed to `entity_id` and a synthetic
 `event_timestamp` added (Feast requires one for point-in-time joins) since
 the training sample doesn't carry one.
