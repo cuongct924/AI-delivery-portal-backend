@@ -7,6 +7,19 @@ services:
     command: mlflow server --host 0.0.0.0 --port 5000
     ports:
       - "5000:5000"
+    environment:
+      # MLflow 3.x's DNS-rebinding protection (mlflow/server/security_utils.py)
+      # rejects any request whose Host header isn't localhost/127.0.0.1 by
+      # default — 403s every call from a container reaching this service via
+      # host.docker.internal (e.g. an OpenChoreo Component/Workload on the
+      # k3d cluster) with "Invalid Host header". Add that hostname here
+      # rather than in code — this is server-side config, not a client bug.
+      # Exact-string match unless the entry itself contains "*"
+      # (mlflow/server/security_utils.py's is_allowed_host_header) — the
+      # incoming Host header includes the port (host.docker.internal:5000),
+      # so the bare hostname alone never matches; needs the :* form too,
+      # same as how get_default_allowed_hosts() lists localhost.
+      MLFLOW_SERVER_ALLOWED_HOSTS: localhost,127.0.0.1,host.docker.internal,host.docker.internal:*
     profiles: ["mlops"]
 
   keycloak:
