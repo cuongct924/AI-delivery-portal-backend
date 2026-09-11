@@ -1,0 +1,19 @@
+# Placeholder — not yet wired to the real model/orchestration-api/KServe.
+# Replaces infra/environments/*/inference-services/<tenant>/<model>.yaml's
+# role once real: a ComponentType wrapping KServe (or proxying
+# orchestration-api's /deploy-model/* endpoints) still needs to exist first
+# — see infra/openchoreo/README.md's "What's NOT done yet".
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: fraud-detection-serving
+  namespace: default
+  labels:
+    openchoreo.dev/project: fraud-detection
+spec:
+  owner:
+    projectName: fraud-detection
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/service
+  autoDeploy: true

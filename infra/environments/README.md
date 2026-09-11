@@ -1,5 +1,14 @@
 # environments
 
+> **Superseded by OpenChoreo (Phase 2, sub-step 2.2)** — the ArgoCD/Kargo/
+> Kubara pieces this doc describes below (`infra/argocd/`, `infra/kargo/`,
+> `infra/kubara/`) were deleted; `Environment`/`DeploymentPipeline` in
+> `infra/openchoreo/` replace their role (see that directory's own
+> README). This directory itself still holds the real PR-gated
+> `inference-services/`/`orchestration-api`/`portal` overlay values Golden
+> Path #2 writes to — not yet migrated to `infra/openchoreo/` — so the rest
+> of this doc is kept as historical context for that part only.
+
 Per-environment GitOps targets — replaces the old flat
 `infra/inference-services/` (single, env-less directory).
 

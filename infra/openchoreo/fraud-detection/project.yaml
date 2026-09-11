@@ -1,0 +1,17 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Project
+metadata:
+  name: fraud-detection
+  namespace: default
+  labels:
+    openchoreo.dev/name: fraud-detection
+  annotations:
+    openchoreo.dev/display-name: Fraud Detection
+    openchoreo.dev/description: Fraud Detection — MLOps demo (train → serve) on OpenChoreo
+spec:
+  type:
+    kind: ClusterProjectType
+    name: default
+  deploymentPipelineRef:
+    kind: DeploymentPipeline
+    name: default

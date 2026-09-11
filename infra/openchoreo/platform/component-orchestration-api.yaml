@@ -1,0 +1,36 @@
+# Phase 2, sub-step 2.1 — orchestration-api as a real OpenChoreo Component
+# (ClusterComponentType "service"), deployed ALONGSIDE the existing local
+# dev process (services/orchestration-api run via `uvicorn` directly) and
+# docker-compose's own `orchestration-api` service — nothing in either of
+# those is touched or removed by this file.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: orchestration-api
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/service
+  autoDeploy: true
+  # ClusterComponentType "service"'s own default (100m CPU / 256Mi memory,
+  # confirmed via `kubectl get pod ... -o jsonpath='{.spec.containers[0].resources}'`)
+  # left the pod stuck for minutes at startup — State "R (running)" per
+  # /proc/1/status, zero log output, zero listening sockets — CPU-starved
+  # importing mlflow+pandas+scipy+feast+kubernetes-client synchronously at
+  # module scope (main.py's own router imports), not a hang or crash.
+  # fraud-detection-training.yaml sets the same style override for its own
+  # (much lighter) workload; this is a real FastAPI service, not a cronjob,
+  # so it needs headroom fraud-detection-training never did.
+  parameters:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi

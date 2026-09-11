@@ -1,0 +1,43 @@
+# Real image (services/orchestration-api/Dockerfile), not a placeholder —
+# unlike fraud-detection-serving/-training, this Component IS the real
+# service, not a thin caller of it. MLflow/Qdrant/LiteLLM stay on the host
+# via docker-compose (infra/vector-dbs, infra/llm-gateways — out of
+# OpenChoreo's scope per the migration plan's mapping table), reached from
+# inside the k3d cluster the same way workload-training.yaml already
+# reaches orchestration-api: host.docker.internal.
+#
+# AUTH_ENABLED=false matches the current local .env (Thunder/Keycloak
+# migration is sub-step 2.3, not this one). ANTHROPIC_API_KEY is
+# deliberately omitted — services/orchestration-api/core/config.py never
+# reads it eagerly at import time (grepped to confirm), so the container
+# boots and every Golden Path route works; only chat/portal_assistant
+# would need it added as a real Secret before that feature works here too.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: orchestration-api-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: orchestration-api
+spec:
+  owner:
+    projectName: platform
+    componentName: orchestration-api
+  container:
+    image: orchestration-api:openchoreo-local
+    env:
+      - key: AUTH_ENABLED
+        value: "false"
+      - key: MLFLOW_TRACKING_URI
+        value: http://host.docker.internal:5000
+      - key: LITELLM_GATEWAY_URL
+        value: http://host.docker.internal:4000
+      - key: QDRANT_URL
+        value: http://host.docker.internal:6333
+  endpoints:
+    http:
+      type: HTTP
+      port: 8000
+      visibility:
+        - external

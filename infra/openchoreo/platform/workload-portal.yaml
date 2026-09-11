@@ -1,0 +1,89 @@
+# packages/backend/Dockerfile's final image installs
+# app-config.production.yaml (Choreo upstream's own production config, NOT
+# this fork's dev app-config.yaml/.env) — its env-var surface is entirely
+# different: OPENCHOREO_API_URL/THUNDER_BASE_URL/OPENCHOREO_AUTH_* instead
+# of ORCHESTRATION_API_URL/GITHUB_TOKEN. It also has no MLOps template
+# catalog.locations entries at all (only the generic create-openchoreo-*
+# ones) — this Workload proves the Component/Deployment/Service/HTTPRoute
+# plumbing boots and serves, matching orchestration-api's own first-pass
+# bar; wiring this fork's MLOps templates + orchestrationApi.baseUrl into a
+# custom config layered on top of app-config.production.yaml is separate,
+# follow-on work, not done here.
+#
+# Values below are copied from the ALREADY-RUNNING `backstage` Deployment
+# in openchoreo-control-plane (the stock quick-start install's own
+# instance, using this exact image + config) — proven working in this
+# same cluster — simplified to guest mode (no real Thunder OAuth round-
+# trip needed) and pointed at the real in-cluster openchoreo-api, not a
+# mock.
+#
+# BACKEND_SECRET references a Secret created out of band, same reason
+# .env itself is gitignored:
+#   kubectl --context openchoreo-quick-start create secret generic portal-secrets \
+#     -n dp-default-platform-development-8260e221 \
+#     --from-literal=backend-secret="$(openssl rand -base64 32)"
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: portal-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: portal
+spec:
+  owner:
+    projectName: platform
+    componentName: portal
+  container:
+    image: portal:openchoreo-local
+    env:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      - key: PORT
+        value: "7007"
+      - key: DATABASE_CLIENT
+        value: better-sqlite3
+      - key: SQLITE_STORAGE_DIR
+        value: /app/.config/backstage
+      # Path-prefix routed via HTTPRoute (same "/<component>-<endpoint>"
+      # pattern as orchestration-api's own) — Backstage's baseUrl/cors
+      # normally assume a root-mounted origin, so redirect-flow auth in
+      # particular may need revisiting once this is more than a boot
+      # smoke test.
+      - key: BACKSTAGE_BASE_URL
+        value: http://development-default.openchoreoapis.localhost:19080/portal-http
+      - key: OPENCHOREO_API_URL
+        value: http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080/api/v1
+      - key: OPENCHOREO_FEATURES_AUTH_ENABLED
+        value: "false"
+      - key: BACKSTAGE_DANGEROUSLY_DISABLE_DEFAULT_AUTH_POLICY
+        value: "true"
+      - key: BACKSTAGE_GUEST_DANGEROUSLY_ALLOW_OUTSIDE_DEVELOPMENT
+        value: "true"
+      - key: OPENCHOREO_FEATURES_WORKFLOWS_ENABLED
+        value: "true"
+      - key: OPENCHOREO_FEATURES_OBSERVABILITY_ENABLED
+        value: "true"
+      - key: OPENCHOREO_FEATURES_AUTHZ_ENABLED
+        value: "false"
+      - key: OPENCHOREO_FEATURES_ASSISTANT_ENABLED
+        value: "false"
+      - key: OPENCHOREO_FEATURES_SECRET_MANAGEMENT_ENABLED
+        value: "false"
+      - key: OPENCHOREO_EVENTS_ENABLED
+        value: "false"
+      - key: OPENCHOREO_CATALOG_SYNC_FREQUENCY
+        value: "300"
+      - key: BACKEND_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: portal-secrets
+            key: backend-secret
+  endpoints:
+    http:
+      type: HTTP
+      port: 7007
+      visibility:
+        - external

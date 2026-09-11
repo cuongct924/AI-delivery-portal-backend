@@ -1,0 +1,52 @@
+# Replaces infra/argocd/appproject-{dev,staging,prod}-*.yaml's per-environment
+# boundary — one ClusterDataPlane (the local k3d cluster itself; see
+# `kubectl get clusterdataplanes`) backs all 3, same single-cluster setup
+# infra/k8s-local-cluster/ used for kind.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: development
+  namespace: default
+  labels:
+    openchoreo.dev/name: development
+  annotations:
+    openchoreo.dev/display-name: Development
+    openchoreo.dev/description: Development
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: default
+  gateway: {}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: staging
+  namespace: default
+  labels:
+    openchoreo.dev/name: staging
+  annotations:
+    openchoreo.dev/display-name: Staging
+    openchoreo.dev/description: Staging
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: default
+  gateway: {}
+---
+apiVersion: openchoreo.dev/v1alpha1
+kind: Environment
+metadata:
+  name: production
+  namespace: default
+  labels:
+    openchoreo.dev/name: production
+  annotations:
+    openchoreo.dev/display-name: Production
+    openchoreo.dev/description: Production
+spec:
+  dataPlaneRef:
+    kind: ClusterDataPlane
+    name: default
+  gateway: {}
+  isProduction: true

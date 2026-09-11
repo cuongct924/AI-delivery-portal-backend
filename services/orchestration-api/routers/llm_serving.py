@@ -92,8 +92,8 @@ def prepare_llm_deploy_manifest(
         canary_traffic_percent=traffic_fields.get("canaryTrafficPercent"),
     )
     # Always dev — this Golden Path is llmops-team's, and orchestration-api
-    # never writes anywhere but dev (staging/prod are Kargo-only, see
-    # infra/kargo/README.md).
+    # never writes anywhere but dev (staging/prod promotion is
+    # DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml).
     file_name = (
         f"infra/environments/dev/inference-services/llmops-team/{request.model_name}/llm.yaml"
     )

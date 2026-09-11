@@ -1,0 +1,29 @@
+# Phase 2, sub-step 2.1 — portal (the Backstage frontend, repo
+# cuongct924/backstage-plugins) as a ClusterComponentType "web-application".
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: portal
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/web-application
+  autoDeploy: true
+  # Same CPU-starvation lesson as orchestration-api's own component YAML —
+  # the ClusterComponentType default (100m CPU) isn't enough for a Node.js/
+  # Backstage backend's own heavy synchronous startup (loading every
+  # plugin/catalog provider). Backstage backends also run notably heavier
+  # than a FastAPI process at idle, hence the larger memory floor too.
+  parameters:
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi

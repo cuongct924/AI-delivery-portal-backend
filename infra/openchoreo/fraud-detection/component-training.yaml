@@ -1,0 +1,38 @@
+# Replaces infra/argo-workflows/train-register-template.yaml's role as the
+# *scheduling* layer for Golden Path #1 — the actual training/register logic
+# is untouched, still owned by adapters/ + services/orchestration-api (see
+# workload-training.yaml and infra/openchoreo/README.md).
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: fraud-detection-training
+  namespace: default
+  labels:
+    openchoreo.dev/project: fraud-detection
+spec:
+  owner:
+    projectName: fraud-detection
+  componentType:
+    kind: ClusterComponentType
+    name: cronjob/scheduled-task
+  autoDeploy: true
+  # ClusterComponentType "scheduled-task" defaults `environmentConfigs.schedule`
+  # to "1 * * * *" — the live cluster's CronJob instead runs "*/3 * * * *",
+  # applied through some per-environment override this snapshot doesn't
+  # capture (`Component.spec` itself rejects `environmentConfigs` — schema
+  # validated via `kubectl apply --dry-run=server`). Applying this file as-is
+  # would fall back to the ComponentType's 1-minute default.
+  parameters:
+    restartPolicy: OnFailure
+    concurrencyPolicy: Forbid
+    activeDeadlineSeconds: 60
+    backoffLimit: 1
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

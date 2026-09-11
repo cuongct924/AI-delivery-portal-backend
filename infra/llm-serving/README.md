@@ -3,10 +3,12 @@
 Self-hosted LLM serving (vLLM on KServe) powering the "Serving LLM" Golden
 Path (`examples/templates/deploy-llm/template.yaml`). **Does not work
 locally** — the `kind` cluster used by every other Golden Path in this repo
-(`infra/k8s-local-cluster/kind-config.yaml`,
-`scripts/setup-kserve-argocd-local.sh`) has no GPU node, no NVIDIA device
-plugin, and no `huggingface`/vLLM `ServingRuntime` — only the `mlflow`
-runtime KServe ships by default.
+(`infra/k8s-local-cluster/kind-config.yaml`) has no GPU node, no NVIDIA
+device plugin, and no `huggingface`/vLLM `ServingRuntime` — only the
+`mlflow` runtime KServe ships by default. KServe itself also isn't
+installed anywhere yet (see `infra/openchoreo/README.md` — no
+ClusterComponentType wraps it), a separate prerequisite from the GPU gap
+below.
 
 `adapters/kserve_adapter.py`'s `deploy_llm_model()` and
 `services/orchestration-api/routers/llm_serving.py`'s
@@ -40,8 +42,8 @@ here is the cluster-side prerequisite below.
          image: kserve/huggingfaceserver:latest # pin a real tag before use
    ```
    Not applied by any script in this repo — apply it by hand on a real
-   GPU cluster, or add it to `scripts/setup-kserve-argocd-local.sh` if this
-   repo ever gets a GPU-backed cluster to set up against.
+   GPU cluster once KServe itself is wrapped in an OpenChoreo
+   `ClusterComponentType` (Phase 2, sub-step 2.3).
 
 ## Why quantization/GPU compatibility is enforced in code, not just this doc
 

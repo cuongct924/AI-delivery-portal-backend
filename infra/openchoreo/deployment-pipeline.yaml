@@ -1,0 +1,26 @@
+# Replaces infra/kargo/*'s Warehouse/Stage/PromotionTask promotion role —
+# dev -> staging -> prod, same shape as Kargo's promotion chain.
+apiVersion: openchoreo.dev/v1alpha1
+kind: DeploymentPipeline
+metadata:
+  name: default
+  namespace: default
+  labels:
+    openchoreo.dev/name: default
+  annotations:
+    openchoreo.dev/display-name: Default Pipeline
+    openchoreo.dev/description: Standard deployment pipeline with dev, staging, and prod environments
+spec:
+  promotionPaths:
+    - sourceEnvironmentRef:
+        kind: Environment
+        name: development
+      targetEnvironmentRefs:
+        - kind: Environment
+          name: staging
+    - sourceEnvironmentRef:
+        kind: Environment
+        name: staging
+      targetEnvironmentRefs:
+        - kind: Environment
+          name: production

@@ -1,0 +1,26 @@
+# Same job the manual `curl` smoke test in this session already exercised:
+# POST /trigger-training on the real orchestration-api (reachable from
+# inside the k3d cluster via host.docker.internal), which delegates to
+# scripts/local-demo/fake_argo.py (Golden Path #1's stand-in for a `kind`
+# cluster + Argo Workflows) exactly like any other Golden Path #1 caller —
+# nothing MLOps-specific lives in this Component.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: fraud-detection-training-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: fraud-detection
+    openchoreo.dev/component: fraud-detection-training
+spec:
+  owner:
+    projectName: fraud-detection
+    componentName: fraud-detection-training
+  container:
+    image: curlimages/curl:8.11.1
+    command: ["sh", "-c"]
+    args:
+      - >-
+        curl -sS -f -X POST http://host.docker.internal:8000/trigger-training
+        -H 'Content-Type: application/json'
+        -d '{"model_name":"fraud-detection","dataset_uri":"file:///Users/cuongct090_04/Code/AI-delivery-portal/data/traditional-ml/fraud-detection-sample.csv","task_type":"classification","algorithm":"RandomForestClassifier","target_column":"is_fraud","id_columns":["transaction_id"]}'
