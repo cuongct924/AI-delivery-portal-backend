@@ -46,7 +46,7 @@ from routers.models import (  # noqa: E402
 def test_trigger_training_sets_mode_finetune_when_base_model_uri_given() -> None:
     request = TriggerTrainingRequest(
         model_name="fraud-detection",
-        dataset_uri="file:///mnt/data/fraud-detection-sample.csv",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         task_type="classification",
         algorithm="LogisticRegression",
         base_model_uri="models:/fraud-detection/1",
@@ -59,7 +59,7 @@ def test_trigger_training_sets_mode_finetune_when_base_model_uri_given() -> None
         "train-register-golden-path",
         {
             "model-name": "fraud-detection",
-            "dataset-uri": "file:///mnt/data/fraud-detection-sample.csv",
+            "dataset-uri": "file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
             "task-type": "classification",
             "architecture": "sklearn",
             "algorithm": "LogisticRegression",
@@ -73,7 +73,7 @@ def test_trigger_training_sets_mode_finetune_when_base_model_uri_given() -> None
 def test_trigger_training_sets_mode_train_without_base_model_uri() -> None:
     request = TriggerTrainingRequest(
         model_name="fraud-detection",
-        dataset_uri="file:///mnt/data/fraud-detection-sample.csv",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         task_type="classification",
         algorithm="LogisticRegression",
         target_column="is_fraud",
@@ -87,7 +87,7 @@ def test_trigger_training_sets_mode_train_without_base_model_uri() -> None:
         "train-register-golden-path",
         {
             "model-name": "fraud-detection",
-            "dataset-uri": "file:///mnt/data/fraud-detection-sample.csv",
+            "dataset-uri": "file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
             "task-type": "classification",
             "architecture": "sklearn",
             "algorithm": "LogisticRegression",
@@ -99,10 +99,32 @@ def test_trigger_training_sets_mode_train_without_base_model_uri() -> None:
     assert response.workflow_name == "wf-456"
 
 
+def test_trigger_training_strips_trailing_whitespace_from_dataset_uri() -> None:
+    # Same class of bug as test_validate_dataset_tolerates_trailing_whitespace_
+    # in_uri — an untrimmed dataset_uri would otherwise reach train.py's own
+    # Path(...removeprefix("file://")) (no .strip() there either) via the
+    # dataset-uri workflow parameter, so it must already be clean by the
+    # time trigger_workflow() is called.
+    request = TriggerTrainingRequest(
+        model_name="fraud-detection",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv ",
+        task_type="classification",
+    )
+    with patch("routers.models.argo_adapter") as mock_argo:
+        mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-456"}}
+        trigger_training(request)
+
+    called_parameters = mock_argo.trigger_workflow.call_args.args[1]
+    assert (
+        called_parameters["dataset-uri"]
+        == "file:///mnt/data/traditional-ml/fraud-detection-sample.csv"
+    )
+
+
 def test_trigger_training_forwards_dl_hyperparameters_for_non_sklearn_architecture() -> None:
     request = TriggerTrainingRequest(
         model_name="sensor-forecast",
-        dataset_uri="file:///mnt/data/sensor-timeseries-sample.csv",
+        dataset_uri="file:///mnt/data/deep-learning/sensor-timeseries-sample.csv",
         task_type="regression",
         architecture="lstm",
         target_column="target",
@@ -122,7 +144,7 @@ def test_trigger_training_forwards_dl_hyperparameters_for_non_sklearn_architectu
         "train-register-golden-path",
         {
             "model-name": "sensor-forecast",
-            "dataset-uri": "file:///mnt/data/sensor-timeseries-sample.csv",
+            "dataset-uri": "file:///mnt/data/deep-learning/sensor-timeseries-sample.csv",
             "task-type": "regression",
             "architecture": "lstm",
             "mode": "train",
@@ -142,7 +164,7 @@ def test_trigger_training_forwards_dl_hyperparameters_for_non_sklearn_architectu
 def test_trigger_training_forwards_optimizer_when_set() -> None:
     request = TriggerTrainingRequest(
         model_name="sensor-forecast",
-        dataset_uri="file:///mnt/data/sensor-timeseries-sample.csv",
+        dataset_uri="file:///mnt/data/deep-learning/sensor-timeseries-sample.csv",
         task_type="regression",
         architecture="mlp",
         target_column="target",
@@ -164,7 +186,7 @@ def test_trigger_training_forwards_optimizer_when_set() -> None:
 def test_trigger_training_forwards_byoc_fields_for_custom_algorithm() -> None:
     request = TriggerTrainingRequest(
         model_name="custom-model",
-        dataset_uri="file:///mnt/data/fraud-detection-sample.csv",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
         task_type="classification",
         algorithm="custom",
         target_column="is_fraud",
@@ -180,7 +202,7 @@ def test_trigger_training_forwards_byoc_fields_for_custom_algorithm() -> None:
         "train-register-golden-path",
         {
             "model-name": "custom-model",
-            "dataset-uri": "file:///mnt/data/fraud-detection-sample.csv",
+            "dataset-uri": "file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
             "task-type": "classification",
             "architecture": "sklearn",
             "algorithm": "custom",
@@ -197,7 +219,7 @@ def test_trigger_training_forwards_byoc_fields_for_custom_algorithm() -> None:
 def test_trigger_training_forwards_hpo_fields_for_non_fixed_search_strategy() -> None:
     request = TriggerTrainingRequest(
         model_name="sensor-forecast",
-        dataset_uri="file:///mnt/data/sensor-timeseries-sample.csv",
+        dataset_uri="file:///mnt/data/deep-learning/sensor-timeseries-sample.csv",
         task_type="regression",
         architecture="mlp",
         target_column="target",
@@ -383,6 +405,22 @@ def test_validate_dataset_returns_check_results(tmp_path) -> None:
     assert "check_missing_values" in names
     assert "check_duplicate_rows" in names
     assert all(r.severity in ("blocking", "warning", "info") for r in results)
+
+
+def test_validate_dataset_tolerates_trailing_whitespace_in_uri(tmp_path) -> None:
+    # Reproduces a real bug: a dataset_uri pasted with a trailing space (easy
+    # to pick up via copy-paste from a chat/doc) made Path(...) point one
+    # character past the real file, 500ing with FileNotFoundError instead of
+    # a normal validation result.
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame({"x": [1, 2, 3], "y": [0, 1, 0]}).to_csv(csv_path, index=False)
+    request = ValidateDatasetRequest(
+        dataset_uri=f"file://{csv_path} ", task_type="classification", target_column="y"
+    )
+
+    results = validate_dataset(request)
+
+    assert any(r.check_name == "check_missing_values" for r in results)
 
 
 def test_enrich_dataset_features_merges_feast_features_into_dataset(tmp_path) -> None:

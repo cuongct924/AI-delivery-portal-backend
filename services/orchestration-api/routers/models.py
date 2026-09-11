@@ -220,7 +220,7 @@ def trigger_training(
 ) -> TriggerTrainingResponse:
     parameters = {
         "model-name": request.model_name,
-        "dataset-uri": request.dataset_uri,
+        "dataset-uri": request.dataset_uri.strip(),
         "task-type": request.task_type,
         "architecture": request.architecture,
         "mode": "finetune" if request.base_model_uri is not None else "train",
@@ -326,7 +326,7 @@ def get_dataset_columns(
     images) legitimately fails here — the frontend falls back to a plain
     text/array input in that case.
     """
-    csv_path = Path(dataset_uri.removeprefix("file://"))
+    csv_path = Path(dataset_uri.strip().removeprefix("file://"))
     columns = pd.read_csv(csv_path, nrows=0).columns.tolist()
     return DatasetColumnsResponse(columns=columns)
 
@@ -335,7 +335,7 @@ def get_dataset_columns(
 def validate_dataset(
     request: ValidateDatasetRequest, user: dict = Depends(get_current_user)
 ) -> list[CheckResultResponse]:
-    csv_path = Path(request.dataset_uri.removeprefix("file://"))
+    csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
     df = pd.read_csv(csv_path)
     results = run_checks(df, request.task_type, request.target_column, request.time_column)
     return [CheckResultResponse.from_check_result(r) for r in results]
@@ -345,7 +345,7 @@ def validate_dataset(
 def enrich_dataset_features(
     request: EnrichDatasetFeaturesRequest, user: dict = Depends(get_current_user)
 ) -> EnrichDatasetFeaturesResponse:
-    csv_path = Path(request.dataset_uri.removeprefix("file://"))
+    csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
     df = pd.read_csv(csv_path)
     entity_ids = df[request.entity_id_column].astype(str).tolist()
 
@@ -474,8 +474,8 @@ def prepare_deploy_manifest(
         canary_traffic_percent=traffic_fields.get("canaryTrafficPercent"),
     )
     # Always dev — this Golden Path is mlops-team's, and orchestration-api
-    # never writes anywhere but dev (staging/prod are Kargo-only, see
-    # infra/kargo/README.md).
+    # never writes anywhere but dev (staging/prod promotion is
+    # DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml).
     file_name = (
         f"infra/environments/dev/inference-services/mlops-team/"
         f"{request.model_name}/{request.model_version}.yaml"
