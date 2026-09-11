@@ -1,7 +1,12 @@
-"""Keycloak client_credentials token fetch/cache — gives this server its own
+"""Thunder client_credentials token fetch/cache — gives this server its own
 verifiable service-account identity instead of a self-reported header.
 
-Client `golden-paths-agent` is provisioned via infra/keycloak/realm-export.json.
+Replaces keycloak_client.py (Phase 2, sub-step 2.3). Client
+`golden-paths-agent` was provisioned in Keycloak via
+infra/keycloak/realm-export.json (deleted with this migration) — the
+Thunder equivalent needs registering by hand via Thunder's own admin
+console or its /oauth2/dcr/register endpoint (requires an authenticated
+admin caller; not yet automated — see infra/openchoreo/2.3-notes.md).
 """
 
 import os
@@ -10,11 +15,10 @@ from typing import Final
 
 import httpx
 
-KEYCLOAK_URL: Final[str] = os.getenv("KEYCLOAK_URL", "http://localhost:8082")
-KEYCLOAK_REALM: Final[str] = os.getenv("KEYCLOAK_REALM", "ai-delivery-portal")
-KEYCLOAK_CLIENT_ID: Final[str] = os.getenv("KEYCLOAK_CLIENT_ID", "golden-paths-agent")
-KEYCLOAK_CLIENT_SECRET: Final[str] = os.getenv(
-    "KEYCLOAK_CLIENT_SECRET", "golden-paths-agent-dev-secret"
+THUNDER_URL: Final[str] = os.getenv("THUNDER_URL", "http://thunder.openchoreo.localhost:8080")
+THUNDER_CLIENT_ID: Final[str] = os.getenv("THUNDER_CLIENT_ID", "golden-paths-agent")
+THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
+    "THUNDER_CLIENT_SECRET", "golden-paths-agent-dev-secret"
 )
 
 _cached_token: str | None = None
@@ -29,11 +33,11 @@ def get_access_token() -> str:
         return _cached_token
 
     response = httpx.post(
-        f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/token",
+        f"{THUNDER_URL}/oauth2/token",
         data={
             "grant_type": "client_credentials",
-            "client_id": KEYCLOAK_CLIENT_ID,
-            "client_secret": KEYCLOAK_CLIENT_SECRET,
+            "client_id": THUNDER_CLIENT_ID,
+            "client_secret": THUNDER_CLIENT_SECRET,
         },
         timeout=10,
     )

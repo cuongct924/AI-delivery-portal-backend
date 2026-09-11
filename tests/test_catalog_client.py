@@ -1,5 +1,5 @@
 """services/orchestration-api/catalog_client.py — patches `httpx.get` and
-`settings` directly, same pattern as tests/test_auth_keycloak.py."""
+`settings` directly, same pattern as tests/test_auth_thunder.py."""
 
 from unittest.mock import MagicMock, patch
 

@@ -15,27 +15,15 @@ services:
       # k3d cluster) with "Invalid Host header". Add that hostname here
       # rather than in code — this is server-side config, not a client bug.
       # Exact-string match unless the entry itself contains "*"
-      # (mlflow/server/security_utils.py's is_allowed_host_header) — the
-      # incoming Host header includes the port (host.docker.internal:5000),
-      # so the bare hostname alone never matches; needs the :* form too,
-      # same as how get_default_allowed_hosts() lists localhost.
-      MLFLOW_SERVER_ALLOWED_HOSTS: localhost,127.0.0.1,host.docker.internal,host.docker.internal:*
-    profiles: ["mlops"]
-
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.7.2
-    container_name: ai-delivery-portal-keycloak
-    # --import-realm loads infra/keycloak/realm-export.json (skipped if the
-    # realm already exists). Rest of the realm is still set up manually.
-    command: start-dev --import-realm
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-    volumes:
-      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
-    ports:
-      # Host 8082 — 8080 is held by the kind cluster (kind-config.yaml extraPortMappings).
-      - "8082:8080"
+      # (mlflow/server/security_utils.py's is_allowed_host_header) — every
+      # entry needs a bare form AND a ":*" form, since a Host header always
+      # includes the port (localhost:5000, host.docker.internal:5000).
+      # Setting this env var at all REPLACES get_default_allowed_hosts()'s
+      # own localhost/127.0.0.1/private-IP defaults, not adds to them — the
+      # first cut of this fix only added host.docker.internal's forms and
+      # broke tests/test_prompts_router.py (a host pytest process, calling
+      # via plain http://localhost:5000) as a result.
+      MLFLOW_SERVER_ALLOWED_HOSTS: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,host.docker.internal,host.docker.internal:*"
     profiles: ["mlops"]
 
   prometheus:
@@ -109,13 +97,19 @@ services:
       - .env
     environment:
       AUTH_ENABLED: "true"
-      KEYCLOAK_URL: http://keycloak:8080
+      THUNDER_URL: http://thunder.openchoreo.localhost:8080
       MLFLOW_TRACKING_URI: http://mlflow:5000
       LITELLM_GATEWAY_URL: http://litellm:4000
       QDRANT_URL: http://qdrant:6333
+    # thunder.openchoreo.localhost is OpenChoreo's k3d gateway hostname —
+    # resolves to loopback automatically on the host (RFC 6761 .localhost),
+    # but inside this container needs an explicit route to the real host
+    # machine (Docker's host-gateway alias) since that auto-resolution
+    # isn't guaranteed in every container's resolver config.
+    extra_hosts:
+      - "thunder.openchoreo.localhost:host-gateway"
     depends_on:
       - mlflow
-      - keycloak
     profiles: ["mlops"]
 
   observability-server:
@@ -145,9 +139,10 @@ services:
       - "9002:9002"
     environment:
       ORCHESTRATION_API_URL: http://orchestration-api:8000
-      KEYCLOAK_URL: http://keycloak:8080
-      KEYCLOAK_REALM: ai-delivery-portal
-      KEYCLOAK_CLIENT_ID: golden-paths-agent
-      KEYCLOAK_CLIENT_SECRET: golden-paths-agent-dev-secret
-    # orchestration-api/keycloak are different profiles — start them first.
+      THUNDER_URL: http://thunder.openchoreo.localhost:8080
+      THUNDER_CLIENT_ID: golden-paths-agent
+      THUNDER_CLIENT_SECRET: golden-paths-agent-dev-secret
+    extra_hosts:
+      - "thunder.openchoreo.localhost:host-gateway"
+    # orchestration-api is a different profile — start it first.
     profiles: ["llmops"]

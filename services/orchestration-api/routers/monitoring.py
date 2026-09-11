@@ -6,7 +6,7 @@ workflow — it registers a periodic Argo CronWorkflow via
 
 from typing import Final
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 

@@ -7,9 +7,9 @@ import os
 from typing import Final, TypedDict
 
 import httpx
-from keycloak_client import auth_headers
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
+from thunder_client import auth_headers
 
 mcp = MCPServer("golden-paths-server")
 ORCHESTRATION_API_URL: Final[str] = os.getenv("ORCHESTRATION_API_URL", "http://localhost:8000")

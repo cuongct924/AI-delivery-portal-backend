@@ -27,7 +27,7 @@ AI-delivery-portal/
 ├── data/                 ← datasets versioned with DVC (S3-compatible remote, see data/README.md)
 ├── scripts/              ← run-mcp-local.sh
 ├── docs/                 ← playbook, LLMOps draft plan
-├── docker-compose.yml    ← full local stack (mlflow, keycloak, prometheus, grafana, qdrant, minio, litellm, orchestration-api, MCP servers)
+├── docker-compose.yml    ← full local stack (mlflow, prometheus, grafana, qdrant, minio, litellm, orchestration-api, MCP servers)
 └── README.md
 ```
 
@@ -41,7 +41,7 @@ See [`docs/playbook-ai-delivery-portal.md`](docs/playbook-ai-delivery-portal.md)
 
 ```bash
 cp .env.example .env            # fill in ANTHROPIC_API_KEY before running orchestration-api/litellm
-docker compose --profile mlops up -d       # MLOps only: mlflow, keycloak, minio, orchestration-api
+docker compose --profile mlops up -d       # MLOps only: mlflow, minio, orchestration-api
 docker compose --profile llmops up -d      # LLMOps only: qdrant, litellm
 docker compose --profile observability up -d   # optional: prometheus, grafana
 docker compose --profile mlops --profile llmops --profile observability up -d   # everything

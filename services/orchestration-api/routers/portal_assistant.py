@@ -21,7 +21,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any, Final, cast
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict

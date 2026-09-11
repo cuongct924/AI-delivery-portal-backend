@@ -8,9 +8,14 @@ class Settings(BaseSettings):
     mlflow_tracking_uri: str = "http://localhost:5000"
 
     auth_enabled: bool = False
-    keycloak_url: str = "http://localhost:8080"
-    keycloak_realm: str = "ai-delivery-portal"
-    keycloak_client_id: str = "orchestration-api"
+    # Points at the bundled Thunder IdP on the OpenChoreo control plane —
+    # e.g. http://thunder.openchoreo.localhost:8080 for the local k3d
+    # quick-start. No realm concept (unlike the Keycloak setup this
+    # replaced): Thunder's endpoints are fixed paths under this base URL.
+    thunder_url: str = "http://thunder.openchoreo.localhost:8080"
+    # Expected `aud` claim on an incoming token — must match whatever the
+    # calling client (golden-paths-agent) was registered with in Thunder.
+    thunder_audience: str = "orchestration-api"
 
     litellm_gateway_url: str = "http://localhost:4000"
     litellm_master_key: str = ""

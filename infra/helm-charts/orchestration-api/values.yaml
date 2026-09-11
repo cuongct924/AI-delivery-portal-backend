@@ -12,7 +12,7 @@ service:
 # host.docker.internal — those still run via docker-compose, not in-cluster.
 env:
   AUTH_ENABLED: "true"
-  KEYCLOAK_URL: http://host.docker.internal:8082
+  THUNDER_URL: http://thunder.openchoreo.localhost:8080
   MLFLOW_TRACKING_URI: http://host.docker.internal:5000
   LITELLM_GATEWAY_URL: http://host.docker.internal:4000
   QDRANT_URL: http://host.docker.internal:6333

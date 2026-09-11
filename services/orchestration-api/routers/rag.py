@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Final
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from evaluations.gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends

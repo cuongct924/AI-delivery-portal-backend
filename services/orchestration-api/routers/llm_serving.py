@@ -7,7 +7,7 @@ Separate from models.py: no MLflow Model Registry URI, no Evaluate Gate
 from pathlib import Path
 from typing import Final
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends
 from jinja2 import Environment, FileSystemLoader
 from kubernetes.client.exceptions import ApiException

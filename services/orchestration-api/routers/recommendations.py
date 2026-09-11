@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Final, cast
 
 import pandas as pd
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from data_quality.checks import CheckResult
 from data_quality.registry import run_rec_checks
 from fastapi import APIRouter, Depends

@@ -9,7 +9,7 @@ proposed, never auto-executed.
 import json
 from typing import Final, cast
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 

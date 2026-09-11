@@ -124,7 +124,7 @@ Chốt đúng **2 golden path**, không có #3 — AI Notebook và provisioning 
 │ + plugins/prompt-registry                                             │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Orchestration API (FastAPI) — services/orchestration-api              │
-│ - auth/keycloak.py    - evaluations/gate.py + llm_judge               │
+│ - auth/thunder.py     - evaluations/gate.py + llm_judge               │
 │ - routers/chat.py, prompts.py                                         │
 ├───────────────┬───────────────┬───────────────┬───────────────┬───────┤
 │   Registry    │   Inference   │   Workflow    │   VectorDB    │ LLM GW│
@@ -132,7 +132,7 @@ Chốt đúng **2 golden path**, không có #3 — AI Notebook và provisioning 
 └───────────────┴───────────────┴───────────────┴───────────────┴───────┘
   Adapter Layer
 
-Cross-cutting: Prometheus/Grafana | Keycloak
+Cross-cutting: Prometheus/Grafana | Thunder (OpenChoreo's bundled IdP)
 agents/mcp-servers/: mlops, k8s, metrics (3 server)
 ```
 

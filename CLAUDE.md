@@ -23,7 +23,7 @@ make run-orchestration-api / run-observability-mcp / run-golden-paths-mcp
 
 Local infra:
 ```bash
-docker compose up -d   # mlflow, keycloak, prometheus, grafana, qdrant, minio, litellm, orchestration-api, 3 MCP servers
+docker compose up -d   # mlflow, prometheus, grafana, qdrant, minio, litellm, orchestration-api, 3 MCP servers
 bash scripts/run-mcp-local.sh observability|golden-paths   # run one MCP server without Docker
 ```
 

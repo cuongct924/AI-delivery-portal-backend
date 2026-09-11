@@ -11,7 +11,7 @@ seeded at import time so existing behavior survives a first restart
 unchanged; new personas register via POST /prompts.
 """
 
-from auth.keycloak import get_current_user
+from auth.thunder import get_current_user
 from evaluations.gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException

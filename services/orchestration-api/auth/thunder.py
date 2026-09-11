@@ -1,7 +1,15 @@
-"""OIDC authentication via Keycloak — every request goes through here.
-`auth_enabled=False` makes auth optional, not off: a token is verified for
-real if present, and only a request with no token at all falls back to a
-fake dev user. Set `AUTH_ENABLED=true` to require a valid token always.
+"""OIDC authentication via Thunder (OpenChoreo's bundled IdP) — every
+request goes through here. `auth_enabled=False` makes auth optional, not
+off: a token is verified for real if present, and only a request with no
+token at all falls back to a fake dev user. Set `AUTH_ENABLED=true` to
+require a valid token always.
+
+Replaces auth/keycloak.py (Phase 2, sub-step 2.3) — Thunder has no realm
+concept, so its JWKS/token endpoints are fixed paths under `thunder_url`
+instead of Keycloak's `/realms/<realm>/...` pattern (confirmed against
+Thunder's own /.well-known/openid-configuration on the local
+openchoreo-quick-start cluster: jwks_uri is `{base}/oauth2/jwks`, and
+`client_credentials` is a supported grant_type).
 """
 
 import logging
@@ -19,7 +27,7 @@ logger = logging.getLogger("orchestration_api.auth")
 
 @lru_cache
 def _jwks() -> dict:
-    url = f"{settings.keycloak_url}/realms/{settings.keycloak_realm}/protocol/openid-connect/certs"
+    url = f"{settings.thunder_url}/oauth2/jwks"
     response = httpx.get(url, timeout=5)
     response.raise_for_status()
     return response.json()
@@ -40,7 +48,7 @@ def get_current_user(
             credentials.credentials,
             _jwks(),
             algorithms=["RS256"],
-            audience=settings.keycloak_client_id,
+            audience=settings.thunder_audience,
         )
     except Exception as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid token: {exc}") from exc
