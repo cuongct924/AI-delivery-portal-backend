@@ -76,6 +76,22 @@ jobs:
       - run: .venv/bin/ruff check .
       - run: .venv/bin/ruff format --check .
       - run: .venv/bin/pyright
+      # tests/test_prompts_router.py needs a real MLflow reachable at
+      # MLFLOW_TRACKING_URI (default http://localhost:5000, matched here) —
+      # routers/prompts.py seeds its 2 default personas via
+      # MlflowPromptRegistryAdapter at *import* time, before any test gets a
+      # chance to mock it. Started as a plain `docker run`, not a `services:`
+      # block — GitHub Actions service containers can't override the image's
+      # command, and the official mlflow image needs `server --host ...` args
+      # to actually run the tracking server instead of printing --help.
+      - name: Start MLflow (tests/test_prompts_router.py needs a live registry)
+        run: |
+          docker run -d --name mlflow-test -p 5000:5000 ghcr.io/mlflow/mlflow:v3.15.1 \
+            mlflow server --host 0.0.0.0 --port 5000
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:5000 && break
+            sleep 1
+          done
       - run: .venv/bin/pytest --cov-report=xml --junitxml=report.xml
       - uses: actions/upload-artifact@v4
         if: ${{ always() && !env.ACT }}
