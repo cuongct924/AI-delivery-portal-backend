@@ -442,7 +442,11 @@ def main() -> None:
                 )
             for metric_name, value in metrics.items():
                 mlflow.log_metric(metric_name, value)
-            mlflow_pytorch.log_model(model, artifact_path="model")
+            # serialization_format="pickle": mlflow's pytorch flavor now
+            # defaults to "pt2" (torch.export-based), which requires an
+            # input_example to trace the model graph — "pickle" matches the
+            # sklearn/pyfunc flavors' behavior above, no example needed.
+            mlflow_pytorch.log_model(model, artifact_path="model", serialization_format="pickle")
 
         if is_cv:
             # No pandas DataFrame to build an mlflow.data.Dataset from —

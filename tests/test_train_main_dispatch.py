@@ -107,7 +107,9 @@ def test_main_dl_branch_dispatches_to_train_dl_when_architecture_set(
     assert called_args[4] == "regression"  # task_type
     assert called_args[5] == "mlp"  # architecture
     assert called_args[6]["optimizer"] == "sgd"  # hyperparameters
-    mock_mlflow_pytorch.log_model.assert_called_once_with(fake_model, artifact_path="model")
+    mock_mlflow_pytorch.log_model.assert_called_once_with(
+        fake_model, artifact_path="model", serialization_format="pickle"
+    )
 
 
 def test_main_cv_branch_dispatches_to_train_cv_and_evaluate(
@@ -279,7 +281,9 @@ def test_main_hpo_branch_dispatches_to_run_hpo_when_search_strategy_set(
         train.main()
 
         mock_run_hpo.assert_called_once()
-        mock_mlflow_pytorch.log_model.assert_called_once_with(fake_model, artifact_path="model")
+        mock_mlflow_pytorch.log_model.assert_called_once_with(
+            fake_model, artifact_path="model", serialization_format="pickle"
+        )
         mock_mlflow.log_param.assert_any_call("search_strategy", "bayesian")
 
 
