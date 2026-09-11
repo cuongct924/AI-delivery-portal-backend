@@ -9,7 +9,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from mcp_client import McpToolRegistry
 from prometheus_fastapi_instrumentator import Instrumentator
-from routers import chat, llm_serving, models, monitoring, prompts, rag, recommendations
+from routers import (
+    chat,
+    llm_serving,
+    models,
+    monitoring,
+    portal_assistant,
+    prompts,
+    rag,
+    recommendations,
+)
 
 # Without this, app-level logger.info() calls are silently dropped —
 # uvicorn only configures its own loggers.
@@ -33,6 +42,7 @@ app.include_router(recommendations.router)
 app.include_router(monitoring.router)
 app.include_router(llm_serving.router)
 app.include_router(rag.router)
+app.include_router(portal_assistant.router)
 
 # Expose /metrics — scraped by Prometheus (infra/monitoring/prometheus.yml)
 Instrumentator().instrument(app).expose(app)
