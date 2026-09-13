@@ -1,11 +1,6 @@
-"""Mock adapter for IModelRegistryAdapter — stands in for the Model Registry
-product (owned by a separate team, see docs/playbook-ai-delivery-portal.md's
-AI Platform box) so Golden Path #1/#2 can be demoed end to end before that
-product is reachable. Keeps everything in memory and returns metrics that
-pass every evaluations/gate.py threshold, whatever task_type is tagged.
-
-Enable via `USE_MOCK_ADAPTERS=true` (adapters/factory.py) — routers/models.py
-is never touched, it keeps calling whatever adapters.factory hands it.
+"""Mock adapter for IModelRegistryAdapter — in-memory stand-in for MLflow.
+Returns metrics that pass every evaluations/gate.py threshold, whatever
+task_type is tagged.
 """
 
 import uuid

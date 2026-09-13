@@ -1,9 +1,5 @@
-# Phase 2, sub-step 2.1 — the "ai-delivery-portal-platform" boundary that
-# holds the 2 core Portal services themselves (orchestration-api, portal),
-# as opposed to fraud-detection/ which holds an MLOps *workload* demo.
-# Same DeploymentPipeline ("default") as fraud-detection/project.yaml —
-# one dev->staging->prod promotion path shared by every Project, matching
-# Kargo's single promotion chain per tenant today.
+# Holds the 2 core Portal services (orchestration-api, portal), as opposed
+# to fraud-detection/'s MLOps workload demo.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Project
 metadata:

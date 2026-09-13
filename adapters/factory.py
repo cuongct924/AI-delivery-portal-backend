@@ -1,34 +1,10 @@
-"""Single place that decides which concrete class backs each Adapter.
-Callers import the getter (not the concrete class) — swapping Mock -> a
-real backend means editing exactly this file, not every router that uses
-it.
+"""Single place that decides which concrete class backs each Adapter —
+swapping Mock -> real backend means editing this file, not every caller.
 
-`@lru_cache` makes each getter a process-wide singleton, same lifecycle as
-the module-level instances routers used to construct directly.
-
-Getters are typed against the interface (`I*Adapter`) except where a real
-caller needs a "convenience method" the interface deliberately excludes
-(ArgoAdapter.create_cron_workflow/list_workflows,
-MlflowAdapter.get_latest_version, KServeAdapter.deploy_llm_model,
-QdrantAdapter.ensure_collection — see each adapter's own docstring) —
-those stay typed to the concrete class rather than adding backend-specific
-methods to a shared interface.
-
-Each of Model Registry/Workflow/Inference/Notebook has its own
-`USE_MOCK_<ADAPTER>` flag (see .env.example) swapping it for its in-memory
-Mock counterpart — a stand-in for a backend this repo doesn't self-host yet
-(a real cluster for KServe/Argo) or a product a separate team owns (see
-docs/playbook-ai-delivery-portal.md's AI Platform box). `USE_MOCK_ADAPTERS`
-sets the default for whichever of those 4 flags isn't itself set — e.g.
-scripts/local-demo/fake_argo.py stands in for the real Argo Server on the
-wire (ArgoAdapter still runs for real, just talks to a fake backend, so
-Golden Path #1 logs a real trained model to MLflow), while nothing stands
-in for a real Kubernetes API server, so USE_MOCK_INFERENCE=true is the only
-way to demo Golden Path #2 without a `kind` cluster. Everything else (LLM
-Gateway, Vector Store, prompt/RAG registry, Object Storage, Feature Store)
-already has a real local backend via docker-compose.yml, so it's never
-mocked. Callers are unaffected either way — each Mock class mirrors its
-real counterpart's full method set (interface + convenience methods).
+`@lru_cache` makes each getter a process-wide singleton. Model
+Registry/Workflow/Inference/Notebook each get a `USE_MOCK_<ADAPTER>` flag
+(see .env.example), falling back to the blanket `USE_MOCK_ADAPTERS` when
+unset.
 """
 
 import os
@@ -96,13 +72,9 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 @lru_cache
 def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter:
     if _use_mock("USE_MOCK_WORKFLOW"):
-        # Wired to the model registry only when THAT'S also mocked — lets
-        # MockWorkflowAdapter register a model after "training" (see its
-        # _maybe_register_model()'s docstring) so a Golden Path #1 run
-        # entirely under USE_MOCK_ADAPTERS=true doesn't 500 on the very
-        # next call. When the registry is real (MlflowAdapter), whatever
-        # actually did the training (e.g. scripts/local-demo/fake_argo.py)
-        # owns registration instead, same as production.
+        # Only wired to the registry when that's also mocked — a real
+        # registry gets its models registered by whatever actually trained
+        # them (e.g. fake_argo.py), same as production.
         model_registry = get_model_registry_adapter()
         return MockWorkflowAdapter(
             model_registry=model_registry
@@ -133,23 +105,12 @@ _mock_kserve_adapters: dict[str, MockInferenceAdapter] = {}
 
 
 def get_kserve_adapter(tenant: str) -> KServeAdapter | MockInferenceAdapter:
-    """Real branch is never cached — KServeAdapter.__init__ loads a real
-    kubeconfig, so callers only construct it when a request actually needs
-    KServe (see routers/models.py, routers/llm_serving.py), never eagerly at
-    import time. The Mock branch has no such cost, and — unlike the real
-    cluster, which is the same backend no matter which Python object talks
-    to it — its "deployed" state lives on the instance, so it's cached per
-    tenant in `_mock_kserve_adapters` instead: a fresh instance per call
-    would make Golden Path #2's traffic-split/canary steps see every model
-    as never having a prior deploy, even one this same demo run just made.
+    """Real branch is never cached (KServeAdapter.__init__ loads a real
+    kubeconfig). Mock branch is cached per tenant so a model's "deployed"
+    state persists across calls within a demo run.
 
-    Always targets `ai-delivery-portal-dev-<tenant>` — orchestration-api
-    only ever writes/deploys into dev (staging/prod promotion is
-    DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml),
-    so there is no code path here that can target
-    any other namespace, which is what keeps `release_strategy=instant`
-    (adapters/deploy_strategies.py's InstantStrategy) from being able to
-    bypass Kargo's approval gate.
+    Always targets `ai-delivery-portal-dev-<tenant>` — staging/prod
+    promotion is DeploymentPipeline-only (infra/openchoreo/deployment-pipeline.yaml).
     """
     namespace = f"ai-delivery-portal-dev-{tenant}"
     if _use_mock("USE_MOCK_INFERENCE"):

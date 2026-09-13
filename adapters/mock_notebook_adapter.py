@@ -1,11 +1,5 @@
-"""Mock adapter for INotebookAdapter — stands in for the AI Notebook product
-(JupyterHub, owned by a separate team, see docs/playbook-ai-delivery-portal.md's
-AI Platform box). Not wired into any router yet (AI Notebook is an
-independent Portal feature, not part of either Golden Path — see the
-playbook's "no golden path #3" note), kept here so the adapter exists ahead
-of that feature landing, same as JupyterHubAdapter itself.
-
-Enable via `USE_MOCK_ADAPTERS=true` (adapters/factory.py).
+"""Mock adapter for INotebookAdapter — in-memory stand-in for JupyterHub.
+Not wired into any router yet, same as JupyterHubAdapter itself.
 """
 
 import uuid

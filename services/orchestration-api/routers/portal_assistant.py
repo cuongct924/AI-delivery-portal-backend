@@ -1,20 +1,12 @@
-"""Implements the wire protocol OpenChoreo's Portal Assistant chat drawer
-expects (see backstage-plugins' `plugins/openchoreo-portal-assistant{,-backend}`)
-so that already-built UI (FAB, drawer, streaming rendering) works against
-this repo's own MLOps/LLMOps chat + MCP tool-calling — instead of the
-separate "perch-agent" service OpenChoreo itself doesn't ship in either
-repo. Point the frontend's `OPENCHOREO_PORTAL_ASSISTANT_URL` at this
-orchestration-api's base URL and the drawer talks to this router directly.
+"""Implements OpenChoreo Portal Assistant's chat wire protocol
+(backstage-plugins' `plugins/openchoreo-portal-assistant{,-backend}`) so
+its existing drawer UI works against this repo's own MLOps/LLMOps chat +
+MCP tools instead of OpenChoreo's own perch-agent service.
 
-Read-only by design, mirroring the frontend forwarder's own comment ("the
-agent is read-only — there is no /execute route to proxy"): a destructive
-tool (activate_prompt/rag_activate) is described in the reply, never
-called — routers/chat.py's `pending_confirmation` flow is the one place
-that owns executing those, and this endpoint doesn't replicate it.
-
-`scope` (Component/Environment/etc. from the frontend's OpenChoreo pages)
-is accepted but unused — none of its fields map to this repo's domain
-(personas, models, prompts) yet.
+Read-only by design: a destructive tool is described in the reply, never
+called — routers/chat.py's `pending_confirmation` flow owns executing
+those. `scope` is accepted but unused — no fields map to this repo's
+domain yet.
 """
 
 import json

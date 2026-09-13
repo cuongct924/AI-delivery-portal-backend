@@ -1,12 +1,8 @@
 """Mock adapter for IWorkflowAdapter — stands in for Argo Workflows when no
-`kind` cluster/Argo Server is up, so Golden Path #1 (Train -> Track ->
-Register) and "Setup Model Monitoring" can be demoed end to end.
+`kind` cluster/Argo Server is up.
 
 A triggered workflow reports phase="Running" on its first status check and
-phase="Succeeded" from the second check onward — enough of a fake delay for
-a demo to see a real state transition without waiting on an actual run.
-
-Enable via `USE_MOCK_ADAPTERS=true` (adapters/factory.py).
+phase="Succeeded" from the second onward, to demo a real state transition.
 """
 
 import uuid
@@ -86,16 +82,10 @@ class MockWorkflowAdapter(IWorkflowAdapter):
         ]
 
     def _maybe_register_model(self, parameters: dict[str, str]) -> None:
-        """Mirrors the callback infra/argo-workflows/train-register-template.yaml's
-        register-step makes for real (and scripts/local-demo/fake_argo.py
-        makes for the real-training local demo) — without this, a Golden
-        Path #1 run under USE_MOCK_ADAPTERS=true reports its workflow
-        "Succeeded" but never registers anything, so the very next call
-        (GET /models/{name}/latest-version) 500s against an empty registry.
-        No-ops when the model registry isn't ALSO mocked (factory.py only
-        passes one in that case) or when `parameters` isn't a training
-        request (e.g. "Setup Model Monitoring"'s create_cron_workflow uses
-        a different parameter shape entirely, never reaches here).
+        """Mirrors the register-step callback a real training run makes —
+        without it, a pure-mock run 500s on the next latest-version lookup.
+        No-ops when the registry isn't also mocked, or `parameters` isn't a
+        training request.
         """
         if self._model_registry is None:
             return

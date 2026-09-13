@@ -1,22 +1,10 @@
-# Forces one consistent version for every package this Dockerfile's final
-# image pins differently across the 2 lock files it installs together (see
-# the uv pip install step's own comment). uv's `uv pip compile` locks each
-# service's requirements.txt independently (Makefile's `lock` target loops
-# per-file) with no cross-file consistency check — fine for every other
-# service here, since none of them vendor another service's source into
-# their own container the way this Dockerfile vendors adapters/. Only
-# matters at container-build time; never edit the actual requirements.txt/
-# requirements.lock.txt files for this.
-#
-# Every line below is a package pinned differently in
-# services/orchestration-api/requirements.lock.txt vs
-# adapters/requirements.lock.txt (diffed by version, not content — most are
-# each other's transitive deps, not pinned directly by either
-# requirements.txt) — `uv pip install -r a -r b` with no override hard-fails
-# on each with "No solution found". Policy: defer to orchestration-api's own
-# pin every time, since this is its Dockerfile. Regenerate this list by
-# diffing the two *.lock.txt files if either one changes and the build
-# starts failing here again.
+# Forces one version for every package pinned differently between
+# services/orchestration-api/ and adapters/'s independently-locked
+# requirements.lock.txt files — installing both together otherwise
+# hard-fails with "No solution found". Defers to orchestration-api's own
+# pin each time. Regenerate by diffing the two *.lock.txt files if this
+# starts failing again. Only affects this Dockerfile's build, never edit
+# the actual requirements.lock.txt files for this.
 click==8.4.2
 gitpython==3.1.61
 graphql-core==3.2.11

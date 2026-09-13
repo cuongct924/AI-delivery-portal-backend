@@ -1,13 +1,7 @@
-"""Mock adapter for IInferenceAdapter — stands in for KServe when no `kind`
-cluster is up (routers/models.py, routers/llm_serving.py's Golden Path #2
-needs a prior deploy check + traffic strategy demo without a real DataPlane).
+"""Mock adapter for IInferenceAdapter — in-memory stand-in for KServe.
 
-Raises `kubernetes.client.exceptions.ApiException(status=404)` from
-`get_inference_status()` for an unknown model — the exact exception type
-routers/models.py and routers/llm_serving.py already catch to detect "no
-prior deploy", so neither router needs to change to accept this mock.
-
-Enable via `USE_MOCK_ADAPTERS=true` (adapters/factory.py).
+Raises `ApiException(status=404)` from `get_inference_status()` for an
+unknown model, same as the real KServe client, so callers need no changes.
 """
 
 from collections.abc import Mapping

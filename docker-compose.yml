@@ -8,21 +8,10 @@ services:
     ports:
       - "5000:5000"
     environment:
-      # MLflow 3.x's DNS-rebinding protection (mlflow/server/security_utils.py)
-      # rejects any request whose Host header isn't localhost/127.0.0.1 by
-      # default — 403s every call from a container reaching this service via
-      # host.docker.internal (e.g. an OpenChoreo Component/Workload on the
-      # k3d cluster) with "Invalid Host header". Add that hostname here
-      # rather than in code — this is server-side config, not a client bug.
-      # Exact-string match unless the entry itself contains "*"
-      # (mlflow/server/security_utils.py's is_allowed_host_header) — every
-      # entry needs a bare form AND a ":*" form, since a Host header always
-      # includes the port (localhost:5000, host.docker.internal:5000).
-      # Setting this env var at all REPLACES get_default_allowed_hosts()'s
-      # own localhost/127.0.0.1/private-IP defaults, not adds to them — the
-      # first cut of this fix only added host.docker.internal's forms and
-      # broke tests/test_prompts_router.py (a host pytest process, calling
-      # via plain http://localhost:5000) as a result.
+      # MLflow 3.x rejects any request whose Host header isn't localhost by
+      # default (DNS-rebinding protection) — 403s callers reaching it via
+      # host.docker.internal. Setting this replaces the defaults entirely,
+      # so every host needs both a bare and a ":*" form.
       MLFLOW_SERVER_ALLOWED_HOSTS: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,host.docker.internal,host.docker.internal:*"
     profiles: ["mlops"]
 
@@ -101,11 +90,8 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
       LITELLM_GATEWAY_URL: http://litellm:4000
       QDRANT_URL: http://qdrant:6333
-    # thunder.openchoreo.localhost is OpenChoreo's k3d gateway hostname —
-    # resolves to loopback automatically on the host (RFC 6761 .localhost),
-    # but inside this container needs an explicit route to the real host
-    # machine (Docker's host-gateway alias) since that auto-resolution
-    # isn't guaranteed in every container's resolver config.
+    # Routes the k3d gateway hostname to the real host machine — its
+    # auto-loopback resolution isn't guaranteed inside a container.
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"
     depends_on:

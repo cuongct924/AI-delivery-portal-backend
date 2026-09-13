@@ -1,15 +1,6 @@
-# Workaround for a real reconciliation bug hit live in this session: the
-# controller-manager's Project controller logs "Project change detected,
-# enqueueing DeploymentPipeline" but the DeploymentPipeline reconciler never
-# actually processes it (confirmed via controller-manager logs — zero
-# "controller": "deploymentpipeline" reconcile lines, even after a full
-# controller-manager restart) — so ProjectReleaseBinding never gets created
-# for a brand-new Project, and every environment's data-plane namespace
-# (dp-default-platform-development-*) never gets provisioned. fraud-detection/
-# and default never hit this because their ProjectReleaseBindings already
-# existed from before this session's Docker/controller chaos.
-# Mirrors fraud-detection-development's ProjectReleaseBinding exactly
-# (`kubectl get projectreleasebinding fraud-detection-development -o yaml`).
+# Workaround for a controller-manager bug: a brand-new Project's
+# DeploymentPipeline reconciler never fires, so this never gets created on
+# its own. Mirrors fraud-detection-development's ProjectReleaseBinding.
 apiVersion: openchoreo.dev/v1alpha1
 kind: ProjectReleaseBinding
 metadata:

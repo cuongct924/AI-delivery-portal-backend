@@ -14,11 +14,7 @@ spec:
     kind: ClusterComponentType
     name: deployment/web-application
   autoDeploy: true
-  # Same CPU-starvation lesson as orchestration-api's own component YAML —
-  # the ClusterComponentType default (100m CPU) isn't enough for a Node.js/
-  # Backstage backend's own heavy synchronous startup (loading every
-  # plugin/catalog provider). Backstage backends also run notably heavier
-  # than a FastAPI process at idle, hence the larger memory floor too.
+  # Default 100m CPU isn't enough for Backstage's synchronous plugin startup.
   parameters:
     resources:
       requests:

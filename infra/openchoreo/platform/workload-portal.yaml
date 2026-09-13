@@ -1,24 +1,13 @@
-# packages/backend/Dockerfile's final image installs
-# app-config.production.yaml (Choreo upstream's own production config, NOT
-# this fork's dev app-config.yaml/.env) — its env-var surface is entirely
-# different: OPENCHOREO_API_URL/THUNDER_BASE_URL/OPENCHOREO_AUTH_* instead
-# of ORCHESTRATION_API_URL/GITHUB_TOKEN. It also has no MLOps template
-# catalog.locations entries at all (only the generic create-openchoreo-*
-# ones) — this Workload proves the Component/Deployment/Service/HTTPRoute
-# plumbing boots and serves, matching orchestration-api's own first-pass
-# bar; wiring this fork's MLOps templates + orchestrationApi.baseUrl into a
-# custom config layered on top of app-config.production.yaml is separate,
-# follow-on work, not done here.
+# Uses app-config.production.yaml (OpenChoreo upstream's own config, not
+# this fork's dev app-config.yaml) — no MLOps templates in its
+# catalog.locations. Proves the Component/Deployment/Service/HTTPRoute
+# plumbing; wiring in this fork's templates is separate follow-on work.
 #
-# Values below are copied from the ALREADY-RUNNING `backstage` Deployment
-# in openchoreo-control-plane (the stock quick-start install's own
-# instance, using this exact image + config) — proven working in this
-# same cluster — simplified to guest mode (no real Thunder OAuth round-
-# trip needed) and pointed at the real in-cluster openchoreo-api, not a
-# mock.
+# Values copied from the already-running `backstage` Deployment in
+# openchoreo-control-plane, simplified to guest mode and pointed at the
+# real in-cluster openchoreo-api.
 #
-# BACKEND_SECRET references a Secret created out of band, same reason
-# .env itself is gitignored:
+# BACKEND_SECRET references a Secret created out of band:
 #   kubectl --context openchoreo-quick-start create secret generic portal-secrets \
 #     -n dp-default-platform-development-8260e221 \
 #     --from-literal=backend-secret="$(openssl rand -base64 32)"
@@ -45,13 +34,11 @@ spec:
         value: "7007"
       - key: DATABASE_CLIENT
         value: better-sqlite3
+      # The distroless image can't create /app/.config/backstage itself
+      # (no volumes field on Workload to mount an emptyDir there) — /tmp is
+      # writable and just as ephemeral.
       - key: SQLITE_STORAGE_DIR
-        value: /app/.config/backstage
-      # Path-prefix routed via HTTPRoute (same "/<component>-<endpoint>"
-      # pattern as orchestration-api's own) — Backstage's baseUrl/cors
-      # normally assume a root-mounted origin, so redirect-flow auth in
-      # particular may need revisiting once this is more than a boot
-      # smoke test.
+        value: /tmp/backstage
       - key: BACKSTAGE_BASE_URL
         value: http://development-default.openchoreoapis.localhost:19080/portal-http
       - key: OPENCHOREO_API_URL

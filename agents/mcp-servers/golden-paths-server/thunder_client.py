@@ -1,12 +1,8 @@
 """Thunder client_credentials token fetch/cache — gives this server its own
 verifiable service-account identity instead of a self-reported header.
 
-Replaces keycloak_client.py (Phase 2, sub-step 2.3). Client
-`golden-paths-agent` was provisioned in Keycloak via
-infra/keycloak/realm-export.json (deleted with this migration) — the
-Thunder equivalent needs registering by hand via Thunder's own admin
-console or its /oauth2/dcr/register endpoint (requires an authenticated
-admin caller; not yet automated — see infra/openchoreo/2.3-notes.md).
+The `golden-paths-agent` client still needs registering by hand in Thunder
+— see infra/openchoreo/2.3-notes.md.
 """
 
 import os

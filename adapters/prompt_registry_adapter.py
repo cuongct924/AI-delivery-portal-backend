@@ -90,11 +90,8 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
         try:
             mlflow.genai.set_prompt_alias(name=name, alias=_ACTIVE_ALIAS, version=int(version))
         except MlflowException as exc:
-            # Same "any MlflowException here means it doesn't exist" reading
-            # as get_active_version() above — a real (not draft-then-typo)
-            # caller only reaches this with a version draft_prompt() already
-            # returned, so any other, more exotic mlflow error is not one
-            # this method can meaningfully classify further.
+            # Same reading as get_active_version() above: any MlflowException
+            # here means the version doesn't exist.
             raise ValueError(f"{kind}/{name} has no registered versions") from exc
 
     @staticmethod

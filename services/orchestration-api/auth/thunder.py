@@ -1,15 +1,7 @@
 """OIDC authentication via Thunder (OpenChoreo's bundled IdP) — every
 request goes through here. `auth_enabled=False` makes auth optional, not
 off: a token is verified for real if present, and only a request with no
-token at all falls back to a fake dev user. Set `AUTH_ENABLED=true` to
-require a valid token always.
-
-Replaces auth/keycloak.py (Phase 2, sub-step 2.3) — Thunder has no realm
-concept, so its JWKS/token endpoints are fixed paths under `thunder_url`
-instead of Keycloak's `/realms/<realm>/...` pattern (confirmed against
-Thunder's own /.well-known/openid-configuration on the local
-openchoreo-quick-start cluster: jwks_uri is `{base}/oauth2/jwks`, and
-`client_credentials` is a supported grant_type).
+token at all falls back to a fake dev user.
 """
 
 import logging
