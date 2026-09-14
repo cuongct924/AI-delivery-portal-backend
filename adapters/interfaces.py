@@ -296,21 +296,15 @@ class IObjectStorageAdapter(ABC):
     Scaffolder UI's dataset picker so a user chooses from what's actually
     there instead of typing a `file://` path blind.
 
-    Two concrete backends implement this, merged by
-    `CompositeObjectStorageAdapter` into one listing:
-    `MinioObjectStorageAdapter` (the versioned object store — `.dvc/config`'s
-    remote "storage": MinIO locally, S3-compatible in general) and
+    Two implementations, merged by `CompositeObjectStorageAdapter` into
+    one listing: `MinioObjectStorageAdapter` (MinIO/S3, `source="s3"`) and
     `LocalFileObjectStorageAdapter` (the `data/` working-tree checkout, for
-    local dev without MinIO running). `DatasetInfo.source` ("s3" | "local")
-    tells the two apart.
+    local dev without MinIO running, `source="local"`).
 
-    `DatasetInfo.uri` is always a `file://` path the training pipeline can
-    actually open, not a raw `s3://` object key: the training pod reads
-    from the kind cluster's hostPath mount (see
-    train-track-register/template.yaml's `datasetUri` description), not
-    straight from the bucket, so `MinioObjectStorageAdapter` maps each
-    object key to that mount path — the object store is only consulted
-    here for what dataset *names* exist.
+    `DatasetInfo.uri` is always a `file://` path the training pod can
+    actually open (it reads from a hostPath mount, not the bucket
+    directly) — the object store is only consulted here for what dataset
+    *names* exist.
     """
 
     @abstractmethod

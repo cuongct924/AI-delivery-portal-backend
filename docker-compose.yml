@@ -85,13 +85,10 @@ services:
     env_file:
       - .env
     environment:
-      # Was hardcoded to "true" here, overriding .env's AUTH_ENABLED=false —
-      # that forced every request through Thunder JWT verification even
-      # though nothing in the frontend currently forwards a token with the
-      # right audience, so every protected route 401'd unconditionally
-      # (GET /datasets included). Removed so this container respects the
-      # same local-dev bypass `.env` already declares; re-add it here (or
-      # override in a local .env) once real end-to-end Thunder auth is wired.
+      # Was hardcoded "true" here, overriding .env's AUTH_ENABLED=false and
+      # 401'ing every protected route (nothing forwards a Thunder token
+      # with the right audience yet). Removed to respect .env's local-dev
+      # bypass; re-add once real end-to-end Thunder auth is wired.
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
       MLFLOW_TRACKING_URI: http://mlflow:5000
       LITELLM_GATEWAY_URL: http://litellm:4000
