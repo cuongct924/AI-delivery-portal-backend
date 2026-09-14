@@ -22,11 +22,12 @@ SERVICE_REQS := requirements-dev.txt \
 	services/orchestration-api/requirements.txt \
 	agents/mcp-servers/observability-server/requirements.txt \
 	agents/mcp-servers/golden-paths-server/requirements.txt \
+	agents/mcp-servers/golden-path-guide-server/requirements.txt \
 	infra/argo-workflows/training-image/requirements.txt
 
 .PHONY: venv install lock hooks lint format format-check typecheck test check \
 	gitleaks checkov trivy security \
-	run-orchestration-api run-observability-mcp run-golden-paths-mcp \
+	run-orchestration-api run-observability-mcp run-golden-paths-mcp run-golden-path-guide-mcp \
 	dvc-pull dvc-push \
 	clean-venv
 
@@ -107,6 +108,9 @@ run-observability-mcp:
 
 run-golden-paths-mcp:
 	bash scripts/run-mcp-local.sh golden-paths
+
+run-golden-path-guide-mcp:
+	bash scripts/run-mcp-local.sh golden-path-guide
 
 ## Pulls/pushes the DVC-tracked dataset against the local MinIO remote.
 dvc-pull:

@@ -99,6 +99,13 @@ services:
       # Argo Server's k3d LoadBalancer publishes to a host port, not a
       # docker-compose service — reach it via the host, not a service name.
       ARGO_SERVER_URL: http://host.docker.internal:10081
+      # .env has no BACKSTAGE_BASE_URL override, so this fell back to
+      # core/config.py's "localhost:7007" default — inside this container
+      # that's itself, not the host machine running `yarn start`. Silently
+      # broken since catalog_client.py never raises, just logs a warning
+      # and degrades (MCP discovery, and now golden-paths lookup, both
+      # depend on this working).
+      BACKSTAGE_BASE_URL: http://host.docker.internal:7007
     # Routes the k3d gateway hostname to the real host machine — its
     # auto-loopback resolution isn't guaranteed inside a container.
     extra_hosts:
@@ -148,3 +155,15 @@ services:
       - "thunder.openchoreo.localhost:host-gateway"
     # orchestration-api is a different profile — start it first.
     profiles: ["llmops"]
+
+  golden-path-guide-server:
+    build:
+      context: .
+      dockerfile: agents/mcp-servers/golden-path-guide-server/Dockerfile
+    container_name: ai-delivery-portal-golden-path-guide-server
+    ports:
+      - "9003:9003"
+    environment:
+      ORCHESTRATION_API_URL: http://orchestration-api:8000
+    # orchestration-api is a different profile — start it first.
+    profiles: ["mlops", "llmops"]

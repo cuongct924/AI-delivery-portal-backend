@@ -3,7 +3,11 @@
 
 from unittest.mock import MagicMock, patch
 
-from catalog_client import discover_mcp_servers
+from catalog_client import (
+    discover_mcp_servers,
+    get_golden_path_template,
+    list_golden_path_templates,
+)
 
 
 def test_discover_mcp_servers_parses_matching_entities() -> None:
@@ -76,3 +80,102 @@ def test_discover_mcp_servers_sends_bearer_token_when_configured() -> None:
 
     _, kwargs = mock_get.call_args
     assert kwargs["headers"] == {"Authorization": "Bearer a-real-token"}
+
+
+def test_list_golden_path_templates_filters_by_tag() -> None:
+    mock_response = MagicMock()
+    mock_response.json.return_value = [
+        {
+            "metadata": {
+                "name": "train-track-register",
+                "title": "Train & Register Model",
+                "description": "Trains a model.\n",
+                "tags": ["mlops"],
+            }
+        },
+        {
+            "metadata": {
+                "name": "create-openchoreo-clustertrait",
+                "title": "ClusterTrait",
+                "tags": ["platform"],
+            }
+        },
+    ]
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        templates = list_golden_path_templates()
+
+    assert templates == [
+        {
+            "name": "train-track-register",
+            "title": "Train & Register Model",
+            "description": "Trains a model.",
+            "tags": ["mlops"],
+        }
+    ]
+
+
+def test_list_golden_path_templates_returns_empty_list_on_request_failure() -> None:
+    with patch("catalog_client.httpx.get", side_effect=Exception("connection refused")):
+        assert list_golden_path_templates() == []
+
+
+def test_get_golden_path_template_extracts_parameters_and_steps() -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "metadata": {
+            "name": "train-track-register",
+            "title": "Train & Register Model",
+            "description": "Trains a model.\n",
+            "tags": ["mlops"],
+        },
+        "spec": {
+            "parameters": [
+                {
+                    "required": ["modelName"],
+                    "properties": {
+                        "modelName": {"title": "Model name", "description": "E.g. foo\n"},
+                        "notes": {"title": "Notes"},
+                    },
+                }
+            ],
+            "steps": [{"id": "train", "name": "Train", "action": "orchestration:trigger-training"}],
+        },
+    }
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        template = get_golden_path_template("train-track-register")
+
+    assert template == {
+        "name": "train-track-register",
+        "title": "Train & Register Model",
+        "description": "Trains a model.",
+        "tags": ["mlops"],
+        "parameters": [
+            {
+                "name": "modelName",
+                "title": "Model name",
+                "description": "E.g. foo",
+                "required": True,
+            },
+            {"name": "notes", "title": "Notes", "description": "", "required": False},
+        ],
+        "steps": [{"name": "Train", "action": "orchestration:trigger-training"}],
+    }
+
+
+def test_get_golden_path_template_returns_none_for_wrong_tag() -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "metadata": {"name": "create-openchoreo-clustertrait", "tags": ["platform"]},
+        "spec": {},
+    }
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        assert get_golden_path_template("create-openchoreo-clustertrait") is None
+
+
+def test_get_golden_path_template_returns_none_on_404() -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 404
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        assert get_golden_path_template("does-not-exist") is None
