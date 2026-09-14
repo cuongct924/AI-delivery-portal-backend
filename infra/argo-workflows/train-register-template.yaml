@@ -11,7 +11,8 @@ spec:
     runAsNonRoot: true
     runAsUser: 1000
   volumes:
-    # hostPath from kind-config.yaml's extraMounts — avoids S3/DVC-pull logic here.
+    # hostPath into the k3d server node's filesystem (docker cp'd there —
+    # see top-level README.md) — avoids S3/DVC-pull logic here.
     - name: dataset
       hostPath:
         path: /mnt/data
@@ -202,10 +203,16 @@ spec:
               path: /tmp/dataset-digest
       container:
         # Built from infra/argo-workflows/training-image/, deps baked in at
-        # build time. Loaded into kind by scripts/setup-k8s-local.sh.
+        # build time. Loaded into the local cluster's container runtime
+        # (kind load / k3d image import) — never pushed to a registry.
         image: training-image:local
         imagePullPolicy: IfNotPresent
-        # No command/args — runs the image's own `CMD ["python", "train.py"]`.
+        # Explicit, matches the image's own CMD. Required: for a
+        # registry-less local image, Argo's emissary executor otherwise
+        # tries to look up the entrypoint by querying the image's registry
+        # (defaults to docker.io/library/... when unqualified) and fails
+        # with an UNAUTHORIZED manifest-pull error.
+        command: ["python", "train.py"]
         env:
           - name: DATASET_URI
             value: '{{inputs.parameters.dataset-uri}}'

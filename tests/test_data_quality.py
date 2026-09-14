@@ -81,6 +81,34 @@ def test_check_time_gaps_flags_large_outlier_gap() -> None:
     assert result.severity == "warning"
 
 
+def test_check_time_gaps_blocks_when_column_is_not_a_valid_date() -> None:
+    # A column that's genuinely not a date (free text) — picking this as
+    # Time column for architecture=lstm should fail loudly, not silently
+    # read as "not enough timestamps to evaluate gaps".
+    df = pd.DataFrame({"t": ["grocery", "electronics", "restaurant", "travel", "grocery"]})
+    result = check_time_gaps(df, time_column="t")
+    assert result.severity == "blocking"
+
+
+def test_check_time_gaps_tolerates_a_few_unparseable_values() -> None:
+    # Mostly-valid dates with a couple of bad rows shouldn't block —
+    # unparseable_ratio stays under the threshold.
+    df = pd.DataFrame(
+        {
+            "t": [
+                "2024-01-01",
+                "2024-01-02",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-05",
+                "not-a-date",
+            ]
+        }
+    )
+    result = check_time_gaps(df, time_column="t")
+    assert result.severity != "blocking"
+
+
 def test_run_checks_includes_universal_and_task_type_checks() -> None:
     df = pd.DataFrame({"x": [1, 2, 3, 4], "y": [0, 1, 0, 1]})
     results = run_checks(df, "classification", target_column="y")

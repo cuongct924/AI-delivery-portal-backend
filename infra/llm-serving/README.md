@@ -2,9 +2,9 @@
 
 Self-hosted LLM serving (vLLM on KServe) powering the "Serving LLM" Golden
 Path (`examples/templates/deploy-llm/template.yaml`). **Does not work
-locally** — the `kind` cluster used by every other Golden Path in this repo
-(`infra/k8s-local-cluster/kind-config.yaml`) has no GPU node, no NVIDIA
-device plugin, and no `huggingface`/vLLM `ServingRuntime` — only the
+locally** — the k3d `openchoreo-quick-start` cluster used by every other
+Golden Path in this repo (see `infra/openchoreo/README.md`) has no GPU node,
+no NVIDIA device plugin, and no `huggingface`/vLLM `ServingRuntime` — only the
 `mlflow` runtime KServe ships by default. KServe itself also isn't
 installed anywhere yet (see `infra/openchoreo/README.md` — no
 ClusterComponentType wraps it), a separate prerequisite from the GPU gap

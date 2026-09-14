@@ -5,6 +5,7 @@
 — it's called from inside an Argo workflow pod, not from Backstage.
 """
 
+import json
 from pathlib import Path
 from typing import Final, cast
 
@@ -13,7 +14,7 @@ from auth.thunder import get_current_user
 from data_quality.checks import CheckResult
 from data_quality.registry import run_checks
 from evaluations.gate import MetricsGateResult, evaluate_metrics_gate
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from jinja2 import Environment, FileSystemLoader
 from kubernetes.client.exceptions import ApiException
 from pydantic import BaseModel
@@ -97,6 +98,11 @@ class TriggerTrainingResponse(BaseModel):
 
 class DatasetColumnsResponse(BaseModel):
     columns: list[str]
+
+
+class DatasetPreviewResponse(BaseModel):
+    columns: list[str]
+    rows: list[dict[str, object]]
 
 
 class ListDatasetsResponse(BaseModel):
@@ -331,12 +337,49 @@ def get_dataset_columns(
     return DatasetColumnsResponse(columns=columns)
 
 
+@router.get("/datasets/preview", response_model=DatasetPreviewResponse)
+def preview_dataset(
+    dataset_uri: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    user: dict = Depends(get_current_user),
+) -> DatasetPreviewResponse:
+    """Reads a dataset's first `limit` rows so the Scaffolder UI can show what
+    the data actually looks like before training — same fail-open contract as
+    get_dataset_columns above: a non-CSV dataset (architecture=cv's `.zip` of
+    images) legitimately fails here, and the frontend just hides the preview.
+
+    Goes through `df.to_json`/`json.loads` rather than `df.to_dict` directly:
+    pandas' own JSON encoder turns NaN (missing values are the norm in real
+    datasets) into `null`, which `dict` leaves as a float `nan` — invalid
+    JSON that `json.dumps` would happily emit anyway (non-compliant `NaN`
+    tokens) and browsers' `JSON.parse` then rejects.
+    """
+    csv_path = Path(dataset_uri.strip().removeprefix("file://"))
+    df = pd.read_csv(csv_path, nrows=limit)
+    # to_json only returns None when writing to a path_or_buf, which we don't pass.
+    rows = cast(list[dict[str, object]], json.loads(cast(str, df.to_json(orient="records"))))
+    return DatasetPreviewResponse(columns=df.columns.tolist(), rows=rows)
+
+
 @router.post("/datasets/validate", response_model=list[CheckResultResponse])
 def validate_dataset(
     request: ValidateDatasetRequest, user: dict = Depends(get_current_user)
 ) -> list[CheckResultResponse]:
     csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
     df = pd.read_csv(csv_path)
+    # Boundary check: a stale form value (e.g. leftover target_column from a
+    # previously selected dataset) must surface as a clear 400, not a 500
+    # KeyError deep inside a check that indexes df[target_column] directly.
+    for column, label in (
+        (request.target_column, "target_column"),
+        (request.time_column, "time_column"),
+    ):
+        if column is not None and column not in df.columns:
+            raise HTTPException(
+                400,
+                f"{label} {column!r} is not a column in this dataset — "
+                f"available columns: {df.columns.tolist()}",
+            )
     results = run_checks(df, request.task_type, request.target_column, request.time_column)
     return [CheckResultResponse.from_check_result(r) for r in results]
 

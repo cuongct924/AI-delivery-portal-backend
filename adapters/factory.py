@@ -11,10 +11,12 @@ import os
 from functools import lru_cache
 
 from adapters.argo_adapter import ArgoAdapter
+from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
 from adapters.feature_store_adapter import FeastAdapter
 from adapters.interfaces import ILLMGatewayAdapter, IObjectStorageAdapter, IVersionRegistryAdapter
 from adapters.kserve_adapter import KServeAdapter
 from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
+from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
 from adapters.mlflow_adapter import MlflowAdapter
 from adapters.mock_inference_adapter import MockInferenceAdapter
 from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
@@ -98,7 +100,12 @@ def get_feature_store_adapter() -> FeastAdapter:
 
 @lru_cache
 def get_object_storage_adapter() -> IObjectStorageAdapter:
-    return MinioObjectStorageAdapter()
+    """Local checked-out files first (fast, no network), then S3/MinIO —
+    order only affects the picker's display order, both sources always
+    get listed."""
+    return CompositeObjectStorageAdapter(
+        [LocalFileObjectStorageAdapter(), MinioObjectStorageAdapter()]
+    )
 
 
 _mock_kserve_adapters: dict[str, MockInferenceAdapter] = {}

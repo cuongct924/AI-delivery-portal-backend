@@ -33,10 +33,10 @@ Grafana dashboards.
   `observability-server`'s `check_model_latency` tool). This is
   **not** because KServe/BentoML don't expose `/metrics` — they do. The
   real blocker is a network gap: this docker-compose `prometheus` container
-  and the local `kind` cluster sit on separate Docker networks with no
-  bridge between them, and `infra/k8s-local-cluster/kind-config.yaml`'s
-  `extraPortMappings` cover Knative/Kourier ingress, Argo, ArgoCD, and
-  Backstage — nothing for a KServe predictor's metrics port. Closing this
+  and the local k3d `openchoreo-quick-start` cluster sit on separate Docker
+  networks with no bridge between them, and its LoadBalancer's port mappings
+  (see `infra/openchoreo/README.md`) cover the OpenChoreo/Thunder/Argo
+  surfaces — nothing for a KServe predictor's metrics port. Closing this
   gap needs a real network bridge (or running Prometheus inside the
   cluster), not a Prometheus/KServe config change — out of scope until a
   real (non-local) cluster exists.

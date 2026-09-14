@@ -25,6 +25,7 @@ _MINORITY_CLASS_RATIO = 0.05
 _HIGH_CARDINALITY_RATIO = 0.5
 _HIGH_CARDINALITY_ABSOLUTE = 100
 _GAP_OUTLIER_MULTIPLIER = 10
+_UNPARSEABLE_TIME_RATIO = 0.2
 
 
 @dataclass(frozen=True)
@@ -250,8 +251,28 @@ def check_dimensionality_vs_samples(
 def check_time_gaps(df: pd.DataFrame, time_column: str) -> CheckResult:
     """Large gaps in a time-ordered column can mean missing periods —
     relevant to LSTM windowing and to TimeSeriesSplit's assumption of
-    reasonably even coverage."""
-    timestamps = pd.to_datetime(df[time_column], errors="coerce").dropna().sort_values()
+    reasonably even coverage.
+
+    Also the only check that verifies `time_column` is actually a date/time
+    column at all: `pd.to_datetime(errors="coerce")` silently turns
+    anything it can't parse into NaT, so a column picked by mistake (wrong
+    dtype, free text) would otherwise just fall through to "not enough
+    timestamps to evaluate gaps" at `info` severity — indistinguishable
+    from a genuinely tiny but valid dataset. Blocking here instead is what
+    actually catches "this architecture=lstm run has no real date column."
+    """
+    raw = df[time_column]
+    parsed = pd.to_datetime(raw, errors="coerce")
+    unparseable_ratio = cast(float, parsed.isna().mean()) if len(raw) > 0 else 0.0
+    if unparseable_ratio > _UNPARSEABLE_TIME_RATIO:
+        return CheckResult(
+            "check_time_gaps",
+            "blocking",
+            f"{time_column!r} isn't a valid date/time column — "
+            f"{unparseable_ratio:.0%} of values don't parse as a date",
+            {"unparseable_ratio": round(unparseable_ratio, 3)},
+        )
+    timestamps = parsed.dropna().sort_values()
     if len(timestamps) < 3:
         return CheckResult("check_time_gaps", "info", "not enough timestamps to evaluate gaps", {})
     gaps = timestamps.diff().dropna()

@@ -79,31 +79,77 @@ act pull_request -j python-checks                           # run a single job: 
 
 ## Local Kubernetes cluster
 
-[`scripts/setup-k8s-local.sh`](scripts/setup-k8s-local.sh) creates the `kind` cluster + Argo Workflows that back Golden Path #1. Once it's up:
+Golden Path #1 runs on Argo Workflows inside the same k3d `openchoreo-quick-start`
+cluster used for OpenChoreo/Thunder (see `infra/openchoreo/README.md`) — there is
+no separate local cluster for it anymore. Setup (one-time, after the cluster
+exists):
 
 ```bash
-# switch kubectl back if it points elsewhere
-kubectl config use-context kind-ai-delivery-portal
+kubectl config use-context k3d-openchoreo-quick-start
 
+# ServiceAccount + RBAC for the workflow pods (see infra/argo-workflows/train-register-template.yaml)
+kubectl -n default apply -f - <<'EOF'
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: train-register-workflow
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: train-register-workflow
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: train-register-workflow
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: train-register-workflow
+subjects:
+  - kind: ServiceAccount
+    name: train-register-workflow
+    namespace: default
+EOF
+
+kubectl apply -f infra/argo-workflows/train-register-template.yaml
+
+# training-image isn't pushed to a registry — build it, then import into
+# the cluster's containerd. Re-run after any change under
+# infra/argo-workflows/training-image/.
+docker build -t training-image:local -f infra/argo-workflows/training-image/Dockerfile .
+k3d image import training-image:local --cluster openchoreo-quick-start
+
+# the dataset hostPath (train-register-template.yaml) needs data/ copied
+# into the k3d server node's filesystem — no bind-mount for an
+# already-running node, so this is a one-time (or after dvc pull) docker cp:
+docker cp data/. k3d-openchoreo-quick-start-server-0:/mnt/data/
+```
+
+Day-to-day:
+
+```bash
 # cluster is up if this returns a Ready node
 kubectl get nodes
-# Argo controller/server status
-kubectl get pods -n argo
-# debug a stuck/crashing pod                              
-kubectl describe pod -n argo -l app=workflow-controller
-# controller logs
-kubectl logs -n argo -l app=workflow-controller
-# server logs
-kubectl logs -n argo -l app=argo-server                
+# Argo controller/server status (namespace is OpenChoreo's build/workflow plane)
+kubectl get pods -n openchoreo-workflow-plane
+# controller/server logs
+kubectl logs -n openchoreo-workflow-plane -l app=workflow-controller
+kubectl logs -n openchoreo-workflow-plane -l app=argo-server
 
 kubectl get workflowtemplates -n default               # confirm train-register-golden-path / fine-tune-golden-path exist
 kubectl get workflows -n default                       # list runs triggered via POST /trigger-training
 kubectl get workflows -n default -w                    # watch a run's phase live
 kubectl logs -n default <pod-name>                     # logs of a specific train/register step pod
 
-curl http://localhost:2746/api/v1/workflows/default    # Argo Server REST API health check (what ArgoAdapter calls)
+curl http://localhost:10081/api/v1/workflows/default    # Argo Server REST API health check (what ArgoAdapter calls, ARGO_SERVER_URL)
 
-kind delete cluster --name ai-delivery-portal          # tear the whole cluster down
+k3d cluster delete openchoreo-quick-start               # tear the whole cluster down (also takes out Thunder/OpenChoreo)
 ```
 
 ## Reference

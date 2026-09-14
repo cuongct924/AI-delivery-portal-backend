@@ -39,6 +39,7 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
                 # basename the object was pushed under.
                 uri=f"file://{self.mount_path}/{obj['Key'].rsplit('/', 1)[-1]}",
                 size_bytes=obj["Size"],
+                source="s3",
             )
             for obj in response.get("Contents", [])
         ]

@@ -11,8 +11,11 @@ class Settings(BaseSettings):
     # Thunder IdP on the OpenChoreo control plane — no realm concept, fixed
     # paths under this base URL.
     thunder_url: str = "http://thunder.openchoreo.localhost:8080"
-    # Expected `aud` claim — must match the calling client's Thunder registration.
-    thunder_audience: str = "orchestration-api"
+    # Expected `aud` claim. Every real caller (Scaffolder actions, the
+    # Portal Assistant proxy) is Backstage's backend authenticating via
+    # client_credentials as openchoreo-backstage-client — not a
+    # "orchestration-api" client, which Thunder never registers.
+    thunder_audience: str = "openchoreo-backstage-client"
 
     litellm_gateway_url: str = "http://localhost:4000"
     litellm_master_key: str = ""
