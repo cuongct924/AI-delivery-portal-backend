@@ -151,7 +151,7 @@ markupsafe==3.0.3
     #   werkzeug
 matplotlib==3.11.1
     # via mlflow
-mcp==2.0.0
+mcp==2.2.0
     # via -r services/orchestration-api/requirements.txt
 mcp-types==2.0.0
     # via mcp
