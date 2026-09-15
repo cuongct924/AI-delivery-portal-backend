@@ -6,6 +6,13 @@ one level up the call chain.
 The `orchestration-api-agent` client still needs registering by hand in
 Thunder (same prerequisite thunder_client.py notes for golden-paths-agent)
 before an MCP server that enforces auth will accept this token.
+
+Requests `MUTATE_SCOPE` on every token — verified empirically against a
+live Thunder instance that it grants whatever scope a client_credentials
+request asks for (no per-application scope allowlist enforced), so this is
+what actually gets `golden-paths-server`'s `activate_prompt`/`rag_activate`
+scope check to pass; omitting `scope=` from the request yields a token
+with no `scope` claim at all.
 """
 
 import os
@@ -19,6 +26,8 @@ THUNDER_CLIENT_ID: Final[str] = os.getenv("MCP_CLIENT_ID", "orchestration-api-ag
 THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
     "MCP_CLIENT_SECRET", "orchestration-api-agent-dev-secret"
 )
+# Must match golden-paths-server/server.py's MUTATE_SCOPE.
+MUTATE_SCOPE: Final[str] = "golden-paths:mutate"
 
 _cached_token: str | None = None
 _cached_expiry: float = 0.0
@@ -37,6 +46,7 @@ def get_access_token() -> str:
             "grant_type": "client_credentials",
             "client_id": THUNDER_CLIENT_ID,
             "client_secret": THUNDER_CLIENT_SECRET,
+            "scope": MUTATE_SCOPE,
         },
         timeout=10,
     )

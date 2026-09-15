@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
-from token_verifier import THUNDER_AUDIENCE, ThunderTokenVerifier
+from token_verifier import ThunderTokenVerifier
 
 _PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _KID = "test-key"
@@ -43,35 +43,56 @@ def _clear_jwks_cache():
     _jwks.cache_clear()
 
 
+def _real_thunder_claims(client_id: str, scope: str | None = None) -> dict:
+    """Shape empirically observed from a live Thunder instance's
+    client_credentials grant: `aud` == `client_id` (no separate resource
+    audience), no `azp` claim, `scope` present only if explicitly
+    requested — not `azp`-driven like a typical OIDC IdP."""
+    claims = {
+        "aud": client_id,
+        "client_id": client_id,
+        "sub": client_id,
+        "grant_type": "client_credentials",
+        "exp": int(time.time()) + 300,
+    }
+    if scope is not None:
+        claims["scope"] = scope
+    return claims
+
+
 @pytest.mark.asyncio
-async def test_verify_token_accepts_valid_signature_and_audience() -> None:
-    token = _sign(
-        {
-            "sub": "user-1",
-            "azp": "golden-paths-agent",
-            "aud": THUNDER_AUDIENCE,
-            "scope": "golden-paths:mutate",
-            "exp": int(time.time()) + 300,
-        }
-    )
+async def test_verify_token_accepts_allowed_client_in_allowlist() -> None:
+    token = _sign(_real_thunder_claims("orchestration-api-agent", scope="golden-paths:mutate"))
+
     with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
         access_token = await ThunderTokenVerifier().verify_token(token)
 
     assert access_token is not None
-    assert access_token.client_id == "golden-paths-agent"
+    assert access_token.client_id == "orchestration-api-agent"
     assert access_token.scopes == ["golden-paths:mutate"]
 
 
 @pytest.mark.asyncio
-async def test_verify_token_rejects_wrong_audience() -> None:
-    token = _sign(
-        {
-            "sub": "user-1",
-            "azp": "golden-paths-agent",
-            "aud": "some-other-service",
-            "exp": int(time.time()) + 300,
-        }
-    )
+async def test_verify_token_defaults_to_no_scopes_when_none_requested() -> None:
+    # Real Thunder behavior: omitting scope= on the token request yields no
+    # scope claim at all, not an empty string.
+    token = _sign(_real_thunder_claims("orchestration-api-agent"))
+
+    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await ThunderTokenVerifier().verify_token(token)
+
+    assert access_token is not None
+    assert access_token.scopes == []
+
+
+@pytest.mark.asyncio
+async def test_verify_token_rejects_client_not_in_allowlist() -> None:
+    # A well-formed, correctly-signed token for some OTHER Thunder client
+    # (e.g. golden-paths-agent's own outbound identity, or any unrelated
+    # app) must not be accepted here — this server only expects
+    # orchestration-api-agent to call it.
+    token = _sign(_real_thunder_claims("some-other-client"))
+
     with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
         access_token = await ThunderTokenVerifier().verify_token(token)
 
@@ -79,15 +100,25 @@ async def test_verify_token_rejects_wrong_audience() -> None:
 
 
 @pytest.mark.asyncio
+async def test_verify_token_respects_custom_allowlist() -> None:
+    token = _sign(_real_thunder_claims("some-other-client"))
+
+    with (
+        patch("token_verifier.httpx.get", return_value=_mock_jwks_response()),
+        patch("token_verifier.ALLOWED_CLIENT_IDS", frozenset({"some-other-client"})),
+    ):
+        access_token = await ThunderTokenVerifier().verify_token(token)
+
+    assert access_token is not None
+    assert access_token.client_id == "some-other-client"
+
+
+@pytest.mark.asyncio
 async def test_verify_token_rejects_expired_token() -> None:
-    token = _sign(
-        {
-            "sub": "user-1",
-            "azp": "golden-paths-agent",
-            "aud": THUNDER_AUDIENCE,
-            "exp": int(time.time()) - 10,
-        }
-    )
+    claims = _real_thunder_claims("orchestration-api-agent")
+    claims["exp"] = int(time.time()) - 10
+    token = _sign(claims)
+
     with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
         access_token = await ThunderTokenVerifier().verify_token(token)
 
@@ -98,7 +129,7 @@ async def test_verify_token_rejects_expired_token() -> None:
 async def test_verify_token_rejects_unknown_kid() -> None:
     other_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     token = jwt.encode(
-        {"sub": "user-1", "aud": THUNDER_AUDIENCE, "exp": int(time.time()) + 300},
+        _real_thunder_claims("orchestration-api-agent"),
         other_key,
         algorithm="RS256",
         headers={"kid": "not-in-jwks"},

@@ -36,13 +36,35 @@ requires a valid Thunder Bearer token (`token_verifier.py`, wired via
 gate, checked in-process, not something it trusts `orchestration-api`'s
 `chat.py` to have already done. `orchestration-api` presents its own
 Thunder identity (`orchestration-api-agent`, see
-`services/orchestration-api/mcp_auth_client.py`) when it connects.
+`services/orchestration-api/mcp_auth_client.py`, which also requests the
+`golden-paths:mutate` scope on every token it fetches).
 
-Known gap: `golden-paths-agent` and `orchestration-api-agent` both still
-need registering in Thunder by hand, and `orchestration-api-agent`'s token
-needs the `golden-paths:mutate` scope for `activate_prompt`/`rag_activate`
-to work at all. Both are IdP-side provisioning steps outside this repo's
-code.
+`token_verifier.py` checks the token's `aud` against
+`THUNDER_MCP_ALLOWED_CLIENTS` (default: `orchestration-api-agent`) as a
+membership test, not equality against one fixed resource string —
+verified empirically against a live Thunder instance that its
+client_credentials tokens carry `aud == client_id`, there's no separate
+"resource" audience to mint against.
+
+**Known gap — manual, IdP-side, still not done:** `golden-paths-agent` and
+`orchestration-api-agent` both need registering as Thunder applications
+(client_credentials grant) before any of this actually authenticates.
+Attempted this directly against the local k3d cluster
+(`k3d-openchoreo-quick-start`, `thunder` namespace) and hit a hard wall:
+Thunder's `/applications` management API returns 401/403 for every
+approach tried — unauthenticated (works only from inside the one-time
+Helm bootstrap hook, already run and gone), as an existing app's own
+client_credentials token (`openchoreo-system-app` → 403 forbidden, no
+management scope), and via `kubectl exec`+`kubectl port-forward` straight
+to the pod (still 401). Registering these 2 clients needs either an admin
+credential this session doesn't have, or another Helm-hook-style bootstrap
+run — someone with real admin access to this Thunder instance needs to add
+them, e.g. by extending the `thunder-bootstrap` Helm chart's ConfigMap
+with 2 more scripts following the exact pattern already used by
+`53-rca-agent-client.sh`/`57-service-mcp-app.sh` in that ConfigMap
+(`client_credentials` grant, `token_endpoint_auth_method: client_secret_basic`,
+`client_id`/`client_secret` matching the defaults in `thunder_client.py`/
+`mcp_auth_client.py`) and re-running that hook.
 
 Transport: `streamable-http`, `MCP_HOST`/`MCP_PORT` (default `0.0.0.0:9002`)
 — discovered via the Backstage Catalog, not a hardcoded path.

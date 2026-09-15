@@ -10,6 +10,17 @@ orchestration-api) specifically because both are already transitive
 dependencies of `mcp[cli]` here (it uses PyJWT internally for its own
 bearer-auth support) — adding python-jose would mean a new pinned
 dependency in this service's lock file for no benefit.
+
+Audience check is an allowlist of `client_id`s, not a fixed resource
+string: verified empirically against a live Thunder instance (k3d
+`openchoreo-quick-start`, `oauth2/token` for an existing app) that its
+client_credentials tokens always carry `aud == client_id` — there is no
+separate "resource" audience to mint against. `services/orchestration-api
+/auth/thunder.py`'s `thunder_audience = "openchoreo-backstage-client"`
+setting works the same way (that value equals Backstage's own client_id,
+its only allowed caller); this generalizes that pattern to a set, since
+this server expects one specific caller (`orchestration-api-agent`), not
+Backstage.
 """
 
 import json
@@ -25,10 +36,15 @@ from jwt.algorithms import RSAAlgorithm
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 
 THUNDER_URL: Final[str] = os.getenv("THUNDER_URL", "http://thunder.openchoreo.localhost:8080")
-# Distinct from orchestration-api's own `THUNDER_AUDIENCE` (openchoreo-backstage-client) —
-# tokens presented here must have been minted for *this* resource, not replayed
-# from a different audience.
-THUNDER_AUDIENCE: Final[str] = os.getenv("THUNDER_MCP_AUDIENCE", "golden-paths-server")
+# client_ids allowed to call this server's MCP endpoint at all (comma-separated).
+# Thunder's client_credentials tokens carry aud == the caller's own client_id
+# (empirically confirmed, see module docstring) — so this is checked as
+# membership, not equality against one fixed string.
+ALLOWED_CLIENT_IDS: Final[frozenset[str]] = frozenset(
+    c.strip()
+    for c in os.getenv("THUNDER_MCP_ALLOWED_CLIENTS", "orchestration-api-agent").split(",")
+    if c.strip()
+)
 
 logger = logging.getLogger("golden_paths_server.token_verifier")
 
@@ -62,13 +78,23 @@ class ThunderTokenVerifier(TokenVerifier):
             signing_key = _signing_key_for(token)
             if signing_key is None:
                 return None
-            claims = jwt.decode(token, signing_key, algorithms=["RS256"], audience=THUNDER_AUDIENCE)
+            # verify_aud=False: we check `aud` against an allowlist of
+            # client_ids ourselves below, not equality against one fixed
+            # string — PyJWT's built-in `audience=` only supports the latter.
+            claims = jwt.decode(
+                token, signing_key, algorithms=["RS256"], options={"verify_aud": False}
+            )
         except Exception:
             logger.warning("rejected MCP bearer token", exc_info=True)
             return None
 
-        client_id = claims.get("azp") or claims.get("sub")
+        client_id = claims.get("azp") or claims.get("client_id") or claims.get("sub")
         if not client_id:
+            return None
+        aud = claims.get("aud")
+        aud_values = {aud} if isinstance(aud, str) else set(aud) if aud else set()
+        if not aud_values & ALLOWED_CLIENT_IDS:
+            logger.warning("rejected MCP bearer token: aud %r not in allowlist", aud)
             return None
         scope_claim = claims.get("scope") or ""
         return AccessToken(
