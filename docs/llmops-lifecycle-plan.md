@@ -11,6 +11,13 @@
 > mục 8. Từ đây là kế hoạch triển khai trực tiếp được, không còn phần "tuỳ
 > chọn chưa quyết".
 
+> **Cập nhật:** Mô tả `JsonFileVersionRegistryAdapter` dùng chung cho
+> `prompt`+`rag-index` bên dưới đã lỗi thời — code thật đã tách 2 adapter:
+> `get_registry_adapter()` chỉ còn phục vụ `kind="rag-index"`,
+> `get_prompt_registry_adapter()` dùng `MlflowPromptRegistryAdapter` cho
+> `kind="prompt"`. Đây là chủ đích (xem docstring trong
+> `adapters/factory.py`), không phải lỗi. Không đổi code theo ghi chú này.
+
 ## 1. Bối cảnh
 
 `docs/playbook-ai-delivery-portal.md` xác định "Đối tượng thứ nhất" của đề tài
@@ -68,7 +75,7 @@ riêng** — nó là tham số `mode` (`train` | `finetune`) trên đúng 1
 `WorkflowTemplate` dùng chung cho cả train lẫn fine-tune,
 `infra/argo-workflows/train-register-template.yaml`
 (`train-register-golden-path`), chọn bởi việc Golden Path #1
-(`examples/templates/train-track-register/template.yaml`) có set
+(`templates/train-track-register/template.yaml`, repo frontend) có set
 `baseModelUri` hay không (`routers/models.py::trigger_training()`, dòng
 `"mode": "finetune" if request.base_model_uri is not None else "train"`).
 Fine-tune áp dụng cho nhiều architecture hơn draft mô tả — không chỉ
@@ -257,9 +264,9 @@ Lý do gộp "prompt" và "rag-index" vào chung 1 cặp template (không tách 
 `architecture` + JSON Schema `allOf/if/then` — dùng lại chính xác pattern đó
 với field `artifactKind: [prompt, rag-index]`.
 
-→ `examples/templates/llm-draft-register/template.yaml` (Golden Path LLMOps
-#1) và `examples/templates/llm-evaluate-deploy/template.yaml` (Golden Path
-LLMOps #2) — xem mục 9.
+→ `templates/llm-draft-register/template.yaml` (repo frontend, Golden Path
+LLMOps #1) và `templates/llm-evaluate-deploy/template.yaml` (repo frontend,
+Golden Path LLMOps #2) — xem mục 9.
 
 ### Q4 — Instant hay PR-gated (gắn với Q2/Q3, chốt cùng lúc)
 
@@ -589,7 +596,7 @@ check).
 
 ### 9.8 Golden Path template mới
 
-**`examples/templates/llm-draft-register/template.yaml`** — "Draft/Ingest →
+**`templates/llm-draft-register/template.yaml`** (repo frontend) — "Draft/Ingest →
 Register (LLMOps Golden Path #1)". Tham số `artifactKind: [prompt,
 rag-index]` (bắt buộc, không default — buộc chọn rõ, đúng kiểu `taskType`
 của `train-track-register`), JSON Schema `allOf/if/then` gate field theo
@@ -601,7 +608,7 @@ của `train-track-register`), JSON Schema `allOf/if/then` gate field theo
 in ra version vừa tạo, nhắc rõ **chưa active** — chạy tiếp Golden Path #2 để
 evaluate + activate.
 
-**`examples/templates/llm-evaluate-deploy/template.yaml`** — "Evaluate →
+**`templates/llm-evaluate-deploy/template.yaml`** (repo frontend) — "Evaluate →
 Deploy (LLMOps Golden Path #2)". Cùng `artifactKind` selector, cộng thêm
 tham số `model` (optional, default `"claude-sonnet-5"`, mô tả: "Any
 model_name registered in litellm-config.yaml — including a self-hosted
@@ -624,8 +631,8 @@ Golden Path #1; nếu `passed=true`, xác nhận đã activate.
 
 ### 9.9 Đăng ký template + config
 
-- `app-config.yaml` (`catalog.locations`, dạng `../../examples/templates/...`)
-  và `app-config.production.yaml` (dạng `./examples/templates/...`) — thêm
+- `app-config.yaml` (`catalog.locations`, dạng `../../templates/...`)
+  và `app-config.production.yaml` (dạng `./templates/...`) — thêm
   cả `llm-draft-register` và `llm-evaluate-deploy`, đúng quy tắc CLAUDE.md
   "Adding a Catalog entity/template".
 - `infra/llm-gateways/litellm-config.yaml` — thêm entry:

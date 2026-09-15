@@ -8,15 +8,16 @@
 
 ## 1. Bối cảnh & vấn đề
 
-Golden Path #1 (`examples/templates/train-track-register/template.yaml`)
-hiện chỉ có 2 bước, và toàn bộ pipeline train
+Golden Path #1 (`templates/train-track-register/template.yaml` trong repo
+frontend `cuongct924/backstage-plugins`) hiện chỉ có 2 bước, và toàn bộ pipeline train
 (`infra/argo-workflows/train-register-template.yaml` +
 `fine-tune-template.yaml`) hardcode cứng vào 1 use case: cột nhãn
 `is_fraud`, cột loại bỏ `transaction_id`, encode cứng `merchant_category`,
 và duy nhất thuật toán `LogisticRegression`. `evaluations/gate.py` cũng chỉ
 có 1 bộ ngưỡng accuracy/precision/recall — chỉ đúng cho classification.
 
-Golden Path #2 (`examples/templates/register-deploy/template.yaml`) chỉ có
+Golden Path #2 (`templates/register-deploy/template.yaml` trong repo
+frontend) chỉ có
 1 cách deploy: Evaluate Gate rồi thay thế toàn bộ (`adapters/kserve_adapter.py`
 tạo 1 `InferenceService` duy nhất, không dùng field `canaryTrafficPercent`
 mà KServe đã hỗ trợ sẵn). Không có lựa chọn nào hiện ra cho Dev — muốn deploy
@@ -171,7 +172,8 @@ cần gửi lại `taskType` ở bước deploy.
 
 ### 3.4 Bước mới cho Golden Path #1 (2 → 5 bước)
 
-`examples/templates/train-track-register/template.yaml`:
+`templates/train-track-register/template.yaml` (repo frontend
+`cuongct924/backstage-plugins`):
 
 1. **`validate-dataset`** (mới, `orchestration:validate-dataset` →
    `POST /datasets/validate`) — đọc header CSV, kiểm tra `targetColumn` tồn
@@ -290,7 +292,7 @@ PR, không tự động sync ArgoCD).
 - `routers/models.py` — `/deploy-model/prepare` nhận `traffic_strategy`
   (+ config preset) và `release_strategy`; endpoint mới hoặc nhánh xử lý cho
   `InstantStrategy` (gọi thẳng thay vì trả manifest để publish PR).
-- `examples/templates/register-deploy/template.yaml` — thêm 2 parameter
+- `templates/register-deploy/template.yaml` (repo frontend) — thêm 2 parameter
   dropdown (`deployStrategy`, `releaseStrategy`), điều kiện hiện Canary/A-B
   chỉ khi đã có deploy trước (cần gọi 1 action kiểm tra trước, hoặc dùng
   JSON Schema conditional nếu Backstage hỗ trợ tra cứu — cần xác nhận khả
@@ -324,6 +326,11 @@ không có kubeconfig hợp lệ (container hiện tại, CI, dev chưa chạy `
 
 ## 4b. Hạ tầng GitOps cho Golden Path #2 — ArgoCD + Helm + KServe Serverless
 
+> **Đã lỗi thời** — mục này mô tả kiến trúc ArgoCD+Kargo+Kubara ban đầu; hạ
+> tầng thật hiện nay là OpenChoreo (`infra/openchoreo/`). Xem
+> `docs/openchoreo-migration-next-steps.md` để biết tiến độ hiện tại. Giữ
+> lại nội dung bên dưới vì có giá trị lịch sử.
+
 **Phát hiện quan trọng lúc chuẩn bị code mục 4**: KServe/Knative Serving —
 thứ thực sự chạy `InferenceService` — **chưa từng được cài** trên `kind`
 (chỉ có Argo Workflows). Không có KServe thì dù `IDeployTrafficStrategy`
@@ -344,10 +351,11 @@ chỉ tên file/số lượng đã đổi:
 - `inference-services-app.yaml` — `directory` source trỏ
   `infra/inference-services/` (đã là YAML phẳng, không cần Helm) — đóng
   đúng gap "merge PR không làm gì" của Golden Path #2.
-- `orchestration-api-app.yaml`/`portal-app.yaml` — `source.helm` trỏ
-  `infra/helm-charts/orchestration-api`/`portal` (2 Helm chart mới, **bổ
+- `orchestration-api-app.yaml`/`portal-app.yaml` — `source.helm` từng trỏ
+  `infra/helm-charts/orchestration-api`/`portal` (2 Helm chart, **bổ
   sung cho `docker compose up -d`/`yarn start`, không thay thế** — vòng
-  lặp dev hàng ngày không đổi gì).
+  lặp dev hàng ngày không đổi gì); 2 chart này đã bị xóa, thay bằng
+  `infra/openchoreo/platform/{component,workload}-{orchestration-api,portal}.yaml`.
 
 **Helm chỉ 2 chart, không phải 4 như `infra/helm-charts/README.md` dự kiến
 ban đầu**: khảo sát `docker-compose.yml` phát hiện 3 MCP server

@@ -11,9 +11,11 @@ import asyncio
 import logging
 from typing import Any, TypedDict
 
+import mcp_auth_client
 from catalog_client import McpServerInfo, discover_mcp_servers
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.types import TextContent, Tool
 
 logger = logging.getLogger("orchestration_api.mcp_client")
@@ -49,9 +51,21 @@ class McpToolRegistry:
         if ready_events:
             await asyncio.gather(*(e.wait() for e in ready_events))
 
-    def list_tools(self) -> list[ToolSchema]:
+    def list_tools(self, allowed_tool_names: frozenset[str] | None = None) -> list[ToolSchema]:
         """Tool schemas in the OpenAI-style `tools=[...]` shape
-        `LiteLLMGatewayAdapter.chat_completion(tools=...)` expects."""
+        `LiteLLMGatewayAdapter.chat_completion(tools=...)` expects.
+
+        `allowed_tool_names=None` returns every tool from every connected
+        server — used by portal_assistant.py, which has no persona concept.
+        `chat.py` always passes a concrete (possibly empty) set, scoped by
+        persona (see persona_tool_scope.py) — a persona must never see a
+        tool it isn't allowed to call.
+        """
+        tools = (
+            self._tools.values()
+            if allowed_tool_names is None
+            else (t for t in self._tools.values() if t.name in allowed_tool_names)
+        )
         return [
             {
                 "type": "function",
@@ -61,7 +75,7 @@ class McpToolRegistry:
                     "parameters": tool.input_schema,
                 },
             }
-            for tool in self._tools.values()
+            for tool in tools
         ]
 
     def is_destructive(self, tool_name: str) -> bool:
@@ -97,8 +111,16 @@ class McpToolRegistry:
             return
 
         try:
+            # This service's own identity when calling out to an MCP server —
+            # a server with no token_verifier configured just ignores the
+            # header; one that does (golden-paths-server) rejects the
+            # connection outright without it.
             async with (
-                streamable_http_client(server["endpoint"]) as (read, write),
+                create_mcp_http_client(headers=mcp_auth_client.auth_headers()) as http_client,
+                streamable_http_client(server["endpoint"], http_client=http_client) as (
+                    read,
+                    write,
+                ),
                 ClientSession(read, write) as session,
             ):
                 await session.initialize()

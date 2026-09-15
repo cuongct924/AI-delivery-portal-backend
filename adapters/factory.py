@@ -5,10 +5,18 @@ swapping Mock -> real backend means editing this file, not every caller.
 Registry/Workflow/Inference/Notebook each get a `USE_MOCK_<ADAPTER>` flag
 (see .env.example), falling back to the blanket `USE_MOCK_ADAPTERS` when
 unset.
+
+Workflow and Inference additionally accept a 3rd mode, "openchoreo" (via
+`_backend_mode`, only selectable through the specific env var, never the
+blanket one) — a stub until OpenChoreoWorkflowAdapter/
+OpenChoreoInferenceAdapter exist. Model Registry and Notebook have no
+OpenChoreo-backed replacement planned, so they stay on the plain 2-way
+`_use_mock`.
 """
 
 import os
 from functools import lru_cache
+from typing import Literal, cast
 
 from adapters.argo_adapter import ArgoAdapter
 from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
@@ -39,6 +47,27 @@ def _use_mock(specific_env_var: str) -> bool:
     if specific is not None:
         return specific.lower() == "true"
     return os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true"
+
+
+type BackendMode = Literal["mock", "legacy", "openchoreo"]
+
+
+def _backend_mode(specific_env_var: str) -> BackendMode:
+    """Same fallback semantics as `_use_mock`: `specific_env_var` (e.g.
+    "USE_MOCK_WORKFLOW") wins when set — accepts "mock"/"legacy"/
+    "openchoreo" or the legacy "true"/"false" (back-compat with existing
+    .env files). Unset falls back to `USE_MOCK_ADAPTERS`, which only ever
+    resolves to "mock" or "legacy" — "openchoreo" is never selected via
+    the blanket flag, only the specific one, since no adapter using this
+    helper has finished migrating yet.
+    """
+    specific = os.getenv(specific_env_var)
+    if specific is not None:
+        normalized = specific.lower()
+        if normalized in ("mock", "legacy", "openchoreo"):
+            return cast(BackendMode, normalized)
+        return "mock" if normalized == "true" else "legacy"
+    return "mock" if os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true" else "legacy"
 
 
 @lru_cache
@@ -73,17 +102,21 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 
 @lru_cache
 def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter:
-    if _use_mock("USE_MOCK_WORKFLOW"):
-        # Only wired to the registry when that's also mocked — a real
-        # registry gets its models registered by whatever actually trained
-        # them (e.g. fake_argo.py), same as production.
-        model_registry = get_model_registry_adapter()
-        return MockWorkflowAdapter(
-            model_registry=model_registry
-            if isinstance(model_registry, MockModelRegistryAdapter)
-            else None
-        )
-    return ArgoAdapter()
+    match _backend_mode("USE_MOCK_WORKFLOW"):
+        case "mock":
+            # Only wired to the registry when that's also mocked — a real
+            # registry gets its models registered by whatever actually
+            # trained them (e.g. fake_argo.py), same as production.
+            model_registry = get_model_registry_adapter()
+            return MockWorkflowAdapter(
+                model_registry=model_registry
+                if isinstance(model_registry, MockModelRegistryAdapter)
+                else None
+            )
+        case "legacy":
+            return ArgoAdapter()
+        case "openchoreo":
+            raise NotImplementedError("OpenChoreoWorkflowAdapter not implemented yet")
 
 
 @lru_cache
@@ -120,8 +153,12 @@ def get_kserve_adapter(tenant: str) -> KServeAdapter | MockInferenceAdapter:
     promotion is DeploymentPipeline-only (infra/openchoreo/deployment-pipeline.yaml).
     """
     namespace = f"ai-delivery-portal-dev-{tenant}"
-    if _use_mock("USE_MOCK_INFERENCE"):
-        if tenant not in _mock_kserve_adapters:
-            _mock_kserve_adapters[tenant] = MockInferenceAdapter(namespace=namespace)
-        return _mock_kserve_adapters[tenant]
-    return KServeAdapter(namespace=namespace)
+    match _backend_mode("USE_MOCK_INFERENCE"):
+        case "mock":
+            if tenant not in _mock_kserve_adapters:
+                _mock_kserve_adapters[tenant] = MockInferenceAdapter(namespace=namespace)
+            return _mock_kserve_adapters[tenant]
+        case "legacy":
+            return KServeAdapter(namespace=namespace)
+        case "openchoreo":
+            raise NotImplementedError("OpenChoreoInferenceAdapter not implemented yet")

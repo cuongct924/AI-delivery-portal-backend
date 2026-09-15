@@ -1,5 +1,0 @@
-# Overlay on top of infra/helm-charts/portal/values.yaml — see
-# ../../staging/portal/values.yaml for the nodePort/port-forward note.
-# Populated by Kargo only after manual approval on the prod Stage.
-nodePort: 32769
-externalUrl: http://localhost:3004

@@ -1,4 +1,0 @@
-# Overlay on top of infra/helm-charts/orchestration-api/values.yaml — see
-# ../../dev/orchestration-api/values.yaml for the pattern. Populated by
-# Kargo when it promotes a Freight from dev — not hand-edited.
-replicaCount: 1

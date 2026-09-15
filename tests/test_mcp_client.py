@@ -36,7 +36,7 @@ async def test_connect_all_aggregates_tools_across_servers() -> None:
     url_by_read_id: dict[int, str] = {}
 
     @asynccontextmanager
-    async def fake_transport(url: str):
+    async def fake_transport(url: str, **_kwargs: object):
         read, write = MagicMock(), MagicMock()
         url_by_read_id[id(read)] = url
         yield (read, write)
@@ -47,6 +47,7 @@ async def test_connect_all_aggregates_tools_across_servers() -> None:
 
     with (
         patch("mcp_client.discover_mcp_servers", return_value=[server_a, server_b]),
+        patch("mcp_client.mcp_auth_client.auth_headers", return_value={}),
         patch("mcp_client.streamable_http_client", side_effect=fake_transport),
         patch("mcp_client.ClientSession", side_effect=fake_client_session),
     ):

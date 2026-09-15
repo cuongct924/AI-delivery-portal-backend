@@ -1,7 +1,0 @@
-# Overlay on top of infra/helm-charts/orchestration-api/values.yaml
-# (`helm upgrade --install -f infra/helm-charts/orchestration-api/values.yaml
-#  -f infra/environments/dev/orchestration-api/values.yaml`).
-# Only values that differ from the base chart defaults belong here —
-# dev matches the base defaults today, so this file is intentionally
-# near-empty until dev needs to diverge (e.g. a different image tag).
-replicaCount: 1

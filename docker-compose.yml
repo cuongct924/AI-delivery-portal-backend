@@ -114,6 +114,11 @@ services:
       # and degrades (MCP discovery, and now golden-paths lookup, both
       # depend on this working).
       BACKSTAGE_BASE_URL: http://host.docker.internal:7007
+      # This service's own identity when calling out to golden-paths-server
+      # (mcp_client.py/mcp_auth_client.py) — needs registering by hand in
+      # Thunder first, same prerequisite as golden-paths-agent below.
+      MCP_CLIENT_ID: orchestration-api-agent
+      MCP_CLIENT_SECRET: orchestration-api-agent-dev-secret
     # Routes the k3d gateway hostname to the real host machine — its
     # auto-loopback resolution isn't guaranteed inside a container.
     extra_hosts:
@@ -170,6 +175,11 @@ services:
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
       THUNDER_CLIENT_ID: golden-paths-agent
       THUNDER_CLIENT_SECRET: golden-paths-agent-dev-secret
+      # This server's own resource identifier (AuthSettings.resource_server_url)
+      # and the audience it requires on inbound Bearer tokens — must match
+      # what orchestration-api-agent's issued tokens carry.
+      MCP_SERVER_URL: http://golden-paths-server:9002/mcp
+      THUNDER_MCP_AUDIENCE: golden-paths-server
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"
     # orchestration-api is a different profile — start it first.

@@ -1,8 +1,0 @@
-# Overlay on top of infra/helm-charts/portal/values.yaml. nodePort must be
-# distinct per environment (the Helm chart's Service is NodePort-typed —
-# see infra/helm-charts/portal/templates/service.yaml). Not mapped to a
-# kind-config.yaml hostPort — reach it with
-# `kubectl port-forward -n ai-delivery-portal-staging svc/portal 3003:7007`
-# unless a hostPort mapping is added later. Populated by Kargo, not hand-edited.
-nodePort: 32759
-externalUrl: http://localhost:3003

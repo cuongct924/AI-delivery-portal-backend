@@ -31,9 +31,8 @@ ready and stopped the moment the model version is visible in the MLflow UI:
 | _(not yet run)_ | | | |
 
 Fill this table in after actually performing the manual run above — do not
-estimate or infer a number, this repo's own convention (see
-`infra/openchoreo/README.md`) is to only report measurements that were
-actually taken.
+estimate or infer a number, this repo's convention is to only report
+measurements that were actually taken.
 
 ## Caveat
 

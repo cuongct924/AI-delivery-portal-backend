@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from persona_tool_scope import allowed_tools_for
 from routers.chat import ChatRequest, send_message
 
 
@@ -202,3 +203,83 @@ async def test_send_message_use_tools_gates_destructive_tool_behind_confirmation
     assert response.pending_confirmation is not None
     assert "activate_prompt" in response.pending_confirmation
     assert mock_gateway.chat_completion.call_count == 1  # no follow-up call
+    assert response.pending_tool_call == {
+        "name": "activate_prompt",
+        "arguments": {"name": "mlops", "version": "2"},
+    }
+
+
+@pytest.mark.asyncio
+async def test_send_message_use_tools_scopes_tool_list_to_persona() -> None:
+    """k8s is read-only — the model must never even be offered a mutating tool."""
+    request = ChatRequest(message="how's the cluster", use_tools=True, persona="k8s")
+    mock_mcp_registry = MagicMock()
+    mock_mcp_registry.list_tools.return_value = []
+
+    with (
+        patch("routers.chat.registry_adapter") as mock_registry,
+        patch("routers.chat.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_registry.get_active_version.return_value = "1"
+        mock_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion.return_value = {
+            "choices": [{"message": {"content": "all good", "tool_calls": None}}]
+        }
+
+        await send_message(request, _http_request(mock_mcp_registry))
+
+    mock_mcp_registry.list_tools.assert_called_once_with(allowed_tools_for("k8s"))
+    assert "activate_prompt" not in allowed_tools_for("k8s")
+
+
+@pytest.mark.asyncio
+async def test_send_message_confirmed_tool_call_executes_directly_without_the_llm() -> None:
+    """The resubmission path after a human approves pending_tool_call — never
+    re-asks the model, and always forces confirm=True itself."""
+    request = ChatRequest(
+        message="yes, activate it",
+        confirmed_tool_call={
+            "name": "activate_prompt",
+            "arguments": {"name": "mlops", "version": "2"},
+        },
+    )
+    mock_mcp_registry = MagicMock()
+
+    async def fake_call_tool(name: str, args: dict) -> str:
+        assert name == "activate_prompt"
+        assert args == {"name": "mlops", "version": "2", "confirm": True}
+        return "activated"
+
+    mock_mcp_registry.call_tool = fake_call_tool
+
+    with (
+        patch("routers.chat.registry_adapter") as mock_registry,
+        patch("routers.chat.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_registry.get_active_version.return_value = "1"
+        mock_registry.get_version.return_value = {"content": "system prompt"}
+
+        response = await send_message(request, _http_request(mock_mcp_registry))
+
+    assert response.reply == "activated"
+    assert response.tools_used == ["activate_prompt"]
+    mock_gateway.chat_completion.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_send_message_confirmed_tool_call_rejects_tool_outside_persona_scope() -> None:
+    request = ChatRequest(
+        message="do it",
+        persona="k8s",
+        confirmed_tool_call={"name": "activate_prompt", "arguments": {}},
+    )
+    mock_mcp_registry = MagicMock()
+    mock_mcp_registry.call_tool = MagicMock(side_effect=AssertionError("must not be called"))
+
+    with patch("routers.chat.registry_adapter") as mock_registry:
+        mock_registry.get_active_version.return_value = "1"
+        mock_registry.get_version.return_value = {"content": "system prompt"}
+        with pytest.raises(HTTPException) as exc_info:
+            await send_message(request, _http_request(mock_mcp_registry))
+
+    assert exc_info.value.status_code == 403

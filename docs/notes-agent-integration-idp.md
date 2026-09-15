@@ -23,7 +23,7 @@ luận và tự lên kế hoạch hành động liên tục.
 | Tầng | Đã có ở đâu trong repo | Vì sao giữ nguyên |
 | :--- | :--- | :--- |
 | 1 | `catalog_client.py`, `data_quality/checks.py`, `evaluations/gate.py` | Transform cố định, cần test/audit được |
-| 2 | `examples/templates/*` (Golden Paths) chạy qua Scaffolder Action → `orchestration-api` | CLAUDE.md đã quy định: business logic không được nằm trong Backstage, FastAPI sở hữu logic Adapter/Factory/policy |
+| 2 | `templates/<golden-path-name>/template.yaml` (repo frontend, Golden Paths) chạy qua Scaffolder Action → `orchestration-api` | CLAUDE.md đã quy định: business logic không được nằm trong Backstage, FastAPI sở hữu logic Adapter/Factory/policy |
 | 3 | `routers/chat.py` với `use_rag=True` | Hỏi-đáp playbook/runbook, rẻ, không cần planning |
 | 4 | **Chưa tồn tại đúng nghĩa** | — |
 
@@ -69,8 +69,9 @@ chọn đúng Golden Path thay vì chọn nhầm theo ngưỡng cứng.
 
 Khi người dùng mô tả nhu cầu bằng ngôn ngữ tự nhiên không theo cấu trúc cố
 định, agent phải tự diễn giải ý định, chọn Golden Path nào trong
-`examples/templates/*` và tham số hoá nó — input mới lạ mỗi lần, không liệt
-kê hết nhánh rẽ trước được như trong Scaffolder Action.
+`templates/<golden-path-name>/template.yaml` (repo frontend) và tham số hoá
+nó — input mới lạ mỗi lần, không liệt kê hết nhánh rẽ trước được như trong
+Scaffolder Action.
 
 ## 4. Ranh giới quan trọng cần giữ
 
@@ -92,8 +93,9 @@ kê hết nhánh rẽ trước được như trong Scaffolder Action.
 **Điểm mạnh:** dùng MCP SDK thật (`mcp==2.0.0`, transport `streamable-http`
 chuẩn hiện đại), discovery qua Backstage Catalog thay vì hardcode
 (`catalog_client.py`), tool annotation (`destructive_hint`) gate hành động
-phá hoại, service identity riêng qua Keycloak client_credentials
-(`golden-paths-server/keycloak_client.py`) thay vì self-reported header.
+phá hoại, service identity riêng qua Thunder client_credentials token
+fetch/cache (`golden-paths-server/thunder_client.py`, hàm `auth_headers()`)
+thay vì self-reported header.
 
 **Khoảng trống:**
 
@@ -209,7 +211,7 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
 - [ ] `golden-paths-server` tự verify token/scope trước khi thực thi tool
       `destructive_hint=True`, không dựa hoàn toàn vào `chat.py` chặn hộ.
       File: `agents/mcp-servers/golden-paths-server/server.py`,
-      `keycloak_client.py`.
+      `thunder_client.py`.
 
 ### Phase 1 — Single-agent-ready: sửa đúng cái đã có (rẻ, nền tảng cho mọi phase sau)
 

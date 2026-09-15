@@ -18,7 +18,12 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Path"]
 
 [tool.pytest.ini_options]
-pythonpath = [".", "services/orchestration-api", "infra/argo-workflows/training-image"]
+pythonpath = [
+    ".",
+    "services/orchestration-api",
+    "infra/argo-workflows/training-image",
+    "agents/mcp-servers/golden-paths-server",
+]
 testpaths = ["tests"]
 addopts = "--cov --cov-report=term-missing"
 asyncio_mode = "auto"
@@ -60,5 +65,13 @@ exclude = [
 # own modules (core, routers, auth, evaluations) are imported unqualified from
 # inside that service, same as at runtime (uvicorn runs with cwd there); same
 # reasoning for the training image's algorithm_registry/metrics/train.
-extraPaths = ["services/orchestration-api", "infra/argo-workflows/training-image"]
+# golden-paths-server is the odd one out: nothing else imports it unqualified
+# at runtime (it's a standalone script, own Dockerfile) — only
+# tests/test_token_verifier.py reaches in, via the same sys.path trick this
+# comment already describes for the other two.
+extraPaths = [
+    "services/orchestration-api",
+    "infra/argo-workflows/training-image",
+    "agents/mcp-servers/golden-paths-server",
+]
 typeCheckingMode = "standard"

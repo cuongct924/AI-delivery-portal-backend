@@ -37,7 +37,8 @@ the training sample doesn't carry one.
 `POST /datasets/enrich-features` (`services/orchestration-api/routers/models.py`)
 merges Feast features into a dataset before training — called by the
 `orchestration:enrich-dataset-features` Scaffolder Action, itself an
-opt-in step (`useFeast` parameter) in `examples/templates/train-track-register/template.yaml`.
+opt-in step (`useFeast` parameter) in `templates/train-track-register/template.yaml`
+(frontend repo, `cuongct924/backstage-plugins`).
 Most runs leave `useFeast` off and are unaffected.
 
 ## Pointing at real Object Storage

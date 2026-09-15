@@ -1,7 +1,0 @@
-# Overlay on top of infra/helm-charts/portal/values.yaml. Matches the
-# existing single-env setup: nodePort 32749 is the one mapped to hostPort
-# 3002 in infra/k8s-local-cluster/kind-config.yaml, so dev is the only
-# environment directly browsable at http://localhost:3002 without extra
-# kind-config.yaml port mappings.
-nodePort: 32749
-externalUrl: http://localhost:3002

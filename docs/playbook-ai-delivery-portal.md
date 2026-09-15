@@ -74,16 +74,18 @@ Internal Developer Platform (IDP)   ← triết lý ("dev tự phục vụ")
 5. Đo lường được (adoption, thời gian, số lỗi giảm)
 6. Là sản phẩm sống, cần bảo trì
 
-### 2 Golden Path hiện tại
+### 3 Golden Path hiện tại
 
-Chốt đúng **2 golden path**, không có #3 — AI Notebook và provisioning hạ tầng generic là tính năng Portal độc lập, không đóng khung thành golden path.
+Chốt **3 golden path** (#1 Train→Track→Register, #2 Register→Deploy, #3
+Recommend→Train→Register) — AI Notebook và provisioning hạ tầng generic vẫn
+là tính năng Portal độc lập, không đóng khung thành golden path.
 
-| | #1 — Train → Track → Register | #2 — Register → Deploy |
-|---|---|---|
-| **Mục đích** | Huấn luyện (hoặc fine-tune) → log vào MLflow Tracking → đăng ký Model Registry | Model đủ điều kiện (qua Evaluate Gate) mới được deploy lên KServe |
-| **Template** | `examples/templates/train-track-register/template.yaml` | `examples/templates/register-deploy/template.yaml` |
-| **Cơ chế chạy** | Argo WorkflowTemplate `train-register-golden-path`, hoặc `fine-tune-golden-path` khi có `baseModelUri` | Orchestration API gọi `evaluations/gate.py` (LLM-as-judge) trước khi gọi `KServeAdapter` |
-| **Trạng thái** | Template còn mock (`debug:log`), chưa nối Custom Action thật | Template còn mock (`debug:log`), chưa nối Custom Action thật |
+| | #1 — Train → Track → Register | #2 — Register → Deploy | #3 — Recommend → Train → Register |
+|---|---|---|---|
+| **Mục đích** | Huấn luyện (hoặc fine-tune) → log vào MLflow Tracking → đăng ký Model Registry | Model đủ điều kiện (qua Evaluate Gate) mới được deploy lên KServe | Huấn luyện model recommendation/ranking (collaborative hoặc content-based) → đăng ký Model Registry với `task_type="ranking"` |
+| **Template** | `templates/train-track-register/template.yaml` (repo frontend) | `templates/register-deploy/template.yaml` (repo frontend) | `templates/recommend-train-register/template.yaml` (repo frontend) |
+| **Cơ chế chạy** | Argo WorkflowTemplate `train-register-golden-path`, hoặc `fine-tune-golden-path` khi có `baseModelUri` | Orchestration API gọi `evaluations/gate.py` (LLM-as-judge) trước khi gọi `KServeAdapter` | Argo WorkflowTemplate `rec-train-register-golden-path` (`infra/argo-workflows/rec-train-register-template.yaml`) — router riêng `routers/recommendations.py`, tái sử dụng `register-step` của Golden Path #1 và `/models/register`, `/policy-check`, `/deploy-model/*` không đổi |
+| **Trạng thái** | Template còn mock (`debug:log`), chưa nối Custom Action thật | Template còn mock (`debug:log`), chưa nối Custom Action thật | Đã code + commit (`rec_algorithm_registry.py`, `rec_metrics.py`, `train_rec.py`, `routers/recommendations.py`), entry `"ranking"` mới trong Evaluate Gate |
 
 ### Kế hoạch tiếp theo — Software Template & Catalog
 
