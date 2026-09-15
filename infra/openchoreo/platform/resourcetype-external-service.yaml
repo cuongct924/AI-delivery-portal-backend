@@ -1,0 +1,42 @@
+# A service already running outside this cluster (docker-compose on the
+# host, for local dev) — pure Catalog metadata, OpenChoreo deploys nothing
+# for the service itself. `url` is supplied directly as a parameter, not
+# derived from any resource this ResourceType creates.
+#
+# `spec.resources` requires at least 1 entry (verified against the real
+# CRD schema: `kubectl get crd clusterresourcetypes.openchoreo.dev -o
+# jsonpath='{...resources.minItems}'` -> 1) — the ConfigMap below exists
+# to satisfy that, not because anything reads it; `outputs.url` computes
+# straight from `parameters.url` via CEL, same as every other output here.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterResourceType
+metadata:
+  name: external-service
+  annotations:
+    openchoreo.dev/description: >-
+      A service running outside this cluster (e.g. via docker-compose on
+      the host) — pure Catalog metadata, nothing is deployed for it.
+spec:
+  parameters:
+    openAPIV3Schema:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: Full base URL of the already-running external service.
+  outputs:
+    - name: url
+      value: ${parameters.url}
+  resources:
+    - id: info
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: ${metadata.name}-info
+          namespace: ${metadata.namespace}
+          labels: ${metadata.labels}
+        data:
+          url: ${parameters.url}
+  retainPolicy: Delete

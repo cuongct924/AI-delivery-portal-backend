@@ -1,0 +1,21 @@
+# Registers the MLflow instance already running via docker-compose
+# (docker-compose.yml's `mlflow` service, port 5000) as OpenChoreo Catalog
+# metadata — does not change adapters/mlflow_adapter.py, does not change
+# the port, does not deploy a second MLflow. Same host.docker.internal
+# convention already used by workload-orchestration-api.yaml's
+# MLFLOW_TRACKING_URI.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Resource
+metadata:
+  name: mlflow
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  type:
+    kind: ClusterResourceType
+    name: external-service
+  parameters:
+    url: http://host.docker.internal:5000

@@ -1,0 +1,19 @@
+# Registers the Qdrant instance already running via docker-compose
+# (docker-compose.yml's `qdrant` service, port 6333) as OpenChoreo Catalog
+# metadata — does not change adapters/vector_db_adapter.py, does not
+# change the port, does not deploy a second Qdrant.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Resource
+metadata:
+  name: qdrant
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  type:
+    kind: ClusterResourceType
+    name: external-service
+  parameters:
+    url: http://host.docker.internal:6333
