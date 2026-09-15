@@ -6,5 +6,5 @@ pytest==9.1.1
 pytest-cov==7.1.0
 pytest-asyncio==1.4.0
 pre-commit==4.6.2
-uv==0.12.5
+uv==0.12.13
 dvc[s3]==3.67.1
