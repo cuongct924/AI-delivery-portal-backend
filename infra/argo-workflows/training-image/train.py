@@ -270,14 +270,24 @@ def main() -> None:
         raise RuntimeError("CODE_REPO_URL and ENTRYPOINT_PATH are required when ALGORITHM=custom")
     if is_custom and mode != "train":
         raise RuntimeError("BYOC (ALGORITHM=custom) does not support MODE=finetune")
-    if not is_cv and task_type != "clustering" and target_column is None:
+    # anomaly-detection's target column is optional (evaluation only —
+    # IsolationForest/LocalOutlierFactor never train on it, see the
+    # anomaly-detection branch below), same as clustering having none at all.
+    if not is_cv and task_type not in ("clustering", "anomaly-detection") and target_column is None:
         raise RuntimeError(f"TARGET_COLUMN is required for task_type {task_type!r}")
     if not is_custom and architecture == "sklearn" and algorithm is None:
         raise RuntimeError("ALGORITHM is required when ARCHITECTURE=sklearn")
-    if not is_custom and architecture != "sklearn" and task_type == "clustering":
+    if (
+        not is_custom
+        and architecture != "sklearn"
+        and task_type in ("clustering", "anomaly-detection")
+    ):
         # dl_architecture_registry.py's DL_ARCHITECTURES only lists
-        # classification/regression hyperparameters — no DL clustering support.
-        raise RuntimeError(f"architecture {architecture!r} does not support task_type='clustering'")
+        # classification/regression hyperparameters — no DL clustering or
+        # anomaly-detection support.
+        raise RuntimeError(
+            f"architecture {architecture!r} does not support task_type={task_type!r}"
+        )
     if is_search and (is_custom or is_nlp or is_cv or architecture == "sklearn"):
         # HPO is scoped to the DL hyperparameters — the only ones with an
         # existing single-value form field to search over.
@@ -342,8 +352,29 @@ def main() -> None:
                 model = spec.estimator_class()
                 labels = model.fit_predict(train_features)
                 metrics = compute_metrics(task_type, train_features, labels)
+            elif task_type == "anomaly-detection":
+                # Transductive, same as clustering — fits on the whole
+                # dataset, never sees target_column even when one is set
+                # (it's evaluation-only here, not a training signal).
+                if mode != "train":
+                    raise RuntimeError("anomaly-detection does not support MODE=finetune")
+                train_features, _ = _handle_missing_values(features, features, spec)
+                train_features, _ = _scale_features(train_features, train_features, spec)
+                model = spec.estimator_class()
+                raw_predictions = model.fit_predict(train_features)
+                # sklearn's anomaly-estimator convention is -1=anomaly/
+                # 1=normal — remapped to 1=anomaly/0=normal to match a
+                # labeled column like is_anomaly, so compute_metrics'
+                # precision/recall/f1 (when a label is provided) compare
+                # like for like.
+                predictions = np.where(raw_predictions == -1, 1, 0)
+                true_labels = (
+                    cast(pd.Series, df[target_column]) if target_column is not None else None
+                )
+                metrics = compute_metrics(task_type, true_labels, predictions)
             else:
-                # Validated non-None above (task_type != "clustering" requires it).
+                # Validated non-None above (only clustering/anomaly-detection,
+                # handled in their own branches, allow it to be absent).
                 assert target_column is not None
                 labels_full = cast(pd.Series, df[target_column])
                 train_features, test_features, train_labels, test_labels = _split(

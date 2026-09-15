@@ -6,7 +6,9 @@ import pytest
 from algorithm_registry import TASK_TYPE_ALGORITHMS, get_algorithm_spec
 
 
-@pytest.mark.parametrize("task_type", ["classification", "regression", "clustering"])
+@pytest.mark.parametrize(
+    "task_type", ["classification", "regression", "clustering", "anomaly-detection"]
+)
 def test_every_registered_estimator_exposes_fit_and_predict(task_type: str) -> None:
     for name, spec in TASK_TYPE_ALGORITHMS[task_type].items():
         estimator = spec.estimator_class()
@@ -25,6 +27,14 @@ def test_no_boosting_library_entries_in_clustering() -> None:
         for spec in TASK_TYPE_ALGORITHMS["clustering"].values()
     }
     assert clustering_classes == {"sklearn"}
+
+
+def test_no_boosting_library_entries_in_anomaly_detection() -> None:
+    anomaly_classes = {
+        spec.estimator_class.__module__.split(".")[0]
+        for spec in TASK_TYPE_ALGORITHMS["anomaly-detection"].values()
+    }
+    assert anomaly_classes == {"sklearn"}
 
 
 def test_get_algorithm_spec_returns_matching_entry() -> None:

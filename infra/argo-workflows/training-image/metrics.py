@@ -1,6 +1,7 @@
 """Metric computation dispatched by task type — each task type has a
 different notion of "good" and needs different sklearn.metrics calls."""
 
+import numpy as np
 from numpy.typing import ArrayLike
 from sklearn.metrics import (
     accuracy_score,
@@ -14,17 +15,26 @@ from sklearn.metrics import (
 )
 
 
-def compute_metrics(task_type: str, y_true: ArrayLike, y_pred: ArrayLike) -> dict[str, float]:
+def compute_metrics(
+    task_type: str, y_true: ArrayLike | None, y_pred: ArrayLike
+) -> dict[str, float]:
     """Computes the metric set for one task type.
 
     Args:
-        task_type: One of "classification", "regression", "clustering".
+        task_type: One of "classification", "regression", "clustering",
+            "anomaly-detection".
         y_true: Ground-truth labels/targets (classification/regression) or
             the feature matrix used to cluster (clustering — silhouette
             needs the points, not labels). Accepts ndarray/Series/DataFrame —
-            callers pass whichever shape their task type produces.
-        y_pred: Model predictions (classification/regression) or cluster
-            assignments (clustering).
+            callers pass whichever shape their task type produces. `None`
+            only for anomaly-detection, whose target column is optional
+            (train.py never trains on it either way — see anomaly_rate
+            below, which needs no ground truth at all).
+        y_pred: Model predictions (classification/regression) or cluster/
+            anomaly assignments (clustering/anomaly-detection) — for
+            anomaly-detection, already remapped by the caller to 1=anomaly/
+            0=normal (sklearn's own IsolationForest/LOF convention is
+            -1/1), so it lines up with a labeled column like `is_anomaly`.
 
     Returns:
         Metric name -> value.
@@ -68,4 +78,15 @@ def compute_metrics(task_type: str, y_true: ArrayLike, y_pred: ArrayLike) -> dic
     if task_type == "clustering":
         # Bounded in [-1, 1] — scale-free, same reasoning as regression above.
         return {"silhouette_score": silhouette_score(y_true, y_pred)}
+    if task_type == "anomaly-detection":
+        # anomaly_rate needs no ground truth — always computable, so it's
+        # what evaluations/gate.py's threshold gates on. precision/recall/f1
+        # only get added when a label column was actually provided; IsolationForest/LOF
+        # never trained on it either way (see train.py), it's evaluation-only.
+        metrics = {"anomaly_rate": float(np.mean(np.asarray(y_pred) == 1))}
+        if y_true is not None:
+            metrics["precision"] = precision_score(y_true, y_pred, zero_division=0)  # pyright: ignore[reportArgumentType]
+            metrics["recall"] = recall_score(y_true, y_pred, zero_division=0)  # pyright: ignore[reportArgumentType]
+            metrics["f1"] = f1_score(y_true, y_pred, zero_division=0)  # pyright: ignore[reportArgumentType]
+        return metrics
     raise ValueError(f"unknown task_type {task_type!r}")

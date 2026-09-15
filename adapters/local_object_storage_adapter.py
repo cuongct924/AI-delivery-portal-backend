@@ -16,8 +16,20 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
-    def __init__(self, root_path: str | None = None):
+    def __init__(self, root_path: str | None = None, mount_path: str = "/mnt/data"):
         self.root_path = Path(root_path or os.getenv("LOCAL_DATASETS_PATH") or _REPO_ROOT / "data")
+        # Where the training pod (k3d, not this process) sees these same
+        # files — same reasoning as MinioObjectStorageAdapter's own
+        # mount_path. `root_path` is wherever *this* process happens to
+        # run (the repo checkout, or docker-compose's ./data bind-mount at
+        # /app/data) — neither is the k3d training pod's filesystem, so a
+        # URI built from root_path (e.g. path.as_uri()) would 404 there
+        # even though it resolves fine right here. `/mnt/data` is synced
+        # onto the k3d server node's filesystem separately (docker cp —
+        # see infra/argo-workflows/train-register-template.yaml's hostPath
+        # volume comment and top-level README.md); this only ever
+        # constructs the URI train.py will read, never touches the file.
+        self.mount_path = mount_path
 
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
         if not self.root_path.is_dir():
@@ -29,10 +41,11 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
             # any other non-tracked file that happens to live under data/.
             if not path.is_file() or not Path(f"{path}.dvc").exists():
                 continue
+            relative_path = path.relative_to(self.root_path)
             datasets.append(
                 DatasetInfo(
-                    name=str(path.relative_to(self.root_path)),
-                    uri=path.as_uri(),
+                    name=str(relative_path),
+                    uri=f"file://{self.mount_path}/{relative_path.as_posix()}",
                     size_bytes=path.stat().st_size,
                     source="local",
                 )

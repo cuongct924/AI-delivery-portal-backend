@@ -122,8 +122,19 @@ services:
     # sample datasets a host-run `make run-orchestration-api` sees, without
     # needing the mlops-datasets MinIO bucket populated first. Read-only —
     # this adapter only ever lists files, never writes.
+    #
+    # Mounted a second time at /mnt/data — the SAME path the k3d training
+    # pod reads from (train-register-template.yaml's hostPath, synced via
+    # `docker cp`, see top-level README.md) — because
+    # LocalFileObjectStorageAdapter's returned `uri` always uses that path
+    # (so it's valid for the training pod once TASK_TYPE_THRESHOLDS steps
+    # hand it off), not /app/data. Without this, GET /datasets/validate,
+    # /datasets/columns, /datasets/preview here 404/500 on any
+    # LocalFileObjectStorageAdapter-sourced dataset_uri, even though the
+    # exact same file is sitting right there at /app/data.
     volumes:
       - ./data:/app/data:ro
+      - ./data:/mnt/data:ro
     depends_on:
       - mlflow
       - minio

@@ -17,13 +17,14 @@ from sklearn.cluster import DBSCAN, AgglomerativeClustering, KMeans
 from sklearn.ensemble import (
     GradientBoostingClassifier,
     GradientBoostingRegressor,
+    IsolationForest,
     RandomForestClassifier,
     RandomForestRegressor,
 )
 from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
 from sklearn.mixture import GaussianMixture
 from sklearn.naive_bayes import GaussianNB
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsClassifier, LocalOutlierFactor
 from sklearn.svm import SVC, SVR
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -115,10 +116,24 @@ _CLUSTERING: Final[dict[str, AlgorithmSpec]] = {
     ),
 }
 
+# Transductive like clustering (train.py calls .fit_predict(), never
+# .predict()) — LocalOutlierFactor's own .predict() only works with
+# novelty=True, which this registry doesn't set, so fit_predict is the
+# only method both estimators actually support here.
+_ANOMALY_DETECTION: Final[dict[str, AlgorithmSpec]] = {
+    "IsolationForest": AlgorithmSpec(
+        IsolationForest, requires_scaling=False, handles_missing_natively=False
+    ),
+    "LocalOutlierFactor": AlgorithmSpec(
+        LocalOutlierFactor, requires_scaling=True, handles_missing_natively=False
+    ),
+}
+
 TASK_TYPE_ALGORITHMS: Final[dict[str, dict[str, AlgorithmSpec]]] = {
     "classification": _CLASSIFICATION,
     "regression": _REGRESSION,
     "clustering": _CLUSTERING,
+    "anomaly-detection": _ANOMALY_DETECTION,
 }
 
 
@@ -126,7 +141,8 @@ def get_algorithm_spec(task_type: str, algorithm: str) -> AlgorithmSpec:
     """Looks up a registry entry.
 
     Args:
-        task_type: One of "classification", "regression", "clustering".
+        task_type: One of "classification", "regression", "clustering",
+            "anomaly-detection".
         algorithm: Registry key, e.g. "XGBClassifier".
 
     Returns:

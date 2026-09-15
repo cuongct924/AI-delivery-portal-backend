@@ -35,6 +35,9 @@ TASK_TYPE_CHECKS: Final[dict[str, list[Callable[..., CheckResult]]]] = {
     ],
     "regression": [check_target_leakage_correlation, check_high_cardinality],
     "clustering": [check_dimensionality_vs_samples],
+    # target_column is optional here (see train.py) — same minimal
+    # treatment as clustering, which also has no target most of the time.
+    "anomaly-detection": [check_dimensionality_vs_samples],
 }
 
 

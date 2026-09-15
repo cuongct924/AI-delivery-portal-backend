@@ -1,0 +1,5 @@
+outs:
+- md5: 3bbaefee4fb97552c86ed908b3b3f40c
+  size: 19000
+  hash: md5
+  path: revenue-forecast-sample.csv

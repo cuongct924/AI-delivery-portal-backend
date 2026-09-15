@@ -8,29 +8,38 @@ change, `.dvc/config` stays the same).
 Only the small `.dvc` pointer files (md5 hash + size) are committed to git —
 the real data goes to the `storage` remote configured in `.dvc/config`.
 
-Split into 3 directories by which golden path / training path each dataset
-demos — `recsys/` is a separate Golden Path (`routers/recommendations.py`,
-its own docstring calls it "Golden Path #3": different dataset contract and
-training trigger shape from Golden Path #1, even though it also trains via
-classical algorithms, not Deep Learning); `traditional-ml/` vs
-`deep-learning/` splits Golden Path #1 by `architecture` on
-`TriggerTrainingRequest` — classical `sklearn` needs none of the
-DL-specific fields (`sequenceLength`, `hiddenLayers`, ...), MLP/LSTM/NLP/CV do.
+Split by which golden path / training path each dataset demos — `recsys/`
+is a separate Golden Path (`routers/recommendations.py`, its own docstring
+calls it "Golden Path #3": different dataset contract and training trigger
+shape from Golden Path #1, even though it also trains via classical
+algorithms, not Deep Learning); `deep-learning/` is Golden Path #1's
+`architecture=mlp/lstm/nlp/cv` (needs `sequenceLength`/`hiddenLayers`/...,
+none of which `sklearn` does).
 
-## `traditional-ml/` — architecture=sklearn (Golden Path #1)
+Golden Path #1's `architecture=sklearn` datasets each get their own
+`<taskType>-<useCase>/` directory (one dataset per directory) instead of a
+shared `traditional-ml/` — named to match the `train-track-register`
+Scaffolder template's `useCase` field, so it's obvious at a glance which
+demo a directory is for.
 
-| File | Task type | Notes |
-|---|---|---|
-| `fraud-detection-sample.csv` | classification | has an ID column (`transaction_id`) — pass it as `idColumns` |
-| `house-price-sample.csv` | regression | no ID column |
+## Golden Path #1, architecture=sklearn — one directory per (taskType, useCase)
 
-Clustering test runs reuse either file with `targetColumn` left empty.
+| Directory | File | Task type | Notes |
+|---|---|---|---|
+| `classification-telco-fraud-detection/` | `telco-fraud-detection-sample.csv` | classification | has an ID column (`transaction_id`) — pass it as `idColumns` |
+| `regression-house-price-prediction/` | `house-price-sample.csv` | regression | no ID column |
+| `clustering-customer-segmentation/` | `customer-segmentation-sample.csv` | clustering | 3 synthetic segments, no target column |
+| `anomaly-detection-network-anomaly-detection/` | `network-anomaly-sample.csv` | anomaly-detection | `is_anomaly` column is optional — leave `targetColumn` empty for a purely unsupervised run, set it to get precision/recall/f1 too |
+| `regression-revenue-forecast/` | `revenue-forecast-sample.csv` | regression | `date`/`region`/`revenue`, 2 regions × 365 days — set `timeColumn=date` for a chronological split instead of a random one |
+
+Clustering test runs reuse the classification or regression file with
+`targetColumn` left empty, same as before.
 
 ## `deep-learning/` — architecture=mlp/lstm/nlp/cv (Golden Path #1)
 
 | File | Task type | Notes |
 |---|---|---|
-| `sensor-timeseries-sample.csv` | regression | synthetic (trend+seasonality+noise, numpy, not downloaded), 500 rows, `timestamp` column — the `traditional-ml/` datasets are too small (~10-15 rows) for MLP/LSTM to learn a real signal, and `timeColumn=timestamp` is required for `architecture=lstm`'s sequence windowing |
+| `sensor-timeseries-sample.csv` | regression | synthetic (trend+seasonality+noise, numpy, not downloaded), 500 rows, `timestamp` column — `classification-telco-fraud-detection/`/`regression-house-price-prediction/` are too small (~10-15 rows) for MLP/LSTM to learn a real signal, and `timeColumn=timestamp` is required for `architecture=lstm`'s sequence windowing |
 | `shapes-sample.zip` | classification | synthetic geometric shapes (circle/square/triangle/...) for `architecture=cv` — image classification |
 
 ## `recsys/` — Golden Path #3 (`routers/recommendations.py`)
@@ -39,6 +48,12 @@ Clustering test runs reuse either file with `targetColumn` left empty.
 |---|---|---|
 | `interactions-sample.csv` | ranking | 30 users × interactions (Pareto-distributed) — collaborative algorithms (SVD/KNN) use this alone |
 | `item-features-sample.csv` | ranking | 20 items with features — combined with `interactions-sample.csv` for content-based algorithms (TF-IDF cosine) |
+
+## `future-pipelines/` — reference shapes, not wired to anything yet
+
+Not DVC-tracked (no `.dvc` files, committed directly) and not listed by
+`LocalFileObjectStorageAdapter` on purpose — see its own README for what
+each subdirectory is for and why.
 
 ## First time (pull the demo datasets)
 
@@ -54,8 +69,8 @@ docker run --rm --network host minio/mc mb local/mlops-datasets
 ## Adding a new dataset version
 
 ```bash
-.venv/bin/dvc add data/<traditional-ml|deep-learning|recsys>/<file>
-git add data/<traditional-ml|deep-learning|recsys>/<file>.dvc data/<traditional-ml|deep-learning|recsys>/.gitignore
+.venv/bin/dvc add data/<directory>/<file>
+git add data/<directory>/<file>.dvc data/<directory>/.gitignore
 .venv/bin/dvc push
 ```
 

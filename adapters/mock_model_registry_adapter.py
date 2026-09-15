@@ -25,6 +25,7 @@ _FAKE_METRICS: dict[str, float] = {
     "silhouette_score": 0.42,
     "recall_at_k": 0.35,
     "ndcg_at_k": 0.55,
+    "anomaly_rate": 0.05,
 }
 
 

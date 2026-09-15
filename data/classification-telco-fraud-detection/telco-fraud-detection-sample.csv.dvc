@@ -2,4 +2,4 @@ outs:
 - md5: 40730476a6d47db8fcc63031e812adf2
   size: 321
   hash: md5
-  path: fraud-detection-sample.csv
+  path: telco-fraud-detection-sample.csv

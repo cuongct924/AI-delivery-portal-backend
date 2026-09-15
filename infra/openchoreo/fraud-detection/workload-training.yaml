@@ -23,4 +23,4 @@ spec:
       - >-
         curl -sS -f -X POST http://host.docker.internal:8000/trigger-training
         -H 'Content-Type: application/json'
-        -d '{"model_name":"fraud-detection","dataset_uri":"file:///Users/cuongct090_04/Code/AI-delivery-portal/data/traditional-ml/fraud-detection-sample.csv","task_type":"classification","algorithm":"RandomForestClassifier","target_column":"is_fraud","id_columns":["transaction_id"]}'
+        -d '{"model_name":"fraud-detection","dataset_uri":"file:///Users/cuongct090_04/Code/AI-delivery-portal/data/classification-telco-fraud-detection/telco-fraud-detection-sample.csv","task_type":"classification","algorithm":"RandomForestClassifier","target_column":"is_fraud","id_columns":["transaction_id"]}'

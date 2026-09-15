@@ -17,10 +17,14 @@ def test_local_adapter_lists_dvc_tracked_files_with_source_local(tmp_path: Path)
     adapter = LocalFileObjectStorageAdapter(root_path=str(tmp_path))
     datasets = adapter.list_datasets()
 
+    # uri is the k3d training pod's own mount path (/mnt/data), not
+    # tmp_path — this process and that pod are different filesystems, so
+    # a URI built from root_path would 404 there even though it resolves
+    # fine right here (see the adapter's own docstring on `mount_path`).
     assert datasets == [
         DatasetInfo(
             name="traditional-ml/fraud-detection-sample.csv",
-            uri=dataset.as_uri(),
+            uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
             size_bytes=8,
             source="local",
         )

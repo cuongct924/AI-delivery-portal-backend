@@ -392,3 +392,49 @@ def test_main_rejects_dl_architecture_for_clustering(
 
     with pytest.raises(RuntimeError, match="does not support task_type='clustering'"):
         train.main()
+
+
+def test_main_rejects_dl_architecture_for_anomaly_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    csv_path = _write_dataset(tmp_path)
+    _set_env(monkeypatch, csv_path, tmp_path, TASK_TYPE="anomaly-detection", TARGET_COLUMN="")
+    monkeypatch.setenv("ARCHITECTURE", "lstm")
+
+    import train
+
+    with pytest.raises(RuntimeError, match="does not support task_type='anomaly-detection'"):
+        train.main()
+
+
+@patch("train.mlflow_sklearn")
+@patch("train.mlflow_data")
+@patch("train.mlflow")
+def test_main_anomaly_detection_runs_without_a_target_column(
+    mock_mlflow: MagicMock,
+    mock_mlflow_data: MagicMock,
+    mock_mlflow_sklearn: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No TARGET_COLUMN at all — purely unsupervised, unlike
+    # classification/regression which require one (see the guard this
+    # exercises: task_type not in ("clustering", "anomaly-detection")).
+    csv_path = _write_dataset(tmp_path)
+    mock_mlflow.start_run.return_value.__enter__.return_value.info.run_id = "run-anomaly"
+    _set_env(
+        monkeypatch,
+        csv_path,
+        tmp_path,
+        TASK_TYPE="anomaly-detection",
+        TARGET_COLUMN="",
+        ALGORITHM="IsolationForest",
+    )
+
+    import train
+
+    train.main()
+
+    mock_mlflow_sklearn.log_model.assert_called_once()
+    logged_metric_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
+    assert logged_metric_names == {"anomaly_rate"}

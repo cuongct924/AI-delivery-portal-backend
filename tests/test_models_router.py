@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+from fastapi import HTTPException
 from kubernetes.client.exceptions import ApiException
 
 sys.modules.setdefault("mlflow", MagicMock())
@@ -422,7 +423,7 @@ def test_policy_check_fails_and_tags_gate_passed_false_below_threshold() -> None
     )
 
 
-def test_policy_check_raises_when_model_has_no_task_type_tag() -> None:
+def test_policy_check_raises_400_when_model_has_no_task_type_tag() -> None:
     request = PolicyCheckRequest(model_name="fraud-detection", model_version="3")
     with patch("routers.models.mlflow_adapter") as mock_mlflow:
         mock_mlflow.get_model_version_details.return_value = {
@@ -432,11 +433,27 @@ def test_policy_check_raises_when_model_has_no_task_type_tag() -> None:
             "metrics": {"accuracy": 0.9},
             "status": "READY",
         }
-        try:
+        with pytest.raises(HTTPException) as exc_info:
             policy_check(request)
-            raise AssertionError("expected ValueError")
-        except ValueError as exc:
-            assert "task_type" in str(exc)
+
+    assert exc_info.value.status_code == 400
+    assert "task_type" in exc_info.value.detail
+
+
+def test_policy_check_raises_404_when_model_version_does_not_exist() -> None:
+    # get_model_version_details raises ValueError for this (see
+    # MlflowAdapter, which translates MLflow's own RestException) — the
+    # router's job is turning that into a clean 404, not a raw 500.
+    request = PolicyCheckRequest(model_name="fraud-detection", model_version="99")
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.side_effect = ValueError(
+            "model version fraud-detection:99 not found"
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            policy_check(request)
+
+    assert exc_info.value.status_code == 404
+    assert "fraud-detection:99" in exc_info.value.detail
 
 
 def test_validate_dataset_returns_check_results(tmp_path) -> None:
@@ -556,6 +573,18 @@ def test_get_model_version_summary_reads_task_type_tag() -> None:
     assert response.version == "3"
     assert response.task_type == "regression"
     assert response.metrics == {"r2": 0.8}
+
+
+def test_get_model_version_summary_raises_404_when_model_version_does_not_exist() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.side_effect = ValueError(
+            "model version fraud-detection:99 not found"
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_model_version_summary("fraud-detection", "99")
+
+    assert exc_info.value.status_code == 404
+    assert "fraud-detection:99" in exc_info.value.detail
 
 
 def test_list_models_aggregates_latest_version_details() -> None:

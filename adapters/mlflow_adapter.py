@@ -3,6 +3,7 @@
 import os
 
 import mlflow
+from mlflow.exceptions import RestException
 from mlflow.tracking import MlflowClient
 
 from adapters.interfaces import (
@@ -62,7 +63,18 @@ class MlflowAdapter(IModelRegistryAdapter):
         self.client.set_model_version_tag(name, version, key, value)
 
     def get_model_version_details(self, name: str, version: str) -> ModelVersionDetails:
-        mv = self.client.get_model_version(name=name, version=version)
+        # Translated to ValueError (a caller can catch without importing
+        # mlflow — same reasoning as IObjectStorageAdapter's docstring on
+        # keeping the interface swappable) rather than letting MLflow's own
+        # RestException surface — a version that was never registered, or
+        # one whose name is misspelled, is routine caller input, not a
+        # genuine server fault.
+        try:
+            mv = self.client.get_model_version(name=name, version=version)
+        except RestException as e:
+            if e.error_code == "RESOURCE_DOES_NOT_EXIST":
+                raise ValueError(f"model version {name}:{version} not found") from e
+            raise
         if mv.run_id is None:
             raise ValueError(f"Model version {name}:{version} has no associated run_id")
         run = self.client.get_run(mv.run_id)

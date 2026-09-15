@@ -1,0 +1,5 @@
+outs:
+- md5: 7fc207cd8dfefb2942162f38c2d1497b
+  size: 12175
+  hash: md5
+  path: network-anomaly-sample.csv

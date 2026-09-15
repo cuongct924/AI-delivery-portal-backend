@@ -1,5 +1,0 @@
-outs:
-- md5: c4cdfbe28771e71ed3a8027c02db2d8a
-  size: 20272
-  hash: md5
-  path: sensor-timeseries-sample.csv

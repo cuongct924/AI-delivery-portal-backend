@@ -471,7 +471,14 @@ def list_available_features(user: dict = Depends(get_current_user)) -> FeatureLi
 def get_model_version_summary(
     name: str, version: str, user: dict = Depends(get_current_user)
 ) -> ModelVersionSummaryResponse:
-    details = mlflow_adapter.get_model_version_details(name, version)
+    # Same 404-not-500 contract as policy_check below — this is what the
+    # Scaffolder's ModelVersionPickerField polls live while the user is
+    # still typing, so a routine typo'd version needs a clean 404 to show
+    # inline, not an unhandled 500.
+    try:
+        details = mlflow_adapter.get_model_version_details(name, version)
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
     return ModelVersionSummaryResponse(
         name=name,
         version=details["version"],
@@ -514,12 +521,23 @@ def policy_check(
     request: PolicyCheckRequest, user: dict = Depends(get_current_user)
 ) -> MetricsGateResult:
     # Classical ML has ground-truth metrics — compare directly, no LLM-as-judge.
-    details = mlflow_adapter.get_model_version_details(request.model_name, request.model_version)
+    # Both failure modes below are routine caller input (wrong version
+    # number, or a version registered before task-type tagging existed),
+    # not a server fault — a clean 404/400 here, not an unhandled 500, so
+    # the Scaffolder step (and the ModelVersionPickerField ahead of it)
+    # can show the real reason.
+    try:
+        details = mlflow_adapter.get_model_version_details(
+            request.model_name, request.model_version
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
     task_type = details["tags"].get("task_type")
     if task_type is None:
-        raise ValueError(
+        raise HTTPException(
+            400,
             f"model version {request.model_name}:{request.model_version} has no task_type tag "
-            "— it was registered before task-type tagging was added"
+            "— it was registered before task-type tagging was added",
         )
     gate_result = evaluate_metrics_gate(task_type, details["metrics"])
 

@@ -101,6 +101,28 @@ def test_evaluate_metrics_gate_ranking_ignores_optional_map_at_k():
     assert result["passed"] is True
 
 
+def test_evaluate_metrics_gate_uses_anomaly_detection_thresholds():
+    metrics = {"anomaly_rate": 0.05}
+    result = evaluate_metrics_gate("anomaly-detection", metrics)
+    assert result["passed"] is True
+
+
+def test_evaluate_metrics_gate_anomaly_detection_fails_when_rate_too_high():
+    # Flagging almost everything means the model/contamination setting is
+    # off, not that it found real anomalies.
+    metrics = {"anomaly_rate": 0.9}
+    result = evaluate_metrics_gate("anomaly-detection", metrics)
+    assert result["passed"] is False
+
+
+def test_evaluate_metrics_gate_anomaly_detection_ignores_optional_precision():
+    # precision/recall/f1 only exist when a label column was provided —
+    # not gated on, since anomaly_rate must work standalone too.
+    metrics = {"anomaly_rate": 0.05, "precision": 0.1}
+    result = evaluate_metrics_gate("anomaly-detection", metrics)
+    assert result["passed"] is True
+
+
 def test_evaluate_metrics_gate_rejects_unknown_task_type():
     with pytest.raises(ValueError, match="unknown task_type"):
         evaluate_metrics_gate("not-a-task-type", {})

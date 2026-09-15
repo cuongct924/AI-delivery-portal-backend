@@ -1,0 +1,5 @@
+outs:
+- md5: 26e756c6265b392e6141c8a4e2f1a968
+  size: 8916
+  hash: md5
+  path: customer-segmentation-sample.csv
