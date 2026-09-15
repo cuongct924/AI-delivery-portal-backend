@@ -22,7 +22,14 @@ def test_get_workflow_status_includes_message() -> None:
     mock_get.assert_called_once_with(
         "http://argo.test/api/v1/workflows/default/train-abc123", timeout=10
     )
-    assert result == {"name": "train-abc123", "phase": "Failed", "message": "pod OOMKilled"}
+    assert result == {
+        "name": "train-abc123",
+        "phase": "Failed",
+        "message": "pod OOMKilled",
+        "started_at": None,
+        "finished_at": None,
+        "steps": [],
+    }
 
 
 def test_get_workflow_status_message_defaults_to_none_when_absent() -> None:
@@ -33,6 +40,74 @@ def test_get_workflow_status_message_defaults_to_none_when_absent() -> None:
         result = adapter.get_workflow_status("train-abc123")
 
     assert result["message"] is None
+
+
+def test_get_workflow_status_extracts_started_and_finished_timestamps() -> None:
+    adapter = ArgoAdapter(base_url="http://argo.test")
+    response = _mock_response(
+        {
+            "status": {
+                "phase": "Succeeded",
+                "startedAt": "2026-09-15T01:00:00Z",
+                "finishedAt": "2026-09-15T01:05:00Z",
+            }
+        }
+    )
+
+    with patch("adapters.argo_adapter.httpx.get", return_value=response):
+        result = adapter.get_workflow_status("train-abc123")
+
+    assert result["started_at"] == "2026-09-15T01:00:00Z"
+    assert result["finished_at"] == "2026-09-15T01:05:00Z"
+
+
+def test_get_workflow_status_extracts_pod_node_steps_only() -> None:
+    adapter = ArgoAdapter(base_url="http://argo.test")
+    response = _mock_response(
+        {
+            "status": {
+                "phase": "Succeeded",
+                "nodes": {
+                    "train-abc123": {
+                        "type": "Steps",
+                        "displayName": "train-abc123",
+                    },
+                    "train-abc123-111": {
+                        "type": "Pod",
+                        "displayName": "train",
+                        "phase": "Succeeded",
+                        "startedAt": "2026-09-15T01:00:00Z",
+                        "finishedAt": "2026-09-15T01:03:00Z",
+                    },
+                    "train-abc123-222": {
+                        "type": "Pod",
+                        "displayName": "register",
+                        "phase": "Succeeded",
+                        "startedAt": "2026-09-15T01:03:00Z",
+                        "finishedAt": "2026-09-15T01:05:00Z",
+                    },
+                },
+            }
+        }
+    )
+
+    with patch("adapters.argo_adapter.httpx.get", return_value=response):
+        result = adapter.get_workflow_status("train-abc123")
+
+    assert result["steps"] == [
+        {
+            "name": "train",
+            "phase": "Succeeded",
+            "started_at": "2026-09-15T01:00:00Z",
+            "finished_at": "2026-09-15T01:03:00Z",
+        },
+        {
+            "name": "register",
+            "phase": "Succeeded",
+            "started_at": "2026-09-15T01:03:00Z",
+            "finished_at": "2026-09-15T01:05:00Z",
+        },
+    ]
 
 
 def test_list_workflows_extracts_name_phase_started_at() -> None:

@@ -6,6 +6,7 @@
 """
 
 import json
+import logging
 from pathlib import Path
 from typing import Final, cast
 
@@ -17,6 +18,7 @@ from evaluations.gate import MetricsGateResult, evaluate_metrics_gate
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jinja2 import Environment, FileSystemLoader
 from kubernetes.client.exceptions import ApiException
+from observability.dora_metrics import record_workflow_completion
 from pydantic import BaseModel
 
 from adapters.deploy_strategies import (
@@ -34,6 +36,8 @@ from adapters.factory import (
 )
 from adapters.interfaces import DatasetInfo, IDeployTrafficStrategy, IReleaseStrategy
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(tags=["models"])
 
 # Module-level singletons — same convention as
@@ -45,6 +49,11 @@ object_storage_adapter = get_object_storage_adapter()
 
 # One WorkflowTemplate covers both train and fine-tune; mode is a parameter.
 TRAIN_REGISTER_TEMPLATE: Final[str] = "train-register-golden-path"
+
+# RQ1 dora_metrics label — `get_training_status` is polled repeatedly by the
+# frontend until the workflow reaches a terminal phase; this set stops a
+# completion from being recorded more than once per workflow.
+_RECORDED_TERMINAL_WORKFLOWS: set[str] = set()
 
 _TEMPLATES_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "templates"
 _JINJA_ENV: Final[Environment] = Environment(loader=FileSystemLoader(_TEMPLATES_DIR))
@@ -100,6 +109,10 @@ class DatasetColumnsResponse(BaseModel):
     columns: list[str]
 
 
+class FeatureListResponse(BaseModel):
+    features: list[str]
+
+
 class DatasetPreviewResponse(BaseModel):
     columns: list[str]
     rows: list[dict[str, object]]
@@ -143,10 +156,20 @@ class CheckResultResponse(BaseModel):
         )
 
 
+class WorkflowStepTimingResponse(BaseModel):
+    name: str
+    phase: str | None
+    started_at: str | None
+    finished_at: str | None
+
+
 class WorkflowStatusResponse(BaseModel):
     name: str
     phase: str | None
     message: str | None
+    started_at: str | None = None
+    finished_at: str | None = None
+    steps: list[WorkflowStepTimingResponse] = []
 
 
 class WorkflowSummary(BaseModel):
@@ -289,7 +312,24 @@ def get_training_status(
     workflow_name: str, user: dict = Depends(get_current_user)
 ) -> WorkflowStatusResponse:
     status = argo_adapter.get_workflow_status(workflow_name)
-    return WorkflowStatusResponse(**status)
+    phase = status.get("phase")
+    if phase in ("Succeeded", "Failed") and workflow_name not in _RECORDED_TERMINAL_WORKFLOWS:
+        _RECORDED_TERMINAL_WORKFLOWS.add(workflow_name)
+        record_workflow_completion(
+            golden_path="train-track-register",
+            phase=phase,
+            started_at=status.get("started_at"),
+            finished_at=status.get("finished_at"),
+            steps=status.get("steps"),
+        )
+    return WorkflowStatusResponse(
+        name=status["name"],
+        phase=status.get("phase"),
+        message=status.get("message"),
+        started_at=status.get("started_at"),
+        finished_at=status.get("finished_at"),
+        steps=[WorkflowStepTimingResponse(**step) for step in status.get("steps", [])],
+    )
 
 
 @router.get("/trigger-training/recent", response_model=list[WorkflowSummary])
@@ -407,6 +447,24 @@ def enrich_dataset_features(
     enriched_path = csv_path.with_stem(f"{csv_path.stem}-enriched")
     enriched.to_csv(enriched_path, index=False)
     return EnrichDatasetFeaturesResponse(dataset_uri=f"file://{enriched_path}")
+
+
+@router.get("/features", response_model=FeatureListResponse)
+def list_available_features(user: dict = Depends(get_current_user)) -> FeatureListResponse:
+    """Lists every `<feature_view>:<feature>` this Feast store actually
+    has, for the Scaffolder UI's Feature names picker (StepLayoutField's
+    Feature Enrichment panel) — same fail-open contract as the dataset
+    endpoints above: a Feast repo that isn't `feast apply`-ed yet
+    shouldn't 500 the whole form, just leave the picker empty (frontend
+    falls back to a plain text input).
+    """
+    try:
+        return FeatureListResponse(features=feast_adapter.list_available_features())
+    except Exception:
+        logger.warning(
+            "list_available_features failed — Feast repo not applied yet?", exc_info=True
+        )
+        return FeatureListResponse(features=[])
 
 
 @router.get("/models/{name}/{version}/summary", response_model=ModelVersionSummaryResponse)

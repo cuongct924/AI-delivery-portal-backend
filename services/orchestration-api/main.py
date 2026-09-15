@@ -3,6 +3,7 @@ to the AI LLM (Claude, or any model registered in
 infra/llm-gateways/litellm-config.yaml)."""
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -45,6 +46,16 @@ app.include_router(llm_serving.router)
 app.include_router(rag.router)
 app.include_router(portal_assistant.router)
 app.include_router(golden_paths.router)
+
+# `feast` (imported transitively via adapters.factory.get_feature_store_adapter,
+# pulled in by several routers above) sets PROMETHEUS_MULTIPROC_DIR as an
+# import-time side effect, for its own Spark/multiprocess metrics use
+# case. That env var makes prometheus_fastapi_instrumentator's /metrics
+# endpoint switch to reading multiprocess .db files from that directory
+# instead of this single-process app's own in-memory registry — files
+# this app never writes, so /metrics silently returned an empty body.
+# Confirmed via bisection: `import feast` alone reproduces it.
+os.environ.pop("PROMETHEUS_MULTIPROC_DIR", None)
 
 # Expose /metrics — scraped by Prometheus (infra/monitoring/prometheus.yml)
 Instrumentator().instrument(app).expose(app)

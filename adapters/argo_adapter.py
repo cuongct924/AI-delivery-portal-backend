@@ -9,7 +9,7 @@ from typing import TypedDict
 
 import httpx
 
-from adapters.interfaces import IWorkflowAdapter, WorkflowStatus
+from adapters.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
 
 
 class WorkflowSummary(TypedDict):
@@ -46,12 +46,39 @@ class ArgoAdapter(IWorkflowAdapter):
         )
         response.raise_for_status()
         data = response.json()
+        status = data.get("status", {})
         return {
             "name": workflow_name,
-            "phase": data.get("status", {}).get("phase"),
+            "phase": status.get("phase"),
             # Surfaces the failure reason (e.g. pod OOMKilled) when phase is Failed/Error.
-            "message": data.get("status", {}).get("message"),
+            "message": status.get("message"),
+            "started_at": status.get("startedAt"),
+            "finished_at": status.get("finishedAt"),
+            "steps": self._extract_step_timings(status),
         }
+
+    @staticmethod
+    def _extract_step_timings(status: dict[str, object]) -> list[WorkflowStepTiming]:
+        """`status.nodes` is Argo's full node tree (Pod nodes plus
+        structural Steps/DAG/Retry nodes) — only `type == "Pod"` nodes are
+        real executed steps, which is what RQ1's step-duration metric
+        (dora_metrics.py) needs."""
+        nodes = status.get("nodes")
+        if not isinstance(nodes, dict):
+            return []
+        steps: list[WorkflowStepTiming] = []
+        for node in nodes.values():
+            if not isinstance(node, dict) or node.get("type") != "Pod":
+                continue
+            steps.append(
+                {
+                    "name": str(node.get("displayName") or node.get("name") or "unknown"),
+                    "phase": node.get("phase"),
+                    "started_at": node.get("startedAt"),
+                    "finished_at": node.get("finishedAt"),
+                }
+            )
+        return steps
 
     def create_cron_workflow(
         self, name: str, schedule: str, workflow_template_name: str, parameters: dict[str, str]

@@ -9,7 +9,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TypedDict
 
-from adapters.interfaces import IWorkflowAdapter, WorkflowStatus
+from adapters.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
 from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
 
 
@@ -22,6 +22,7 @@ class WorkflowSummary(TypedDict):
 class _WorkflowRecord(TypedDict):
     phase: str
     startedAt: str
+    finishedAt: str | None
     status_checks: int
 
 
@@ -38,6 +39,7 @@ class MockWorkflowAdapter(IWorkflowAdapter):
         self._workflows[name] = {
             "phase": "Running",
             "startedAt": datetime.now(UTC).isoformat(),
+            "finishedAt": None,
             "status_checks": 0,
         }
         self._maybe_register_model(parameters)
@@ -46,11 +48,35 @@ class MockWorkflowAdapter(IWorkflowAdapter):
     def get_workflow_status(self, workflow_name: str) -> WorkflowStatus:
         record = self._workflows.get(workflow_name)
         if record is None:
-            return {"name": workflow_name, "phase": None, "message": "workflow not found"}
+            return {
+                "name": workflow_name,
+                "phase": None,
+                "message": "workflow not found",
+                "started_at": None,
+                "finished_at": None,
+                "steps": [],
+            }
         record["status_checks"] += 1
         if record["status_checks"] > 1:
             record["phase"] = "Succeeded"
-        return {"name": workflow_name, "phase": record["phase"], "message": None}
+            if record["finishedAt"] is None:
+                record["finishedAt"] = datetime.now(UTC).isoformat()
+        steps: list[WorkflowStepTiming] = [
+            {
+                "name": "train",
+                "phase": record["phase"],
+                "started_at": record["startedAt"],
+                "finished_at": record["finishedAt"],
+            }
+        ]
+        return {
+            "name": workflow_name,
+            "phase": record["phase"],
+            "message": None,
+            "started_at": record["startedAt"],
+            "finished_at": record["finishedAt"],
+            "steps": steps,
+        }
 
     def create_cron_workflow(
         self, name: str, schedule: str, workflow_template_name: str, parameters: dict[str, str]

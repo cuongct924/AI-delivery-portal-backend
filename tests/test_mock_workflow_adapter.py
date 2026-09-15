@@ -47,7 +47,36 @@ def test_get_workflow_status_transitions_from_running_to_succeeded(
 def test_get_workflow_status_for_unknown_workflow(adapter: MockWorkflowAdapter) -> None:
     status = adapter.get_workflow_status("does-not-exist")
 
-    assert status == {"name": "does-not-exist", "phase": None, "message": "workflow not found"}
+    assert status == {
+        "name": "does-not-exist",
+        "phase": None,
+        "message": "workflow not found",
+        "started_at": None,
+        "finished_at": None,
+        "steps": [],
+    }
+
+
+def test_get_workflow_status_sets_finished_at_once_succeeded(
+    adapter: MockWorkflowAdapter,
+) -> None:
+    result = cast(dict[str, Any], adapter.trigger_workflow("train-track-register-golden-path", {}))
+    name = result["metadata"]["name"]
+    assert isinstance(name, str)
+
+    first = adapter.get_workflow_status(name)
+    second = adapter.get_workflow_status(name)
+
+    assert first["finished_at"] is None
+    assert second["finished_at"] is not None
+    assert second["steps"] == [
+        {
+            "name": "train",
+            "phase": "Succeeded",
+            "started_at": second["started_at"],
+            "finished_at": second["finished_at"],
+        }
+    ]
 
 
 def test_list_workflows_includes_triggered_workflows(adapter: MockWorkflowAdapter) -> None:

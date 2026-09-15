@@ -32,6 +32,7 @@ from routers.models import (  # noqa: E402
     get_latest_version,
     get_model_version_summary,
     get_training_status,
+    list_available_features,
     list_models,
     list_recent_training_runs,
     policy_check,
@@ -288,6 +289,52 @@ def test_get_training_status_returns_argo_status() -> None:
     assert response.message == "pod OOMKilled"
 
 
+def test_get_training_status_records_dora_metrics_once_on_terminal_phase() -> None:
+    """RQ1: a terminal-phase status must record exactly once, even though
+    the frontend polls this endpoint repeatedly until it sees a terminal
+    phase — see routers.models._RECORDED_TERMINAL_WORKFLOWS."""
+    with (
+        patch("routers.models.argo_adapter") as mock_argo,
+        patch("routers.models.record_workflow_completion") as mock_record,
+    ):
+        mock_argo.get_workflow_status.return_value = {
+            "name": "wf-dora-metrics-test",
+            "phase": "Succeeded",
+            "message": None,
+            "started_at": "2026-09-15T01:00:00Z",
+            "finished_at": "2026-09-15T01:05:00Z",
+            "steps": [],
+        }
+        get_training_status("wf-dora-metrics-test")
+        get_training_status("wf-dora-metrics-test")
+
+    mock_record.assert_called_once_with(
+        golden_path="train-track-register",
+        phase="Succeeded",
+        started_at="2026-09-15T01:00:00Z",
+        finished_at="2026-09-15T01:05:00Z",
+        steps=[],
+    )
+
+
+def test_get_training_status_does_not_record_metrics_while_running() -> None:
+    with (
+        patch("routers.models.argo_adapter") as mock_argo,
+        patch("routers.models.record_workflow_completion") as mock_record,
+    ):
+        mock_argo.get_workflow_status.return_value = {
+            "name": "wf-still-running",
+            "phase": "Running",
+            "message": None,
+            "started_at": "2026-09-15T01:00:00Z",
+            "finished_at": None,
+            "steps": [],
+        }
+        get_training_status("wf-still-running")
+
+    mock_record.assert_not_called()
+
+
 def test_list_recent_training_runs_maps_workflow_summaries() -> None:
     with patch("routers.models.argo_adapter") as mock_argo:
         mock_argo.list_workflows.return_value = [
@@ -468,6 +515,30 @@ def test_enrich_dataset_features_overwrites_existing_column_with_feast_value(tmp
     enriched = pd.read_csv(response.dataset_uri.removeprefix("file://"))
     assert list(enriched.columns) == ["transaction_id", "amount"]
     assert enriched["amount"].item() == 42.5
+
+
+def test_list_available_features_returns_the_adapters_list() -> None:
+    with patch("routers.models.feast_adapter") as mock_feast:
+        mock_feast.list_available_features.return_value = [
+            "transaction_features:amount",
+            "transaction_features:merchant_category",
+        ]
+        response = list_available_features()
+
+    assert response.features == [
+        "transaction_features:amount",
+        "transaction_features:merchant_category",
+    ]
+
+
+def test_list_available_features_fails_open_when_feast_errors() -> None:
+    # A Feast repo that hasn't been `feast apply`-ed yet shouldn't 500 the
+    # whole form — the picker just falls back to a plain text input.
+    with patch("routers.models.feast_adapter") as mock_feast:
+        mock_feast.list_available_features.side_effect = RuntimeError("registry not found")
+        response = list_available_features()
+
+    assert response.features == []
 
 
 def test_get_model_version_summary_reads_task_type_tag() -> None:

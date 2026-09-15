@@ -34,3 +34,10 @@ class FeastAdapter(IFeatureStoreAdapter):
             features=feature_names, entity_rows=[{"entity_id": entity_id}]
         ).to_dict()
         return {k: v[0] for k, v in response.items()}
+
+    def list_available_features(self) -> list[str]:
+        return [
+            f"{view.name}:{feature.name}"
+            for view in self.store.list_feature_views()
+            for feature in view.features
+        ]

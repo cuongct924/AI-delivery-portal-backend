@@ -9,6 +9,25 @@ model_list:
     litellm_params:
       model: voyage/voyage-3
       api_key: os.environ/VOYAGE_API_KEY
+  # Free, local, no API key — for testing when ANTHROPIC_API_KEY has no
+  # credit. "ollama_chat/" (not "ollama/") is required for tool-calling:
+  # it hits Ollama's /api/chat endpoint, which supports `tools`; the
+  # legacy "ollama/" prefix uses /api/generate and silently drops them.
+  # Reaches the host's `ollama serve` (:11434) — litellm runs in this
+  # container, not on the host.
+  - model_name: llama3.1-local
+    litellm_params:
+      model: ollama_chat/llama3.1:8b
+      api_base: http://host.docker.internal:11434
+  # llama3.1:8b (above) understands when to call a tool but doesn't
+  # reliably emit litellm's structured `tool_calls` field — it just
+  # writes the call as JSON text in `content` instead, which
+  # routers/chat.py's tool loop never sees. qwen2.5 has more reliable
+  # native tool-calling support in Ollama.
+  - model_name: qwen2.5-local
+    litellm_params:
+      model: ollama_chat/qwen2.5:7b
+      api_base: http://host.docker.internal:11434
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

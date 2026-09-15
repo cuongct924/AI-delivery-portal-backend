@@ -206,7 +206,9 @@ pillow==12.3.0
 prettytable==3.18.0
     # via skops
 prometheus-client==0.26.0
-    # via prometheus-fastapi-instrumentator
+    # via
+    #   -r services/orchestration-api/requirements.txt
+    #   prometheus-fastapi-instrumentator
 prometheus-fastapi-instrumentator==8.1.0
     # via -r services/orchestration-api/requirements.txt
 propcache==0.5.2

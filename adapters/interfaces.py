@@ -139,10 +139,24 @@ class IReleaseStrategy(ABC):
         actually deploys and returns {"deployed": True}."""
 
 
+class WorkflowStepTiming(TypedDict):
+    name: str
+    phase: str | None
+    started_at: str | None
+    finished_at: str | None
+
+
 class WorkflowStatus(TypedDict):
     name: str
     phase: str | None
     message: str | None
+    # Populated once the workflow starts — backs RQ1's Lead Time /
+    # step-duration Prometheus metrics (services/orchestration-api's
+    # observability/dora_metrics.py), computed from data this call already
+    # fetches, no extra Argo request needed.
+    started_at: str | None
+    finished_at: str | None
+    steps: list[WorkflowStepTiming]
 
 
 class IWorkflowAdapter(ABC):
@@ -258,6 +272,14 @@ class IFeatureStoreAdapter(ABC):
     def get_online_features(
         self, entity_id: str, feature_names: list[str]
     ) -> dict[str, object]: ...
+
+    @abstractmethod
+    def list_available_features(self) -> list[str]:
+        """`<feature_view>:<feature>` references for every feature this
+        store actually has — backs the Scaffolder UI's Feature names
+        picker so a user chooses from what's real instead of typing one
+        blind."""
+        ...
 
 
 class NotebookStatus(TypedDict):

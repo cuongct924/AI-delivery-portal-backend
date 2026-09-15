@@ -62,7 +62,15 @@ services:
     profiles: ["mlops"]
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-v1.66.0-stable
+    # Bumped from main-v1.66.0-stable: that pin dropped `tool_calls` for
+    # the ollama_chat/ provider (BerriAI/litellm#19742 — tool-call intent
+    # came back as raw JSON text in `content` instead of a structured
+    # `tool_calls` field). Fixed upstream by BerriAI/litellm#40611 (native
+    # tool calling for ollama/ models). 1.99.1 is also litellm's new bare
+    # SemVer tag scheme (no more "-stable" suffix, see their "cleaner
+    # release versions" post) — pin a specific version, not :latest, so
+    # this stays reproducible.
+    image: ghcr.io/berriai/litellm:1.99.1
     container_name: ai-delivery-portal-litellm
     command: --config /app/config.yaml --port 4000
     volumes:
