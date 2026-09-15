@@ -1,11 +1,14 @@
-"""Tests adapters/local_object_storage_adapter.py and
+"""Tests adapters/local_object_storage_adapter.py,
+adapters/object_storage_adapter.py, and
 adapters/composite_object_storage_adapter.py."""
 
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
 from adapters.interfaces import DatasetInfo, IObjectStorageAdapter
 from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
+from adapters.object_storage_adapter import MinioObjectStorageAdapter
 
 
 def test_local_adapter_lists_dvc_tracked_files_with_source_local(tmp_path: Path) -> None:
@@ -46,6 +49,84 @@ def test_local_adapter_skips_files_without_a_dvc_pointer(tmp_path: Path) -> None
 
 def test_local_adapter_returns_empty_list_when_root_missing(tmp_path: Path) -> None:
     adapter = LocalFileObjectStorageAdapter(root_path=str(tmp_path / "does-not-exist"))
+
+    assert adapter.list_datasets() == []
+
+
+def _minio_adapter_with_local_dvc_files(tmp_path: Path) -> MinioObjectStorageAdapter:
+    (tmp_path / "classification-telco-fraud-detection").mkdir()
+    (
+        tmp_path / "classification-telco-fraud-detection" / "telco-fraud-detection-sample.csv.dvc"
+    ).write_text(
+        "outs:\n"
+        "- md5: 7fc207cd8dfefb2942162f38c2d1497b\n"
+        "  size: 321\n"
+        "  path: telco-fraud-detection-sample.csv\n"
+    )
+    adapter = MinioObjectStorageAdapter(local_datasets_path=str(tmp_path))
+    adapter.client = MagicMock()
+    return adapter
+
+
+def test_minio_adapter_recovers_real_name_and_uri_from_dvc_pointer(tmp_path: Path) -> None:
+    # Reproduces the exact bug report: `dvc push` uploads content-addressed
+    # (`.../files/md5/<hash[:2]>/<hash[2:]>`), not under the dataset's real
+    # filename — the S3 key alone carries no usable name, and a uri built
+    # straight from it 404s (that hash never exists at the training pod's
+    # mount path). Only the local .dvc pointer still has the mapping.
+    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
+    adapter.client.list_objects_v2.return_value = {
+        "Contents": [
+            {
+                "Key": "fraud-detection/files/md5/7f/c207cd8dfefb2942162f38c2d1497b",
+                "Size": 321,
+            }
+        ]
+    }
+
+    datasets = adapter.list_datasets()
+
+    assert datasets == [
+        DatasetInfo(
+            name="classification-telco-fraud-detection/telco-fraud-detection-sample.csv",
+            uri="file:///mnt/data/classification-telco-fraud-detection/telco-fraud-detection-sample.csv",
+            size_bytes=321,
+            source="s3",
+        )
+    ]
+
+
+def test_minio_adapter_skips_object_whose_hash_has_no_local_dvc_pointer(tmp_path: Path) -> None:
+    # An object in the bucket with no matching .dvc file checked out
+    # locally has no recoverable name/uri — surfacing it anyway would just
+    # be a dataset picker entry that 404s the moment someone picks it.
+    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
+    adapter.client.list_objects_v2.return_value = {
+        "Contents": [
+            {"Key": "fraud-detection/files/md5/ab/cdef0000000000000000000000000000", "Size": 99}
+        ]
+    }
+
+    assert adapter.list_datasets() == []
+
+
+def test_minio_adapter_skips_object_not_shaped_like_a_dvc_content_address(tmp_path: Path) -> None:
+    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
+    adapter.client.list_objects_v2.return_value = {
+        "Contents": [{"Key": "some/other/random-upload.csv", "Size": 99}]
+    }
+
+    assert adapter.list_datasets() == []
+
+
+def test_minio_adapter_returns_empty_when_local_datasets_path_missing(tmp_path: Path) -> None:
+    adapter = MinioObjectStorageAdapter(local_datasets_path=str(tmp_path / "does-not-exist"))
+    adapter.client = MagicMock()
+    adapter.client.list_objects_v2.return_value = {
+        "Contents": [
+            {"Key": "fraud-detection/files/md5/7f/c207cd8dfefb2942162f38c2d1497b", "Size": 321}
+        ]
+    }
 
     assert adapter.list_datasets() == []
 
