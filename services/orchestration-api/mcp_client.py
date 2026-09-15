@@ -113,8 +113,9 @@ class McpToolRegistry:
         try:
             # This service's own identity when calling out to an MCP server —
             # a server with no token_verifier configured just ignores the
-            # header; one that does (golden-paths-server) rejects the
-            # connection outright without it.
+            # header; one that does (llmops-golden-paths-server,
+            # mlops-golden-paths-server) rejects the connection outright
+            # without it.
             async with (
                 create_mcp_http_client(headers=mcp_auth_client.auth_headers()) as http_client,
                 streamable_http_client(server["endpoint"], http_client=http_client) as (

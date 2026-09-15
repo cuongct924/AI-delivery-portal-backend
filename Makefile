@@ -21,13 +21,15 @@ SERVICE_REQS := requirements-dev.txt \
 	adapters/requirements.txt \
 	services/orchestration-api/requirements.txt \
 	agents/mcp-servers/observability-server/requirements.txt \
-	agents/mcp-servers/golden-paths-server/requirements.txt \
+	agents/mcp-servers/llmops-golden-paths-server/requirements.txt \
 	agents/mcp-servers/golden-path-guide-server/requirements.txt \
+	agents/mcp-servers/mlops-golden-paths-server/requirements.txt \
 	infra/argo-workflows/training-image/requirements.txt
 
 .PHONY: venv install lock hooks lint format format-check typecheck test check \
 	gitleaks checkov trivy security \
-	run-orchestration-api run-observability-mcp run-golden-paths-mcp run-golden-path-guide-mcp \
+	run-orchestration-api run-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
+	run-mlops-golden-paths-mcp \
 	dvc-pull dvc-push \
 	clean-venv
 
@@ -86,13 +88,16 @@ checkov:
 	checkov --directory . --framework dockerfile,argo_workflows,github_actions \
 		--skip-path .venv --compact --quiet
 
-## Builds the 4 service images, then Trivy-scans each — needs Docker running.
+## Builds and Trivy-scans each service image with its own Dockerfile —
+## needs Docker running. golden-path-guide-server predates this target and
+## was never added; not this rename's concern to fix.
 trivy:
 	docker build -t orchestration-api:local -f services/orchestration-api/Dockerfile .
 	docker build -t observability-server:local -f agents/mcp-servers/observability-server/Dockerfile .
-	docker build -t golden-paths-server:local -f agents/mcp-servers/golden-paths-server/Dockerfile .
+	docker build -t llmops-golden-paths-server:local -f agents/mcp-servers/llmops-golden-paths-server/Dockerfile .
+	docker build -t mlops-golden-paths-server:local -f agents/mcp-servers/mlops-golden-paths-server/Dockerfile .
 	docker build -t training-image:local -f infra/argo-workflows/training-image/Dockerfile .
-	@for img in orchestration-api observability-server golden-paths-server training-image; do \
+	@for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do \
 		echo "=== Trivy scan: $$img ==="; \
 		trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "$$img:local"; \
 	done
@@ -106,11 +111,14 @@ run-orchestration-api:
 run-observability-mcp:
 	bash scripts/run-mcp-local.sh observability
 
-run-golden-paths-mcp:
-	bash scripts/run-mcp-local.sh golden-paths
+run-llmops-golden-paths-mcp:
+	bash scripts/run-mcp-local.sh llmops-golden-paths
 
 run-golden-path-guide-mcp:
 	bash scripts/run-mcp-local.sh golden-path-guide
+
+run-mlops-golden-paths-mcp:
+	bash scripts/run-mcp-local.sh mlops-golden-paths
 
 ## Pulls/pushes the DVC-tracked dataset against the local MinIO remote.
 dvc-pull:

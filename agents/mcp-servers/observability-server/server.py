@@ -1,6 +1,7 @@
 """MCP Server for the "system/model health" domain — read-only, merges
 what used to be 3 separate servers (mlops/k8s/metrics). See
-agents/mcp-servers/golden-paths-server/ for the write-side domain.
+agents/mcp-servers/llmops-golden-paths-server/ and
+agents/mcp-servers/mlops-golden-paths-server/ for the write-side domains.
 """
 
 import os

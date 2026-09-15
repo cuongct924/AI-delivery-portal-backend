@@ -46,7 +46,7 @@ ALLOWED_CLIENT_IDS: Final[frozenset[str]] = frozenset(
     if c.strip()
 )
 
-logger = logging.getLogger("golden_paths_server.token_verifier")
+logger = logging.getLogger("llmops_golden_paths_server.token_verifier")
 
 
 @lru_cache

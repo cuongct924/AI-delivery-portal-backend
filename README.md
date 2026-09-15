@@ -47,7 +47,7 @@ docker compose --profile observability up -d   # optional: prometheus, grafana
 docker compose --profile mlops --profile llmops --profile observability up -d   # everything
 
 # MCP servers run detached, discoverable via the Backstage Catalog:
-docker compose up -d observability-server golden-paths-server
+docker compose up -d observability-server llmops-golden-paths-server mlops-golden-paths-server
 bash scripts/run-mcp-local.sh observability   # or: run a single MCP server standalone, no Docker needed
 
 make install    # create a Python 3.12 .venv, install ruff + pyright + pytest + every service's requirements.txt

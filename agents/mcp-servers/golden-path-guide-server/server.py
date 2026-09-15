@@ -1,6 +1,6 @@
 """MCP Server for the "how do I run Golden Path X" domain — read-only,
 thin HTTP client into orchestration-api's /golden-paths endpoints (no
-business logic duplicated here, same convention as golden-paths-server).
+business logic duplicated here, same convention as llmops-golden-paths-server).
 
 Deliberately not RAG: the mlops/llmops Golden Path templates are a small,
 fixed set (~8), each with a short structured spec (parameters + steps) —

@@ -23,7 +23,7 @@ MCP_SERVER_URL: Final[str] = os.getenv("MCP_SERVER_URL", "http://localhost:9002/
 # Scope required on top of a merely-valid token for activate_prompt/rag_activate
 # — provisioning this scope for a given Thunder client is an IdP-side step, not
 # something this code can guarantee (see docstring on those two tools).
-MUTATE_SCOPE: Final[str] = "golden-paths:mutate"
+MUTATE_SCOPE: Final[str] = "llmops-golden-paths:mutate"
 
 # A valid Thunder Bearer token is required for every tool call once
 # token_verifier is set below — this closes the "confused deputy" gap where a
@@ -33,7 +33,7 @@ MUTATE_SCOPE: Final[str] = "golden-paths:mutate"
 # AUTO_EXECUTABLE tools); activate_prompt/rag_activate additionally require
 # MUTATE_SCOPE, checked in-body since AuthSettings has no per-tool scoping.
 mcp = MCPServer(
-    "golden-paths-server",
+    "llmops-golden-paths-server",
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(THUNDER_URL), resource_server_url=AnyHttpUrl(MCP_SERVER_URL)
     ),

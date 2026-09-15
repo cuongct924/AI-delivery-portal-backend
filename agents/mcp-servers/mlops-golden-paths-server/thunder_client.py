@@ -1,8 +1,8 @@
 """Thunder client_credentials token fetch/cache — gives this server its own
 verifiable service-account identity instead of a self-reported header.
 
-The `golden-paths-agent` client still needs registering by hand in Thunder
-— see infra/openchoreo/2.3-notes.md.
+The `mlops-golden-paths-agent` client still needs registering by hand in
+Thunder — see README.md's Auth section.
 """
 
 import os
@@ -12,9 +12,9 @@ from typing import Final
 import httpx
 
 THUNDER_URL: Final[str] = os.getenv("THUNDER_URL", "http://thunder.openchoreo.localhost:8080")
-THUNDER_CLIENT_ID: Final[str] = os.getenv("THUNDER_CLIENT_ID", "golden-paths-agent")
+THUNDER_CLIENT_ID: Final[str] = os.getenv("THUNDER_CLIENT_ID", "mlops-golden-paths-agent")
 THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
-    "THUNDER_CLIENT_SECRET", "golden-paths-agent-dev-secret"
+    "THUNDER_CLIENT_SECRET", "mlops-golden-paths-agent-dev-secret"
 )
 
 _cached_token: str | None = None

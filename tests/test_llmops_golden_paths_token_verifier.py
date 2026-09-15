@@ -1,17 +1,28 @@
-"""agents/mcp-servers/golden-paths-server/token_verifier.py — importable
-unqualified via pyproject.toml's `pythonpath`/`extraPaths`, same as this
-server's own runtime (a standalone script, its directory implicitly on
-sys.path)."""
+"""agents/mcp-servers/llmops-golden-paths-server/token_verifier.py.
+
+Loaded via conftest.load_module_from_path (not a bare
+`from token_verifier import ...`) because mlops-golden-paths-server has
+its own same-named token_verifier.py — see that helper's docstring.
+mlops-golden-paths-server's copy is functionally identical (differs only
+in its logger name), so this suite isn't duplicated for it.
+"""
 
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
+from conftest import load_module_from_path
 from cryptography.hazmat.primitives.asymmetric import rsa
-from token_verifier import ThunderTokenVerifier
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPrivateKey
 
-_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+_SERVER_DIR = Path(__file__).parent.parent / "agents/mcp-servers/llmops-golden-paths-server"
+token_verifier = load_module_from_path(
+    "llmops_golden_paths_token_verifier", _SERVER_DIR / "token_verifier.py"
+)
+
+_PRIVATE_KEY: RSAPrivateKey = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 _KID = "test-key"
 
 
@@ -36,11 +47,9 @@ def _mock_jwks_response() -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _clear_jwks_cache():
-    from token_verifier import _jwks
-
-    _jwks.cache_clear()
+    token_verifier._jwks.cache_clear()
     yield
-    _jwks.cache_clear()
+    token_verifier._jwks.cache_clear()
 
 
 def _real_thunder_claims(client_id: str, scope: str | None = None) -> dict:
@@ -62,14 +71,16 @@ def _real_thunder_claims(client_id: str, scope: str | None = None) -> dict:
 
 @pytest.mark.asyncio
 async def test_verify_token_accepts_allowed_client_in_allowlist() -> None:
-    token = _sign(_real_thunder_claims("orchestration-api-agent", scope="golden-paths:mutate"))
+    token = _sign(
+        _real_thunder_claims("orchestration-api-agent", scope="llmops-golden-paths:mutate")
+    )
 
-    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+    with patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is not None
     assert access_token.client_id == "orchestration-api-agent"
-    assert access_token.scopes == ["golden-paths:mutate"]
+    assert access_token.scopes == ["llmops-golden-paths:mutate"]
 
 
 @pytest.mark.asyncio
@@ -78,8 +89,8 @@ async def test_verify_token_defaults_to_no_scopes_when_none_requested() -> None:
     # scope claim at all, not an empty string.
     token = _sign(_real_thunder_claims("orchestration-api-agent"))
 
-    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+    with patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is not None
     assert access_token.scopes == []
@@ -88,13 +99,13 @@ async def test_verify_token_defaults_to_no_scopes_when_none_requested() -> None:
 @pytest.mark.asyncio
 async def test_verify_token_rejects_client_not_in_allowlist() -> None:
     # A well-formed, correctly-signed token for some OTHER Thunder client
-    # (e.g. golden-paths-agent's own outbound identity, or any unrelated
-    # app) must not be accepted here — this server only expects
+    # (e.g. llmops-golden-paths-agent's own outbound identity, or any
+    # unrelated app) must not be accepted here — this server only expects
     # orchestration-api-agent to call it.
     token = _sign(_real_thunder_claims("some-other-client"))
 
-    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+    with patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is None
 
@@ -104,10 +115,13 @@ async def test_verify_token_respects_custom_allowlist() -> None:
     token = _sign(_real_thunder_claims("some-other-client"))
 
     with (
-        patch("token_verifier.httpx.get", return_value=_mock_jwks_response()),
-        patch("token_verifier.ALLOWED_CLIENT_IDS", frozenset({"some-other-client"})),
+        patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()),
+        patch(
+            "llmops_golden_paths_token_verifier.ALLOWED_CLIENT_IDS",
+            frozenset({"some-other-client"}),
+        ),
     ):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is not None
     assert access_token.client_id == "some-other-client"
@@ -119,8 +133,8 @@ async def test_verify_token_rejects_expired_token() -> None:
     claims["exp"] = int(time.time()) - 10
     token = _sign(claims)
 
-    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+    with patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is None
 
@@ -134,7 +148,7 @@ async def test_verify_token_rejects_unknown_kid() -> None:
         algorithm="RS256",
         headers={"kid": "not-in-jwks"},
     )
-    with patch("token_verifier.httpx.get", return_value=_mock_jwks_response()):
-        access_token = await ThunderTokenVerifier().verify_token(token)
+    with patch("llmops_golden_paths_token_verifier.httpx.get", return_value=_mock_jwks_response()):
+        access_token = await token_verifier.ThunderTokenVerifier().verify_token(token)
 
     assert access_token is None

@@ -27,8 +27,8 @@ staleness risk and infra for a corpus this size without a real benefit.
 No auth header sent — same as `observability-server`, since both are
 read-only against routes that fall back to the dev-bypass identity when
 `AUTH_ENABLED=false` (see `.env`). Give this server a Thunder
-client_credentials identity (`thunder_client.py`, `golden-paths-server`'s
-pattern) if that changes.
+client_credentials identity (`thunder_client.py`,
+`llmops-golden-paths-server`'s pattern) if that changes.
 
 Transport: `streamable-http`, `MCP_HOST`/`MCP_PORT` (default `0.0.0.0:9003`)
 — discovered via the Backstage Catalog, not a hardcoded path.

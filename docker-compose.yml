@@ -114,9 +114,10 @@ services:
       # and degrades (MCP discovery, and now golden-paths lookup, both
       # depend on this working).
       BACKSTAGE_BASE_URL: http://host.docker.internal:7007
-      # This service's own identity when calling out to golden-paths-server
+      # This service's own identity when calling out to
+      # llmops-golden-paths-server and mlops-golden-paths-server
       # (mcp_client.py/mcp_auth_client.py) — needs registering by hand in
-      # Thunder first, same prerequisite as golden-paths-agent below.
+      # Thunder first, same prerequisite as llmops-golden-paths-agent below.
       MCP_CLIENT_ID: orchestration-api-agent
       MCP_CLIENT_SECRET: orchestration-api-agent-dev-secret
     # Routes the k3d gateway hostname to the real host machine — its
@@ -163,20 +164,20 @@ services:
     # Prometheus, not an all-or-nothing service).
     profiles: ["mlops", "llmops", "observability"]
 
-  golden-paths-server:
+  llmops-golden-paths-server:
     build:
       context: .
-      dockerfile: agents/mcp-servers/golden-paths-server/Dockerfile
-    container_name: ai-delivery-portal-golden-paths-server
+      dockerfile: agents/mcp-servers/llmops-golden-paths-server/Dockerfile
+    container_name: ai-delivery-portal-llmops-golden-paths-server
     ports:
       - "9002:9002"
     environment:
       ORCHESTRATION_API_URL: http://orchestration-api:8000
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
-      THUNDER_CLIENT_ID: golden-paths-agent
-      THUNDER_CLIENT_SECRET: golden-paths-agent-dev-secret
+      THUNDER_CLIENT_ID: llmops-golden-paths-agent
+      THUNDER_CLIENT_SECRET: llmops-golden-paths-agent-dev-secret
       # This server's own resource identifier (AuthSettings.resource_server_url).
-      MCP_SERVER_URL: http://golden-paths-server:9002/mcp
+      MCP_SERVER_URL: http://llmops-golden-paths-server:9002/mcp
       # client_ids allowed to call this server's MCP endpoint at all — Thunder's
       # client_credentials tokens carry aud == the caller's own client_id (no
       # separate "resource" audience), so this is an allowlist, not one fixed
@@ -198,3 +199,25 @@ services:
       ORCHESTRATION_API_URL: http://orchestration-api:8000
     # orchestration-api is a different profile — start it first.
     profiles: ["mlops", "llmops"]
+
+  mlops-golden-paths-server:
+    build:
+      context: .
+      dockerfile: agents/mcp-servers/mlops-golden-paths-server/Dockerfile
+    container_name: ai-delivery-portal-mlops-golden-paths-server
+    ports:
+      - "9004:9004"
+    environment:
+      ORCHESTRATION_API_URL: http://orchestration-api:8000
+      THUNDER_URL: http://thunder.openchoreo.localhost:8080
+      THUNDER_CLIENT_ID: mlops-golden-paths-agent
+      THUNDER_CLIENT_SECRET: mlops-golden-paths-agent-dev-secret
+      # This server's own resource identifier (AuthSettings.resource_server_url).
+      MCP_SERVER_URL: http://mlops-golden-paths-server:9004/mcp
+      # client_ids allowed to call this server's MCP endpoint at all — same
+      # allowlist semantics as llmops-golden-paths-server (see its own comment here).
+      THUNDER_MCP_ALLOWED_CLIENTS: orchestration-api-agent
+    extra_hosts:
+      - "thunder.openchoreo.localhost:host-gateway"
+    # orchestration-api is a different profile — start it first.
+    profiles: ["mlops"]

@@ -186,7 +186,7 @@ chấp nhận restart như bước biết trước, không phải sự cố ch�
 
 ## Không nằm trong phạm vi
 
-Không MCP server nào của dự án (`golden-paths-server`,
+Không MCP server nào của dự án (`llmops-golden-paths-server`,
 `golden-path-guide-server`, `observability-server`) được đề xuất làm
 "agent điều phối" thay thế Perch/RCA Agent/FinOps Agent có sẵn của
 OpenChoreo — chúng vẫn là năng lực bổ sung, đứng song song.

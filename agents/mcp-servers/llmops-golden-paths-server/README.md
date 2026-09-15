@@ -1,4 +1,4 @@
-# golden-paths-server
+# llmops-golden-paths-server
 
 MCP server for the LLMOps Lifecycle Golden Path actions. Each tool is a
 thin HTTP client into `orchestration-api`'s `/prompts` and `/rag` endpoints
@@ -15,7 +15,7 @@ thin HTTP client into `orchestration-api`'s `/prompts` and `/rag` endpoints
   (`ChatResponse.pending_tool_call` / `ChatRequest.confirmed_tool_call`).
   The server itself also enforces this, not just `chat.py`: both tools take
   a `confirm: bool = False` parameter (rejected unless `True`) and require
-  the caller's token to carry the `golden-paths:mutate` scope
+  the caller's token to carry the `llmops-golden-paths:mutate` scope
   (`server.py::_require_confirmed_mutation`) — a caller hitting this
   server's endpoint directly, bypassing `chat.py` entirely, cannot execute
   either tool with just a plain "confirm=True" and no token to back it up.
@@ -24,7 +24,7 @@ thin HTTP client into `orchestration-api`'s `/prompts` and `/rag` endpoints
 
 **Outbound** — calling `orchestration-api`'s `/prompts`/`/rag` endpoints:
 this server authenticates as its own Thunder service-account
-(`golden-paths-agent`, client_credentials, see `thunder_client.py`), not a
+(`llmops-golden-paths-agent`, client_credentials, see `thunder_client.py`), not a
 self-reported header. `orchestration-api` verifies any presented token
 regardless of its own `AUTH_ENABLED` — only a caller with no token falls
 back to the dev-bypass identity, so Backstage Scaffolder (which sends no
@@ -37,7 +37,7 @@ gate, checked in-process, not something it trusts `orchestration-api`'s
 `chat.py` to have already done. `orchestration-api` presents its own
 Thunder identity (`orchestration-api-agent`, see
 `services/orchestration-api/mcp_auth_client.py`, which also requests the
-`golden-paths:mutate` scope on every token it fetches).
+`llmops-golden-paths:mutate` scope on every token it fetches).
 
 `token_verifier.py` checks the token's `aud` against
 `THUNDER_MCP_ALLOWED_CLIENTS` (default: `orchestration-api-agent`) as a
@@ -46,7 +46,7 @@ verified empirically against a live Thunder instance that its
 client_credentials tokens carry `aud == client_id`, there's no separate
 "resource" audience to mint against.
 
-**Known gap — manual, IdP-side, still not done:** `golden-paths-agent` and
+**Known gap — manual, IdP-side, still not done:** `llmops-golden-paths-agent` and
 `orchestration-api-agent` both need registering as Thunder applications
 (client_credentials grant) before any of this actually authenticates.
 Attempted this directly against the local k3d cluster
@@ -72,5 +72,5 @@ Transport: `streamable-http`, `MCP_HOST`/`MCP_PORT` (default `0.0.0.0:9002`)
 ## Run locally
 
 ```bash
-bash scripts/run-mcp-local.sh golden-paths
+bash scripts/run-mcp-local.sh llmops-golden-paths
 ```

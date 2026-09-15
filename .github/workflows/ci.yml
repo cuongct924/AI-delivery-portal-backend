@@ -101,7 +101,9 @@ jobs:
             report.xml
             coverage.xml
 
-  # Docker — build all 4 service images, then Trivy-scan each.
+  # Docker — build each service image with its own Dockerfile, then
+  # Trivy-scan each. golden-path-guide-server predates this block and was
+  # never added; not this change's concern to fix.
   # --ignore-unfixed: skip upstream CVEs with no available patch yet.
   # NOTE: the Portal frontend now lives in a separate repo
   # (cuongct924/AI-delivery-portal-frontend, forked from openchoreo/backstage-plugins)
@@ -126,11 +128,12 @@ jobs:
         run: |
           docker build -t orchestration-api:$SHORT_SHA -f services/orchestration-api/Dockerfile .
           docker build -t observability-server:$SHORT_SHA -f agents/mcp-servers/observability-server/Dockerfile .
-          docker build -t golden-paths-server:$SHORT_SHA -f agents/mcp-servers/golden-paths-server/Dockerfile .
+          docker build -t llmops-golden-paths-server:$SHORT_SHA -f agents/mcp-servers/llmops-golden-paths-server/Dockerfile .
+          docker build -t mlops-golden-paths-server:$SHORT_SHA -f agents/mcp-servers/mlops-golden-paths-server/Dockerfile .
           docker build -t training-image:$SHORT_SHA -f infra/argo-workflows/training-image/Dockerfile .
       - name: Trivy scan
         run: |
-          for img in orchestration-api observability-server golden-paths-server training-image; do
+          for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
             echo "=== Trivy scan: $img ==="
             trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "$img:$SHORT_SHA"
           done
@@ -144,7 +147,7 @@ jobs:
       - name: Push images
         if: github.ref == 'refs/heads/main'
         run: |
-          for img in orchestration-api observability-server golden-paths-server training-image; do
+          for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
             docker tag "$img:$SHORT_SHA" "ghcr.io/$REPO_LC/$img:$SHORT_SHA"
             docker tag "$img:$SHORT_SHA" "ghcr.io/$REPO_LC/$img:latest"
             docker push "ghcr.io/$REPO_LC/$img:$SHORT_SHA"

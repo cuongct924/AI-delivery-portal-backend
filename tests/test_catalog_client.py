@@ -15,9 +15,9 @@ def test_discover_mcp_servers_parses_matching_entities() -> None:
     mock_response.json.return_value = [
         {
             "metadata": {
-                "name": "golden-paths-mcp",
+                "name": "llmops-golden-paths-mcp",
                 "annotations": {
-                    "mcp/endpoint": "http://golden-paths-server:9002/mcp",
+                    "mcp/endpoint": "http://llmops-golden-paths-server:9002/mcp",
                     "mcp/transport": "streamable-http",
                 },
             }
@@ -37,8 +37,8 @@ def test_discover_mcp_servers_parses_matching_entities() -> None:
 
     assert servers == [
         {
-            "name": "golden-paths-mcp",
-            "endpoint": "http://golden-paths-server:9002/mcp",
+            "name": "llmops-golden-paths-mcp",
+            "endpoint": "http://llmops-golden-paths-server:9002/mcp",
             "transport": "streamable-http",
         },
         {

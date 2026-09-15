@@ -94,7 +94,7 @@ Scaffolder Action.
 chuẩn hiện đại), discovery qua Backstage Catalog thay vì hardcode
 (`catalog_client.py`), tool annotation (`destructive_hint`) gate hành động
 phá hoại, service identity riêng qua Thunder client_credentials token
-fetch/cache (`golden-paths-server/thunder_client.py`, hàm `auth_headers()`)
+fetch/cache (`llmops-golden-paths-server/thunder_client.py`, hàm `auth_headers()`)
 thay vì self-reported header.
 
 **Khoảng trống:**
@@ -134,7 +134,7 @@ chính là tiền đề của bất kỳ pattern multi-agent nghiêm túc nào.
 multi-agent *thân thiện*, IDP không tự xây multi-agent system.** Nghĩa là:
 
 - IDP chịu trách nhiệm expose từng domain thành capability **tách biệt,
-  có scope, discover được** — đúng như `golden-paths-server` (worker hành
+  có scope, discover được** — đúng như `llmops-golden-paths-server` (worker hành
   động) và `observability-server` (worker chẩn đoán) đã tách sẵn.
   Đây là điều kiện để **một hệ multi-agent bên ngoài** (framework nào đó,
   do người khác xây, hoặc một hướng mở rộng sau này) có thể gán mỗi domain
@@ -208,9 +208,9 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
 
 ### Phase 0 — Vá lỗ hổng an ninh (làm ngay, độc lập với roadmap)
 
-- [ ] `golden-paths-server` tự verify token/scope trước khi thực thi tool
+- [ ] `llmops-golden-paths-server` tự verify token/scope trước khi thực thi tool
       `destructive_hint=True`, không dựa hoàn toàn vào `chat.py` chặn hộ.
-      File: `agents/mcp-servers/golden-paths-server/server.py`,
+      File: `agents/mcp-servers/llmops-golden-paths-server/server.py`,
       `thunder_client.py`.
 
 ### Phase 1 — Single-agent-ready: sửa đúng cái đã có (rẻ, nền tảng cho mọi phase sau)
@@ -273,7 +273,7 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
 phải một hệ thống runbook tách biệt cần viết mới — Prompt Registry
 (`routers/prompts.py` + `JsonFileVersionRegistryAdapter(kind="prompt")`)
 **đã tồn tại đầy đủ** (draft → evaluate-gate → activate), và đã
-agent-accessible qua 3 tool có sẵn trong `golden-paths-server`
+agent-accessible qua 3 tool có sẵn trong `llmops-golden-paths-server`
 (`draft_prompt`, `evaluate_prompt`, `activate_prompt`). Đây là registry
 quản lý *system prompt của persona* ("tôi là ai"); MCP Prompts đề xuất
 thêm là *task template/runbook* ("gặp tình huống X thì làm theo bước Y") —
@@ -311,7 +311,7 @@ khác mục đích, nhưng nên dùng chung một registry, không tách hai h�
 - [ ] Tiền đề bắt buộc: Phase 1 (persona → tool scope) phải xong trước —
       điều kiện để mỗi identity/agent-caller bên ngoài thật sự bị giới hạn
       đúng phạm vi của nó, không chỉ khác system prompt.
-- [ ] Đảm bảo `golden-paths-server` (capability hành động) và
+- [ ] Đảm bảo `llmops-golden-paths-server` (capability hành động) và
       `observability-server` (capability chẩn đoán) **tiếp tục là 2
       capability tách biệt, độc lập scope/auth** — để một hệ multi-agent
       bên ngoài (bất kỳ ai xây, bất kỳ framework nào) có thể gán mỗi domain

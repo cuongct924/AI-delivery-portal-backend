@@ -1,18 +1,24 @@
 """Thunder client_credentials token fetch/cache — this service's own
 identity when it connects out to an MCP server (mcp_client.py), mirroring
-`agents/mcp-servers/golden-paths-server/thunder_client.py`'s pattern
-one level up the call chain.
+`agents/mcp-servers/llmops-golden-paths-server/thunder_client.py`'s
+pattern one level up the call chain.
 
 The `orchestration-api-agent` client still needs registering by hand in
-Thunder (same prerequisite thunder_client.py notes for golden-paths-agent)
-before an MCP server that enforces auth will accept this token.
+Thunder (same prerequisite thunder_client.py notes for
+llmops-golden-paths-agent) before an MCP server that enforces auth will
+accept this token.
 
-Requests `MUTATE_SCOPE` on every token — verified empirically against a
-live Thunder instance that it grants whatever scope a client_credentials
-request asks for (no per-application scope allowlist enforced), so this is
-what actually gets `golden-paths-server`'s `activate_prompt`/`rag_activate`
-scope check to pass; omitting `scope=` from the request yields a token
-with no `scope` claim at all.
+Requests both MCP servers' MUTATE_SCOPEs on every token — verified
+empirically against a live Thunder instance that it grants whatever scope
+a client_credentials request asks for (no per-application scope allowlist
+enforced), so this is what actually gets llmops-golden-paths-server's
+`activate_prompt`/`rag_activate` and mlops-golden-paths-server's
+`trigger_training`/`register_model`/`prepare_deploy`/`prepare_llm_deploy`
+scope checks to pass. One shared outbound identity, two independent
+servers to present it to — each server checks only for its own scope, so
+carrying both on the same token doesn't let an llmops-golden-paths-server
+call smuggle mlops-golden-paths-server privileges or vice versa. Omitting
+`scope=` from the request yields a token with no `scope` claim at all.
 """
 
 import os
@@ -26,8 +32,10 @@ THUNDER_CLIENT_ID: Final[str] = os.getenv("MCP_CLIENT_ID", "orchestration-api-ag
 THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
     "MCP_CLIENT_SECRET", "orchestration-api-agent-dev-secret"
 )
-# Must match golden-paths-server/server.py's MUTATE_SCOPE.
-MUTATE_SCOPE: Final[str] = "golden-paths:mutate"
+# Must match llmops-golden-paths-server/server.py's and
+# mlops-golden-paths-server/server.py's own MUTATE_SCOPE constants.
+LLMOPS_GOLDEN_PATHS_MUTATE_SCOPE: Final[str] = "llmops-golden-paths:mutate"
+MLOPS_GOLDEN_PATHS_MUTATE_SCOPE: Final[str] = "mlops-golden-paths:mutate"
 
 _cached_token: str | None = None
 _cached_expiry: float = 0.0
@@ -46,7 +54,7 @@ def get_access_token() -> str:
             "grant_type": "client_credentials",
             "client_id": THUNDER_CLIENT_ID,
             "client_secret": THUNDER_CLIENT_SECRET,
-            "scope": MUTATE_SCOPE,
+            "scope": f"{LLMOPS_GOLDEN_PATHS_MUTATE_SCOPE} {MLOPS_GOLDEN_PATHS_MUTATE_SCOPE}",
         },
         timeout=10,
     )

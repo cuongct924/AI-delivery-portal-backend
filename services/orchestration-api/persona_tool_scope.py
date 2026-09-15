@@ -28,8 +28,8 @@ _OBSERVABILITY_TOOLS: ToolScope = frozenset(
     }
 )
 
-# agents/mcp-servers/golden-paths-server/server.py — prompt/RAG lifecycle,
-# includes the two NEEDS_CONFIRMATION mutating tools.
+# agents/mcp-servers/llmops-golden-paths-server/server.py — LLMOps prompt/
+# RAG lifecycle, includes the two NEEDS_CONFIRMATION mutating tools.
 _GOLDEN_PATH_TOOLS: ToolScope = frozenset(
     {
         "draft_prompt",
@@ -41,9 +41,22 @@ _GOLDEN_PATH_TOOLS: ToolScope = frozenset(
     }
 )
 
+# agents/mcp-servers/mlops-golden-paths-server/server.py — Train->Track->
+# Register / Register->Deploy / Serving LLM lifecycle, includes the 4
+# NEEDS_CONFIRMATION mutating tools.
+_MLOPS_GOLDEN_PATH_TOOLS: ToolScope = frozenset(
+    {
+        "validate_dataset",
+        "trigger_training",
+        "register_model",
+        "prepare_deploy",
+        "prepare_llm_deploy",
+    }
+)
+
 PERSONA_ALLOWED_TOOLS: dict[str, ToolScope] = {
     "k8s": _OBSERVABILITY_TOOLS,
-    "mlops": _OBSERVABILITY_TOOLS | _GOLDEN_PATH_TOOLS,
+    "mlops": _OBSERVABILITY_TOOLS | _GOLDEN_PATH_TOOLS | _MLOPS_GOLDEN_PATH_TOOLS,
 }
 
 

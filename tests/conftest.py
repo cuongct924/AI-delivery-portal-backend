@@ -28,8 +28,12 @@ would silently start reading stale state from a previous run instead of a
 fresh seed). Redirecting to a fresh temp file gives every test run a clean
 slate; not cleaned up afterwards since it's outside the repo entirely."""
 
+import importlib.util
 import os
+import sys
 import tempfile
+from pathlib import Path
+from types import ModuleType
 
 os.environ.setdefault(
     "LLMOPS_REGISTRY_PATH", os.path.join(tempfile.mkdtemp(), "llmops-registry.json")
@@ -37,3 +41,57 @@ os.environ.setdefault(
 
 import mlflow.pyfunc  # noqa: F401, E402
 import torch  # noqa: F401, E402
+
+
+def load_module_from_path(alias: str, file_path: Path) -> ModuleType:
+    """Load a .py file as a module under a unique `alias` name in
+    sys.modules, bypassing normal package/path-based resolution.
+
+    Used for agents/mcp-servers/*/ directories: each contains a
+    same-named server.py/token_verifier.py/thunder_client.py, so putting
+    two such directories on one global pythonpath/extraPaths would make a
+    bare `import server` ambiguous across test files — whichever
+    directory happened to be imported first in the session silently wins
+    for every test after it, including files that meant to test a
+    different server entirely.
+    """
+    spec = importlib.util.spec_from_file_location(alias, file_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[alias] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_mcp_server(server_dir: Path, prefix: str) -> ModuleType:
+    """Load one agents/mcp-servers/<x>/server.py, with its sibling
+    thunder_client.py/token_verifier.py loaded first (under `prefix`-
+    namespaced aliases) and briefly bound to their bare names in
+    sys.modules so server.py's own `from thunder_client import ...` /
+    `from token_verifier import ...` resolve to *this* directory's
+    copies — then restored to whatever was cached there before (never
+    just deleted), so this doesn't leave a different, already-imported
+    server module holding a stale/orphaned reference to a module object
+    that's no longer the one a later `import token_verifier` would
+    re-resolve to.
+    """
+    thunder_client = load_module_from_path(
+        f"{prefix}_thunder_client", server_dir / "thunder_client.py"
+    )
+    token_verifier = load_module_from_path(
+        f"{prefix}_token_verifier", server_dir / "token_verifier.py"
+    )
+    prev_thunder_client = sys.modules.get("thunder_client")
+    prev_token_verifier = sys.modules.get("token_verifier")
+    sys.modules["thunder_client"] = thunder_client
+    sys.modules["token_verifier"] = token_verifier
+    server = load_module_from_path(f"{prefix}_server", server_dir / "server.py")
+    if prev_thunder_client is not None:
+        sys.modules["thunder_client"] = prev_thunder_client
+    else:
+        del sys.modules["thunder_client"]
+    if prev_token_verifier is not None:
+        sys.modules["token_verifier"] = prev_token_verifier
+    else:
+        del sys.modules["token_verifier"]
+    return server
