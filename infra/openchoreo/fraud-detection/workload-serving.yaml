@@ -1,6 +1,7 @@
 # Placeholder image (nginxdemos/hello) — proves the Component/Environment/
 # DeploymentPipeline plumbing for a "deployment/service" ComponentType, not
-# yet the real model. See infra/openchoreo/README.md's "What's NOT done yet".
+# yet the real model. See docs/openchoreo-migration-next-steps.md's
+# "Vẫn còn bespoke/gọi thẳng K8s, cần chuyển" section.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:

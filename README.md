@@ -80,9 +80,10 @@ act pull_request -j python-checks                           # run a single job: 
 ## Local Kubernetes cluster
 
 Golden Path #1 runs on Argo Workflows inside the same k3d `openchoreo-quick-start`
-cluster used for OpenChoreo/Thunder (see `infra/openchoreo/README.md`) — there is
-no separate local cluster for it anymore. Setup (one-time, after the cluster
-exists):
+cluster used for OpenChoreo/Thunder (see `docs/openchoreo-migration-next-steps.md`
+for its current state — cluster creation itself isn't documented in this repo
+yet) — there is no separate local cluster for it anymore. Setup (one-time,
+after the cluster exists):
 
 ```bash
 kubectl config use-context k3d-openchoreo-quick-start

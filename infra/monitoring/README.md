@@ -35,8 +35,10 @@ Grafana dashboards.
   real blocker is a network gap: this docker-compose `prometheus` container
   and the local k3d `openchoreo-quick-start` cluster sit on separate Docker
   networks with no bridge between them, and its LoadBalancer's port mappings
-  (see `infra/openchoreo/README.md`) cover the OpenChoreo/Thunder/Argo
-  surfaces — nothing for a KServe predictor's metrics port. Closing this
+  (not documented in this repo yet — see
+  `docs/openchoreo-migration-next-steps.md` Phase 0) cover the
+  OpenChoreo/Thunder/Argo surfaces — nothing for a KServe predictor's
+  metrics port. Closing this
   gap needs a real network bridge (or running Prometheus inside the
   cluster), not a Prometheus/KServe config change — out of scope until a
   real (non-local) cluster exists.

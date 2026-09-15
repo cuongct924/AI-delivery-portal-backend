@@ -19,8 +19,9 @@ then hands the resulting `runs:/...` artifact URI and dataset digest to
 workflow pod, per CLAUDE.md). This runs on Argo Workflows inside the k3d
 `openchoreo-quick-start` cluster (its `openchoreo-workflow-plane` build
 plane) — see the top-level `README.md`'s "Local Kubernetes cluster" section
-for the one-time RBAC/WorkflowTemplate/image-import setup, and
-`infra/openchoreo/README.md` for how that cluster itself gets created.
+for the one-time RBAC/WorkflowTemplate/image-import setup. How the cluster
+itself gets created isn't documented in this repo yet — see
+`docs/openchoreo-migration-next-steps.md` Phase 0 for context.
 
 **`command: ["python", "train.py"]` on the train-step is required, not
 cosmetic**: `training-image:local` is only ever built + `k3d image import`ed,
