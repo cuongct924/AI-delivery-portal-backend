@@ -132,20 +132,21 @@ def check_model_latency(model_name: str, namespace: str, threshold_ms: float = 5
 
 @mcp.tool(annotations=READ_ONLY)
 def get_promotion_status(model_name: str, tenant: str) -> PromotionStatus:
-    """Check which environments a model has reached via Kargo's promotion
+    """Check which environments a model has reached via the promotion
     pipeline, and whether a prod promotion is waiting on manual approval.
-    (mock — not wired to a real Kargo installation yet; see infra/kargo/README.md
-    for the Warehouse/Stage naming this would query:
-    infra/kargo/warehouse-inference-services-<tenant>.yaml,
-    infra/kargo/stage-{staging,prod}-<tenant>.yaml). Read-only by design —
-    approving a prod promotion stays a human action via `kargo approve`/the
-    Kargo UI, never something this tool (or any agent) can trigger."""
+    (mock — the originally-planned Kargo-based promotion pipeline was
+    removed early on and never actually installed;
+    infra/openchoreo/deployment-pipeline.yaml's DeploymentPipeline is the
+    current intended replacement, not yet wired — see
+    docs/openchoreo-migration-next-steps.md Phase 3/4). Read-only by
+    design — approving a prod promotion stays a human action, never
+    something this tool (or any agent) can trigger."""
     return {
         "model": model_name,
         "tenant": tenant,
         "environments": {"dev": "unknown", "staging": "unknown", "prod": "unknown"},
         "prod_pending_approval": False,
-        "note": "mock data — infra/kargo/ is not installed/verified in this environment yet",
+        "note": "mock data — promotion pipeline (OpenChoreo DeploymentPipeline) not yet wired",
     }
 
 

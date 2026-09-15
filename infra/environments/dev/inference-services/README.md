@@ -20,6 +20,8 @@ one removes the matching `InferenceService` (`prune: true`).
 
 This is the **only** tier Backstage writes to directly.
 `../../staging/inference-services/<tenant>/` and
-`../../prod/inference-services/<tenant>/` are populated exclusively by
-that tenant's own Kargo `Warehouse`/`Stage` pair promoting out of here —
-see `infra/kargo/README.md`.
+`../../prod/inference-services/<tenant>/` are intended to be populated
+exclusively by that tenant's own promotion pipeline out of here — the
+originally-planned Kargo `Warehouse`/`Stage` pair for this was removed
+early on and never actually installed; see `../../README.md` for the
+current OpenChoreo `DeploymentPipeline` replacement (not yet wired).

@@ -42,11 +42,15 @@ real multi-cluster infra shows up.
   (`services/orchestration-api/routers/models.py`), PR-gated: nothing here
   is meant to be hand-edited, each file's lifecycle is PR-driven, deleting
   a file removes the matching `InferenceService` (`prune: true`).
-- **`staging/` and `prod/` `inference-services/<tenant>/`** — written
-  **only by that tenant's own Kargo `Warehouse`/`Stage` pair**
-  (`infra/kargo/`), never by Backstage, never by hand, and never across
-  tenants. `staging` promotes automatically; `prod` only after manual
-  approval, per tenant, independently. See `infra/kargo/README.md`.
+- **`staging/` and `prod/` `inference-services/<tenant>/`** — intended to
+  be written **only by that tenant's own promotion pipeline**, never by
+  Backstage, never by hand, and never across tenants: `staging` promotes
+  automatically, `prod` only after manual approval, per tenant,
+  independently. The originally-planned mechanism for this was Kargo
+  (`infra/kargo/`) — removed early on, never actually installed.
+  `infra/openchoreo/deployment-pipeline.yaml`'s `DeploymentPipeline` is the
+  current intended replacement (same promotion-chain shape), not yet
+  wired — see `docs/openchoreo-migration-next-steps.md` Phase 3/4.
 - **`orchestration-api/`, `portal/` (all envs)** — not tenant-scoped, not
   Golden-Path-written; overlay values only, owned by platform-team.
 
