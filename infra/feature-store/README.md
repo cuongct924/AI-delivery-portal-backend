@@ -38,7 +38,7 @@ the training sample doesn't carry one.
 merges Feast features into a dataset before training — called by the
 `orchestration:enrich-dataset-features` Scaffolder Action, itself an
 opt-in step (`useFeast` parameter) in `templates/train-track-register/template.yaml`
-(frontend repo, `cuongct924/backstage-plugins`).
+(frontend repo, `cuongct924/AI-delivery-portal-frontend`).
 Most runs leave `useFeast` off and are unaffected.
 
 ## Pointing at real Object Storage

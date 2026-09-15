@@ -14,7 +14,7 @@ Official structure: Portal (Backstage) + Orchestration API (FastAPI) + AI Agent/
 + Adapter layer + GitOps infrastructure, split across two repos: this one is
 the **backend**; the Portal frontend (Backstage + OpenChoreo plugins +
 Viettel Cloud branding) lives in a separate repo,
-[`cuongct924/backstage-plugins`](https://github.com/cuongct924/backstage-plugins).
+[`cuongct924/AI-delivery-portal-frontend`](https://github.com/cuongct924/AI-delivery-portal-frontend).
 
 ## Directory structure
 
@@ -59,7 +59,7 @@ make check      # lint + typecheck + test
 ```
 
 - Portal UI + Golden Path templates/Catalog config: see the frontend repo,
-  [`cuongct924/backstage-plugins`](https://github.com/cuongct924/backstage-plugins)
+  [`cuongct924/AI-delivery-portal-frontend`](https://github.com/cuongct924/AI-delivery-portal-frontend)
   — [`orchestration-api`](services/orchestration-api/) must be running
   (`docker compose up` or local `uvicorn`) for its Scaffolder actions to work
 

@@ -1,5 +1,5 @@
 """Implements OpenChoreo Portal Assistant's chat wire protocol
-(backstage-plugins' `plugins/openchoreo-portal-assistant{,-backend}`) so
+(AI-delivery-portal-frontend's `plugins/openchoreo-portal-assistant{,-backend}`) so
 its existing drawer UI works against this repo's own MLOps/LLMOps chat +
 MCP tools instead of OpenChoreo's own perch-agent service.
 

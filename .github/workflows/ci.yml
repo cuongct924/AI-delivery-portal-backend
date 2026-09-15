@@ -104,7 +104,7 @@ jobs:
   # Docker — build all 4 service images, then Trivy-scan each.
   # --ignore-unfixed: skip upstream CVEs with no available patch yet.
   # NOTE: the Portal frontend now lives in a separate repo
-  # (cuongct924/backstage-plugins, forked from openchoreo/backstage-plugins)
+  # (cuongct924/AI-delivery-portal-frontend, forked from openchoreo/backstage-plugins)
   # and is built/checked there, not here.
   docker-build-and-scan:
     needs: [python-checks]

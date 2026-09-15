@@ -9,7 +9,7 @@
 ## 1. Bối cảnh & vấn đề
 
 Golden Path #1 (`templates/train-track-register/template.yaml` trong repo
-frontend `cuongct924/backstage-plugins`) hiện chỉ có 2 bước, và toàn bộ pipeline train
+frontend `cuongct924/AI-delivery-portal-frontend`) hiện chỉ có 2 bước, và toàn bộ pipeline train
 (`infra/argo-workflows/train-register-template.yaml` +
 `fine-tune-template.yaml`) hardcode cứng vào 1 use case: cột nhãn
 `is_fraud`, cột loại bỏ `transaction_id`, encode cứng `merchant_category`,
@@ -173,7 +173,7 @@ cần gửi lại `taskType` ở bước deploy.
 ### 3.4 Bước mới cho Golden Path #1 (2 → 5 bước)
 
 `templates/train-track-register/template.yaml` (repo frontend
-`cuongct924/backstage-plugins`):
+`cuongct924/AI-delivery-portal-frontend`):
 
 1. **`validate-dataset`** (mới, `orchestration:validate-dataset` →
    `POST /datasets/validate`) — đọc header CSV, kiểm tra `targetColumn` tồn

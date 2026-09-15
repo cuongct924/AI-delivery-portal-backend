@@ -1,5 +1,5 @@
 # Phase 2, sub-step 2.1 — portal (the Backstage frontend, repo
-# cuongct924/backstage-plugins) as a ClusterComponentType "web-application".
+# cuongct924/AI-delivery-portal-frontend) as a ClusterComponentType "web-application".
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:

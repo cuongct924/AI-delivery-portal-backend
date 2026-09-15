@@ -3,9 +3,10 @@
 Orchestration API (FastAPI) + AI Agent/MCP + Adapter layer + GitOps infra.
 This repo is the **backend** half of AI Delivery Portal. The Portal frontend
 (Backstage-based, OpenChoreo plugins + Viettel Cloud branding) lives in a
-**separate repo**: [`cuongct924/backstage-plugins`](https://github.com/cuongct924/backstage-plugins)
-(fork of `openchoreo/backstage-plugins`), local clone at
-`/Users/cuongct090_04/Code/backstage-plugins`. See
+**separate repo**: [`cuongct924/AI-delivery-portal-frontend`](https://github.com/cuongct924/AI-delivery-portal-frontend)
+(fork of `openchoreo/backstage-plugins`, renamed after forking), local clone at
+`/Users/cuongct090_04/Code/backstage-plugins` (directory name predates the
+GitHub rename — not yet renamed locally). See
 `docs/playbook-ai-delivery-portal.md` for the component diagram and design
 decisions/rationale.
 
@@ -65,4 +66,4 @@ not here.
   `SERVICE_REQS`, run `make lock`, add it to `docker-compose.yml`, and add a
   build+scan block to `ci.yml`.
 - Adding/changing a Golden Path template or Catalog entity: do it in the
-  frontend repo (`cuongct924/backstage-plugins`), not here.
+  frontend repo (`cuongct924/AI-delivery-portal-frontend`), not here.
