@@ -172,13 +172,13 @@ def get_active_prompt_version(name: str) -> ActiveVersion:
     """Which version of a system prompt is currently active. LLMOps
     releases are Instant-only, not PR-gated (docs/llmops-lifecycle-plan.md
     mục Q4) — there is no Git/ArgoCD trail to read this from, unlike a
-    model deploy, so this calls orchestration-api's own registry directly."""
-    response = httpx.get(f"{ORCHESTRATION_API_URL}/prompts", timeout=10)
+    model deploy, so this calls orchestration-api's own registry directly.
+    Mirrors get_active_rag_version below, which calls the "rag-index"
+    equivalent (GET /rag/{collection})."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/prompts/{name}/active", timeout=10)
     response.raise_for_status()
-    for prompt in response.json():
-        if prompt["name"] == name:
-            return {"name": name, "active_version": prompt["version"]}
-    return {"name": name, "active_version": None}
+    data = response.json()
+    return {"name": name, "active_version": data["active_version"]}
 
 
 @mcp.tool(annotations=READ_ONLY)

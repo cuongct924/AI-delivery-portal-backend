@@ -67,7 +67,15 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
         versions: dict[str, dict[str, object]] = {}
         version = 1
         while True:
-            pv = self.client.get_prompt_version(name=name, version=str(version))
+            try:
+                # get_prompt_version returns None for a missing *version* of
+                # a name that does exist, but raises MlflowException
+                # (RESOURCE_DOES_NOT_EXIST) when `name` itself was never
+                # registered — same "any MlflowException means not found"
+                # reading as get_active_version above.
+                pv = self.client.get_prompt_version(name=name, version=str(version))
+            except MlflowException:
+                break
             if pv is None:
                 break
             versions[str(version)] = {

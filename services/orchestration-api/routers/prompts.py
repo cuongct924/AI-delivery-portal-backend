@@ -25,6 +25,19 @@ llm_gateway_adapter = get_llm_gateway_adapter()
 registry_adapter = get_prompt_registry_adapter()
 
 
+class PromptNamesResponse(BaseModel):
+    names: list[str]
+
+
+class PromptVersionsResponse(BaseModel):
+    versions: list[str]
+
+
+class PromptActiveVersionResponse(BaseModel):
+    name: str
+    active_version: str | None
+
+
 class PromptVersion(BaseModel):
     id: str
     name: str
@@ -99,24 +112,33 @@ def _seed_default_prompts() -> None:
 _seed_default_prompts()
 
 
-@router.get("", response_model=list[PromptVersion])
-def list_prompts(user: dict = Depends(get_current_user)) -> list[PromptVersion]:
-    result = []
-    for name in registry_adapter.list_names("prompt"):
-        active_version = registry_adapter.get_active_version("prompt", name)
-        if active_version is None:
-            continue
-        metadata = registry_adapter.get_version("prompt", name, active_version)
-        result.append(
-            PromptVersion(
-                id=f"{name}-v{active_version}",
-                name=name,
-                version=active_version,
-                persona=str(metadata["persona"]),
-                content=str(metadata["content"]),
-            )
-        )
-    return result
+@router.get("", response_model=PromptNamesResponse)
+def list_prompt_names(user: dict = Depends(get_current_user)) -> PromptNamesResponse:
+    """Every drafted persona key, active or not — backs the Portal's
+    promptNamePicker (a user evaluating a draft picks from this list before
+    it has an active version)."""
+    return PromptNamesResponse(names=registry_adapter.list_names("prompt"))
+
+
+@router.get("/{name}/versions", response_model=PromptVersionsResponse)
+def list_prompt_versions(
+    name: str, user: dict = Depends(get_current_user)
+) -> PromptVersionsResponse:
+    versions = registry_adapter.list_versions("prompt", name)
+    return PromptVersionsResponse(versions=sorted(versions, key=int))
+
+
+@router.get("/{name}/active", response_model=PromptActiveVersionResponse)
+def get_prompt_active_version(
+    name: str, user: dict = Depends(get_current_user)
+) -> PromptActiveVersionResponse:
+    # Mirrors routers/rag.py's get_rag_active_version — added for
+    # agents/mcp-servers/observability-server's get_active_prompt_version,
+    # which used to fetch every persona and filter client-side because no
+    # by-name endpoint existed.
+    return PromptActiveVersionResponse(
+        name=name, active_version=registry_adapter.get_active_version("prompt", name)
+    )
 
 
 @router.get("/{prompt_id}", response_model=PromptVersion)

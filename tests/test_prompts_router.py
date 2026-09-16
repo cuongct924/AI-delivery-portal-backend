@@ -5,6 +5,7 @@ conftest.py redirects LLMOPS_REGISTRY_PATH to a fresh temp file before any
 router module imports, so _seed_default_prompts() (run at import time)
 always starts from a clean slate for this test session."""
 
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -18,13 +19,48 @@ from routers.prompts import (
     draft_prompt,
     evaluate_prompt,
     get_prompt,
-    list_prompts,
+    get_prompt_active_version,
+    list_prompt_names,
+    list_prompt_versions,
 )
 
 
-def test_list_prompts_returns_seeded_prompts():
-    prompts = list_prompts()
-    assert {p.name for p in prompts} == {"mlops", "k8s"}
+def test_list_prompt_names_returns_seeded_prompts():
+    # Superset, not equality — a persona name a prior local test run
+    # registered against the real MLflow Prompt Registry (never wiped
+    # between runs, unlike the JSON-file rag-index registry) has to stay
+    # listed too.
+    assert {"mlops", "k8s"} <= set(list_prompt_names().names)
+
+
+def test_list_prompt_versions_returns_registered_versions():
+    # Unique per test run — MLflow prompt versions only ever increment, so
+    # a fixed name would accumulate extra versions across repeated local
+    # runs and break the exact ["1", "2"] assertion below.
+    name = f"versions-target-{uuid.uuid4().hex[:8]}"
+    draft_prompt(DraftPromptRequest(name=name, persona="V", content="v1"))
+    draft_prompt(DraftPromptRequest(name=name, persona="V", content="v2"))
+
+    assert list_prompt_versions(name).versions == ["1", "2"]
+
+
+def test_list_prompt_versions_returns_empty_for_unregistered_name():
+    assert list_prompt_versions("does-not-exist").versions == []
+
+
+def test_get_prompt_active_version_returns_active_version():
+    draft_prompt(DraftPromptRequest(name="active-target", persona="A", content="sys"))
+    activate_prompt("active-target", ActivatePromptRequest(version="1"))
+
+    response = get_prompt_active_version("active-target")
+    assert response.name == "active-target"
+    assert response.active_version == "1"
+
+
+def test_get_prompt_active_version_returns_none_when_never_activated():
+    draft_prompt(DraftPromptRequest(name="unactivated-target", persona="U", content="sys"))
+
+    assert get_prompt_active_version("unactivated-target").active_version is None
 
 
 def test_get_prompt_found():
@@ -39,13 +75,19 @@ def test_get_prompt_not_found_raises_404():
 
 
 def test_draft_prompt_registers_a_new_unactivated_version():
-    request = DraftPromptRequest(name="rag-writer", persona="RAG Writer", content="Draft content")
+    # Unique per test run — same reasoning as
+    # test_list_prompt_versions_returns_registered_versions: MLflow prompt
+    # versions only ever increment, so a fixed name's version number isn't
+    # stable across repeated local runs against the same MLflow instance.
+    name = f"rag-writer-{uuid.uuid4().hex[:8]}"
+    request = DraftPromptRequest(name=name, persona="RAG Writer", content="Draft content")
     response = draft_prompt(request)
 
-    assert response.id == "rag-writer-v1"
+    assert response.id == f"{name}-v1"
     assert response.version == "1"
-    # Not active — list_prompts() shouldn't surface a persona with no active version.
-    assert "rag-writer" not in {p.name for p in list_prompts()}
+    # Drafting registers the name, but doesn't activate the version.
+    assert name in list_prompt_names().names
+    assert get_prompt_active_version(name).active_version is None
 
 
 def test_evaluate_prompt_computes_pass_rate_and_forwards_model():
@@ -80,15 +122,6 @@ def test_evaluate_prompt_computes_pass_rate_and_forwards_model():
             {"role": "user", "content": "q1"},
         ],
     )
-
-
-def test_activate_prompt_makes_version_visible_in_list_prompts():
-    draft_prompt(
-        DraftPromptRequest(name="activate-target", persona="Activate Target", content="sys")
-    )
-    activate_prompt("activate-target", ActivatePromptRequest(version="1"))
-
-    assert "activate-target" in {p.name for p in list_prompts()}
 
 
 def test_activate_prompt_raises_for_unregistered_version():

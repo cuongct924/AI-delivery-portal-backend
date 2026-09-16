@@ -79,9 +79,34 @@ class RagActiveVersionResponse(BaseModel):
     active_version: str | None
 
 
+class RagCollectionNamesResponse(BaseModel):
+    names: list[str]
+
+
+class RagIndexVersionsResponse(BaseModel):
+    versions: list[str]
+
+
 def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     step = max(1, chunk_size - chunk_overlap)
     return [text[i : i + chunk_size] for i in range(0, len(text), step)]
+
+
+# Declared ahead of the "/{collection}" catch-all below — FastAPI matches
+# routes in declaration order, so "/collections" would otherwise be
+# swallowed by "/{collection}" (collection="collections") and never reach
+# these handlers.
+@router.get("/collections", response_model=RagCollectionNamesResponse)
+def list_rag_collections(user: dict = Depends(get_current_user)) -> RagCollectionNamesResponse:
+    return RagCollectionNamesResponse(names=registry_adapter.list_names("rag-index"))
+
+
+@router.get("/collections/{name}/versions", response_model=RagIndexVersionsResponse)
+def list_rag_collection_versions(
+    name: str, user: dict = Depends(get_current_user)
+) -> RagIndexVersionsResponse:
+    versions = registry_adapter.list_versions("rag-index", name)
+    return RagIndexVersionsResponse(versions=sorted(versions, key=int))
 
 
 @router.get("/{collection}", response_model=RagActiveVersionResponse)

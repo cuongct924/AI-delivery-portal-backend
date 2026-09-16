@@ -13,6 +13,8 @@ from routers.rag import (
     RagEvaluateRequest,
     RagIngestRequest,
     _chunk_text,
+    list_rag_collection_versions,
+    list_rag_collections,
     rag_activate,
     rag_evaluate,
     rag_ingest,
@@ -123,6 +125,24 @@ def test_rag_evaluate_reports_none_cost_when_model_has_no_pricing() -> None:
 
     assert response.total_tokens == 50
     assert response.total_cost_usd is None
+
+
+def test_list_rag_collections_returns_names_from_registry() -> None:
+    with patch("routers.rag.registry_adapter") as mock_registry:
+        mock_registry.list_names.return_value = ["idp-docs", "smoke-test"]
+        response = list_rag_collections()
+
+    mock_registry.list_names.assert_called_once_with("rag-index")
+    assert response.names == ["idp-docs", "smoke-test"]
+
+
+def test_list_rag_collection_versions_returns_sorted_versions() -> None:
+    with patch("routers.rag.registry_adapter") as mock_registry:
+        mock_registry.list_versions.return_value = {"2": {}, "1": {}, "10": {}}
+        response = list_rag_collection_versions("smoke-test")
+
+    mock_registry.list_versions.assert_called_once_with("rag-index", "smoke-test")
+    assert response.versions == ["1", "2", "10"]
 
 
 def test_rag_activate_calls_set_active_version() -> None:
