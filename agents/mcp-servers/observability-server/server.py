@@ -49,9 +49,9 @@ class LatencyCheck(TypedDict):
 class PromotionStatus(TypedDict):
     model: str
     tenant: str
-    environments: dict[str, str]
+    # env name -> the release bound there, None if never promoted that far.
+    environments: dict[str, str | None]
     prod_pending_approval: bool
-    note: str
 
 
 class ActiveVersion(TypedDict):
@@ -132,21 +132,28 @@ def check_model_latency(model_name: str, namespace: str, threshold_ms: float = 5
 
 @mcp.tool(annotations=READ_ONLY)
 def get_promotion_status(model_name: str, tenant: str) -> PromotionStatus:
-    """Check which environments a model has reached via the promotion
-    pipeline, and whether a prod promotion is waiting on manual approval.
-    (mock — the originally-planned Kargo-based promotion pipeline was
-    removed early on and never actually installed;
-    infra/openchoreo/deployment-pipeline.yaml's DeploymentPipeline is the
-    current intended replacement, not yet wired — see
-    docs/openchoreo-migration-next-steps.md Phase 3/4). Read-only by
-    design — approving a prod promotion stays a human action, never
-    something this tool (or any agent) can trigger."""
+    """Check which environments the model has reached via OpenChoreo's
+    DeploymentPipeline/ProjectReleaseBinding-based promotion, and whether a
+    prod promotion is waiting to be done. Real now — calls
+    orchestration-api's GET /models/{name}/promotion-status (same "call
+    orchestration-api directly" pattern as get_active_prompt_version/
+    get_active_rag_version above; `model_name`/`tenant` aren't forwarded,
+    same single-Project/Component scoping as
+    adapters/openchoreo_promotion_adapter.py's own docstring explains).
+    Read-only by design — actually promoting stays a human action via a
+    Scaffolder Golden Path template, never something this tool (or any
+    agent) can trigger; see that adapter's docstring for why no separate
+    approval step exists on top of that."""
+    response = httpx.get(
+        f"{ORCHESTRATION_API_URL}/models/{model_name}/promotion-status", timeout=10
+    )
+    response.raise_for_status()
+    data = response.json()
     return {
         "model": model_name,
         "tenant": tenant,
-        "environments": {"dev": "unknown", "staging": "unknown", "prod": "unknown"},
-        "prod_pending_approval": False,
-        "note": "mock data — promotion pipeline (OpenChoreo DeploymentPipeline) not yet wired",
+        "environments": data["environments"],
+        "prod_pending_approval": data["prod_pending_approval"],
     }
 
 

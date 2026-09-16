@@ -52,6 +52,14 @@ class IModelRegistryAdapter(ABC):
     @abstractmethod
     def get_model_version_details(self, name: str, version: str) -> ModelVersionDetails: ...
 
+    @abstractmethod
+    def get_model_artifact_uri(self, name: str, version: str) -> str:
+        """Resolves to a URI KServe's storage-initializer can actually read
+        (e.g. "s3://...") — the "models:/<name>/<version>" shorthand alone
+        isn't recognized by it. See adapters/deploy_strategies.py's
+        InstantStrategy for the caller."""
+        ...
+
 
 class IVersionRegistryAdapter(ABC):
     """Tracks versions of an artifact that isn't a trained model (prompt
@@ -81,6 +89,95 @@ class IVersionRegistryAdapter(ABC):
 
     @abstractmethod
     def set_active_version(self, kind: str, name: str, version: str) -> None: ...
+
+
+class PredictionLogEntry(TypedDict):
+    id: int
+    model_name: str
+    model_version: str
+    # ISO 8601 — sqlite3 has no native timestamp type, and the columns
+    # this session's own established convention (JsonFileVersionRegistryAdapter)
+    # already treats "just store a plain string, parse if you ever need to"
+    # as good enough for local-dev state.
+    logged_at: str
+    input: dict[str, object]
+    output: dict[str, object] | None
+
+
+class IPredictionLogAdapter(ABC):
+    """Logs individual predict-time (input, output) pairs — the data
+    Golden Path #4 (data drift monitoring) will eventually need, started
+    now rather than waiting for that Golden Path to exist first (see
+    docs/mlops-lifecycle-software-template.md's own note that no such
+    logging existed anywhere yet). Not automatic/transparent: nothing in
+    this codebase proxies real predict traffic (adapters/kserve_adapter.py's
+    own `predict()` explicitly tells callers to hit the InferenceService
+    directly) — a caller that wants its predictions logged calls
+    `log_prediction` itself, e.g. via routers/models.py's
+    POST /models/{name}/predictions/log.
+    """
+
+    @abstractmethod
+    def log_prediction(
+        self,
+        model_name: str,
+        model_version: str,
+        input_payload: dict[str, object],
+        output_payload: dict[str, object] | None,
+    ) -> None: ...
+
+    @abstractmethod
+    def list_predictions(self, model_name: str, limit: int = 50) -> list[PredictionLogEntry]: ...
+
+
+class PromotionStatus(TypedDict):
+    project: str
+    component: str
+    # env name ("development"/"staging"/"production") -> the projectRelease
+    # currently bound there, or None if this project has never been
+    # promoted to that environment yet.
+    environments: dict[str, str | None]
+    # True when staging is bound to a release production isn't — i.e.
+    # there's something a human could promote right now.
+    prod_pending_approval: bool
+
+
+class IPromotionAdapter(ABC):
+    """OpenChoreo DeploymentPipeline/ProjectReleaseBinding-based staging/prod
+    promotion — replaces the abandoned Kargo-based pipeline (see
+    agents/mcp-servers/observability-server/server.py's get_promotion_status,
+    which used to just return mock data pending this).
+
+    `promote()` is always a human-initiated action, never something an
+    agent/MCP tool calls on its own — mirrors IInferenceAdapter/
+    IWorkflowAdapter's own read-only-tool split: get_promotion_status stays
+    a read-only MCP tool, promote() is only reachable via a Scaffolder
+    Golden Path template a Dev explicitly runs themselves. There is no
+    separate "approve" step beyond that human action — see
+    OpenChoreoPromotionAdapter's docstring for why a second approval gate
+    on top wasn't built.
+    """
+
+    @abstractmethod
+    def get_promotion_status(self) -> PromotionStatus: ...
+
+    @abstractmethod
+    def promote(self, target_environment: str) -> PromotionStatus:
+        """Copies whatever release is currently bound in the pipeline's
+        source environment for `target_environment` into a binding there.
+        Raises ValueError if `target_environment` isn't a valid promotion
+        target for wherever the project currently is (e.g. promoting to
+        "production" before anything has reached "staging")."""
+        ...
+
+    @abstractmethod
+    def rollback_promotion(self, environment: str) -> PromotionStatus:
+        """Undoes the last `promote()`/`rollback_promotion()` call for
+        `environment` — swaps it back to whatever was bound there
+        immediately before that call. Raises ValueError when there's
+        nothing bound in `environment` yet, or nothing recorded to roll
+        back to (its current binding was never promoted over)."""
+        ...
 
 
 class IInferenceAdapter(ABC):

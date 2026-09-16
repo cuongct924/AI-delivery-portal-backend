@@ -1,10 +1,11 @@
-"""Model Registry / Training / Deploy-prep API — the HTTP surface Golden Path
-#1 (Train -> Track -> Register) and #2 (Register -> Deploy) drive.
+"""Model Registry / Training / Deploy-prep API — the HTTP surface Golden
+Path (Train -> Track -> Register) and (Register -> Deploy) drive.
 
 `POST /models/register` is the one route with no `Depends(get_current_user)`
 — it's called from inside an Argo workflow pod, not from Backstage.
 """
 
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -29,9 +30,12 @@ from adapters.deploy_strategies import (
 )
 from adapters.factory import (
     get_feature_store_adapter,
+    get_inference_backend_mode,
     get_kserve_adapter,
     get_model_registry_adapter,
     get_object_storage_adapter,
+    get_prediction_log_adapter,
+    get_promotion_adapter,
     get_workflow_adapter,
 )
 from adapters.interfaces import DatasetInfo, IDeployTrafficStrategy, IReleaseStrategy
@@ -44,6 +48,8 @@ router = APIRouter(tags=["models"])
 # agents/mcp-servers/observability-server/server.py.
 mlflow_adapter = get_model_registry_adapter()
 argo_adapter = get_workflow_adapter()
+prediction_log_adapter = get_prediction_log_adapter()
+promotion_adapter = get_promotion_adapter()
 feast_adapter = get_feature_store_adapter()
 object_storage_adapter = get_object_storage_adapter()
 
@@ -57,6 +63,16 @@ _RECORDED_TERMINAL_WORKFLOWS: set[str] = set()
 
 _TEMPLATES_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "templates"
 _JINJA_ENV: Final[Environment] = Environment(loader=FileSystemLoader(_TEMPLATES_DIR))
+
+# Mirrors OpenChoreoInferenceAdapter's own __init__ defaults — duplicated
+# as plain constants here (not read off that adapter) so rendering a
+# PR-gated manifest never needs to construct one just to read 2 strings;
+# OpenChoreoInferenceAdapter/OpenChoreoPromotionAdapter's __init__ both
+# eagerly call config.load_kube_config(), which a pure-text render
+# shouldn't need cluster access for. Update both places together if this
+# repo ever gets a second real Project/Component.
+_OPENCHOREO_PROJECT: Final[str] = "telco-fraud-detection"
+_OPENCHOREO_COMPONENT: Final[str] = "serving"
 
 
 class TriggerTrainingRequest(BaseModel):
@@ -210,6 +226,10 @@ class LatestVersionResponse(BaseModel):
     version: str
 
 
+class ModelVersionsResponse(BaseModel):
+    versions: list[str]
+
+
 class PolicyCheckRequest(BaseModel):
     model_name: str
     model_version: str
@@ -217,12 +237,31 @@ class PolicyCheckRequest(BaseModel):
 
 class PrepareDeployRequest(BaseModel):
     model_name: str
+    # For action="rollback", the version to roll back *to* — same field,
+    # so the rest of this request/the release strategies below don't need
+    # to know "rollback" exists as a concept at all.
     model_version: str
     # "direct" | "canary" | "ab" | "blue-green".
     traffic_strategy: str = "direct"
     traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
+    # "deploy" | "rollback". Rollback is a production emergency — the Dev
+    # picks *only* which version to roll back to; the mechanism (instant,
+    # 100% cutover, no PR) is the platform's decision, not a 3-parameter
+    # combination the Dev has to remember correctly under time pressure.
+    # Whatever traffic_strategy/traffic_percent/release_strategy the
+    # request carries are ignored and overridden when this is "rollback".
+    action: str = "deploy"
+    # Tagged onto the deployed model version (not read back by this
+    # request itself) so a later predict-logging caller — or, once it
+    # exists, Golden Path #4's own tooling — can tell whether the Dev
+    # actually asked for this before wiring anything up. Doesn't do
+    # anything on its own: nothing here proxies real predict traffic
+    # (see IPredictionLogAdapter's docstring) — POST
+    # /models/{name}/predictions/log is the actual logging entry point,
+    # called independently of this request.
+    enable_prediction_logging: bool = True
 
 
 class PrepareDeployResponse(BaseModel):
@@ -241,6 +280,47 @@ class RecordDeployResponse(BaseModel):
     model_name: str
     model_version: str
     pr_url: str | None = None
+
+
+class DeployStatusResponse(BaseModel):
+    deployed: bool
+    ready: bool = False
+    live_version: str | None = None
+    traffic_percent: int | None = None
+    pr_url: str | None = None
+
+
+class LogPredictionRequest(BaseModel):
+    model_version: str
+    input: dict[str, object]
+    output: dict[str, object] | None = None
+
+
+class PredictionLogEntryResponse(BaseModel):
+    id: int
+    model_version: str
+    logged_at: str
+    input: dict[str, object]
+    output: dict[str, object] | None
+
+
+class ListPredictionsResponse(BaseModel):
+    predictions: list[PredictionLogEntryResponse]
+
+
+class PromotionStatusResponse(BaseModel):
+    project: str
+    component: str
+    environments: dict[str, str | None]
+    prod_pending_approval: bool
+
+
+class PromoteRequest(BaseModel):
+    target_environment: str
+
+
+class RollbackPromotionRequest(BaseModel):
+    environment: str
 
 
 @router.post("/trigger-training", response_model=TriggerTrainingResponse)
@@ -516,40 +596,72 @@ def get_latest_version(name: str, user: dict = Depends(get_current_user)) -> Lat
     return LatestVersionResponse(name=name, version=mlflow_adapter.get_latest_version(name))
 
 
-@router.post("/policy-check")
-def policy_check(
-    request: PolicyCheckRequest, user: dict = Depends(get_current_user)
-) -> MetricsGateResult:
+@router.get("/models/{name}/versions", response_model=ModelVersionsResponse)
+def list_model_versions(name: str, user: dict = Depends(get_current_user)) -> ModelVersionsResponse:
+    """Every version actually registered for `name` (newest first), for the
+    Evaluate & Deploy Model template's version dropdown (ModelVersionPickerField)
+    — picking from real versions instead of typing removes the invalid-version
+    class entirely. Fails open to `[]` for an unknown name rather than 404 —
+    the dropdown just stays empty (falls back to free text) until modelName
+    resolves to something real.
+    """
+    return ModelVersionsResponse(versions=mlflow_adapter.list_model_versions(name))
+
+
+def _compute_gate_result(model_name: str, model_version: str) -> MetricsGateResult:
     # Classical ML has ground-truth metrics — compare directly, no LLM-as-judge.
     # Both failure modes below are routine caller input (wrong version
     # number, or a version registered before task-type tagging existed),
     # not a server fault — a clean 404/400 here, not an unhandled 500, so
     # the Scaffolder step (and the ModelVersionPickerField ahead of it)
-    # can show the real reason.
+    # can show the real reason. Shared by policy_check (persists the
+    # result as tags) and get_gate_preview (pure read, no side effect) —
+    # one place computing "would this pass", not two copies that could
+    # drift.
     try:
-        details = mlflow_adapter.get_model_version_details(
-            request.model_name, request.model_version
-        )
+        details = mlflow_adapter.get_model_version_details(model_name, model_version)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
     task_type = details["tags"].get("task_type")
     if task_type is None:
         raise HTTPException(
             400,
-            f"model version {request.model_name}:{request.model_version} has no task_type tag "
+            f"model version {model_name}:{model_version} has no task_type tag "
             "— it was registered before task-type tagging was added",
         )
-    gate_result = evaluate_metrics_gate(task_type, details["metrics"])
+    return evaluate_metrics_gate(task_type, details["metrics"])
+
+
+@router.post("/policy-check")
+def policy_check(
+    request: PolicyCheckRequest, user: dict = Depends(get_current_user)
+) -> MetricsGateResult:
+    gate_result = _compute_gate_result(request.model_name, request.model_version)
 
     # MLflow tags are strings — stringify every value before persisting.
     mlflow_adapter.set_model_version_tag(
         request.model_name, request.model_version, "gate_passed", str(gate_result["passed"])
     )
-    for metric_name, value in details["metrics"].items():
+    for metric_name, value in gate_result["metrics"].items():
         mlflow_adapter.set_model_version_tag(
             request.model_name, request.model_version, f"gate_{metric_name}", str(value)
         )
     return gate_result
+
+
+@router.get("/models/{name}/{version}/gate-preview")
+def get_gate_preview(
+    name: str, version: str, user: dict = Depends(get_current_user)
+) -> MetricsGateResult:
+    """Read-only preview of what POST /policy-check would compute — same
+    thresholds, no tag-writing side effect, safe to call repeatedly while
+    a Dev is still filling in Evaluate & Deploy Model's form (see
+    StepLayoutField's ModelVersionCheckPanel). The real Evaluate Gate step
+    still re-runs this via POST /policy-check at submit time and persists
+    gate_passed/gate_<metric> tags then — this is advisory only, same
+    "advisory, the real gate is elsewhere" contract as
+    ModelVersionCheckPanel/VersionComparisonPanel's own live panels."""
+    return _compute_gate_result(name, version)
 
 
 @router.post("/deploy-model/prepare", response_model=PrepareDeployResponse)
@@ -559,54 +671,116 @@ def prepare_deploy_manifest(
     # Canonical MLflow Model Registry URI — resolvable by any MLflow-aware loader.
     storage_uri = f"models:/{request.model_name}/{request.model_version}"
 
+    # Rollback overrides whatever traffic_strategy/traffic_percent/
+    # release_strategy the request carries — the Dev only chose *which
+    # version*, the mechanism is the platform's call, not something to get
+    # right under production-incident pressure. Local variables, not
+    # request field mutation: PrepareDeployRequest.action's own docstring
+    # says the request's own strategy fields are ignored for rollback, so
+    # this keeps that contract visible at the one place it's honored.
+    is_rollback = request.action == "rollback"
+    traffic_strategy_value = "blue-green" if is_rollback else request.traffic_strategy
+    traffic_percent_value = 100 if is_rollback else request.traffic_percent
+    release_strategy_value = "instant" if is_rollback else request.release_strategy
+
     # Lazy: KServeAdapter.__init__ eagerly calls load_kube_config(), which
     # would crash startup wherever no kubeconfig exists (CI, before `kind`).
-    needs_kserve = request.traffic_strategy != "direct" or request.release_strategy == "instant"
+    needs_kserve = traffic_strategy_value != "direct" or release_strategy_value == "instant"
     kserve_adapter = get_kserve_adapter("mlops-team") if needs_kserve else None
 
     traffic_strategy: IDeployTrafficStrategy
-    if request.traffic_strategy == "direct":
+    if traffic_strategy_value == "direct":
         traffic_strategy = DirectStrategy()
     else:
         # Needs a prior deploy to compare/rollback against — enforced here
-        # since the Scaffolder form can't gate on live cluster state.
+        # since the Scaffolder form can't gate on live cluster state. Also
+        # what actually catches "rollback with nothing deployed yet",
+        # which makes no sense but isn't rejected earlier in this
+        # function — this 404 is that rejection.
         assert kserve_adapter is not None
         try:
             kserve_adapter.get_inference_status(request.model_name)
         except ApiException as exc:
             if exc.status != 404:
                 raise
-            raise ValueError(
-                f"{request.model_name} has no prior deploy — "
+            message = (
+                f"{request.model_name} has no prior deploy — nothing to roll back to"
+                if is_rollback
+                else f"{request.model_name} has no prior deploy — "
                 "choose deployStrategy=direct for a model's first deploy"
-            ) from exc
-        if request.traffic_percent is None:
+            )
+            raise ValueError(message) from exc
+        if traffic_percent_value is None:
             raise ValueError("traffic_percent is required when traffic_strategy is not 'direct'")
-        traffic_strategy = TrafficSplitStrategy(request.traffic_percent)
+        traffic_strategy = TrafficSplitStrategy(traffic_percent_value)
 
     traffic_fields = traffic_strategy.render()
-    template = _JINJA_ENV.get_template("inference_service.yaml.j2")
-    content = template.render(
-        model_name=request.model_name,
-        model_version=request.model_version,
-        storage_uri=storage_uri,
-        canary_traffic_percent=traffic_fields.get("canaryTrafficPercent"),
-    )
-    # Always dev — this Golden Path is mlops-team's, and orchestration-api
-    # never writes anywhere but dev (staging/prod promotion is
-    # DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml).
-    file_name = (
-        f"infra/environments/dev/inference-services/mlops-team/"
-        f"{request.model_name}/{request.model_version}.yaml"
-    )
+    canary_percent = traffic_fields.get("canaryTrafficPercent")
+    backend_mode = get_inference_backend_mode()
+    if backend_mode == "openchoreo" and canary_percent not in (None, 100):
+        # OpenChoreoInferenceAdapter.deploy_model would raise this same
+        # NotImplementedError itself for an instant release — checked here
+        # too so a PR-gated request fails the same way, with a clear 400,
+        # instead of rendering a Workload manifest that silently can't
+        # represent the split it was asked for (Workload has exactly one
+        # `container.image` field, no partial-traffic-split concept at
+        # all — see that adapter's own docstring).
+        raise ValueError(
+            f"a PARTIAL traffic split ({traffic_fields!r}) isn't wired into the "
+            "OpenChoreo Workload template yet — only a 100% cutover is supported"
+        )
+
+    if backend_mode == "openchoreo":
+        # The real, git-tracked source of truth for the one live Workload
+        # this repo has (see infra/openchoreo/telco-fraud-detection/
+        # workload-serving.yaml) — a PR-gated deploy updates THIS existing
+        # file's storageUri rather than writing a new per-version file, so
+        # `git log` on it is the deploy history and merging it is what a
+        # human actually approves. Replaces the legacy raw-InferenceService
+        # path below, which OpenChoreoPromotionAdapter's ProjectReleaseBinding
+        # tracking knows nothing about.
+        template = _JINJA_ENV.get_template("workload.yaml.j2")
+        content = template.render(
+            project=_OPENCHOREO_PROJECT,
+            component=_OPENCHOREO_COMPONENT,
+            workload_name=f"{_OPENCHOREO_COMPONENT}-workload",
+            namespace="default",
+            storage_uri=storage_uri,
+        )
+        file_name = f"infra/openchoreo/{_OPENCHOREO_PROJECT}/workload-{_OPENCHOREO_COMPONENT}.yaml"
+    else:
+        template = _JINJA_ENV.get_template("inference_service.yaml.j2")
+        content = template.render(
+            model_name=request.model_name,
+            model_version=request.model_version,
+            storage_uri=storage_uri,
+            canary_traffic_percent=canary_percent,
+        )
+        # Always dev — this Golden Path is mlops-team's, and orchestration-api
+        # never writes anywhere but dev (staging/prod promotion is
+        # DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml).
+        file_name = (
+            f"infra/environments/dev/inference-services/mlops-team/"
+            f"{request.model_name}/{request.model_version}.yaml"
+        )
 
     release_strategy: IReleaseStrategy
-    if request.release_strategy == "instant":
+    if release_strategy_value == "instant":
         assert kserve_adapter is not None
-        release_strategy = InstantStrategy(kserve_adapter, traffic_fields)
+        release_strategy = InstantStrategy(kserve_adapter, traffic_fields, mlflow_adapter)
     else:
         release_strategy = PRGatedStrategy()
     release_result = release_strategy.release(request.model_name, request.model_version, content)
+
+    # Tag regardless of deployed vs PR-gated — a PR-gated deploy's version
+    # is still "the one this Dev intended to have logging on" even before
+    # the PR merges and someone applies the manifest by hand.
+    mlflow_adapter.set_model_version_tag(
+        request.model_name,
+        request.model_version,
+        "prediction_logging_enabled",
+        str(request.enable_prediction_logging),
+    )
 
     return PrepareDeployResponse(
         file_name=file_name, content=content, deployed=release_result["deployed"]
@@ -627,3 +801,162 @@ def record_deploy(
         model_version=request.model_version,
         pr_url=request.pr_url,
     )
+
+
+@router.get("/models/{name}/deploy-status", response_model=DeployStatusResponse)
+def get_deploy_status(name: str, user: dict = Depends(get_current_user)) -> DeployStatusResponse:
+    """What's actually live right now, for the Model Registry's "Deploy
+    status" — so a Dev opening Evaluate & Deploy Model sees the current
+    state (version, traffic split) before picking a strategy, instead of
+    guessing and getting rejected by prepare_deploy_manifest's own
+    prior-deploy check.
+
+    Lazy adapter construction, same reason as prepare_deploy_manifest:
+    KServeAdapter.__init__ eagerly loads a kubeconfig, which would crash
+    every other route in an environment with none (CI, before `kind`).
+    """
+    kserve_adapter = get_kserve_adapter("mlops-team")
+    try:
+        status = kserve_adapter.get_inference_status(name)
+    except ApiException as exc:
+        if exc.status == 404:
+            return DeployStatusResponse(deployed=False)
+        raise
+
+    spec = cast(dict[str, object], status.get("spec", {}))
+    predictor = cast(dict[str, object], spec.get("predictor", {}))
+    traffic_percent = cast(int | None, predictor.get("canaryTrafficPercent"))
+
+    metadata = cast(dict[str, object], status.get("metadata", {}))
+    labels = cast(dict[str, object], metadata.get("labels") or {})
+    # KServeAdapter.deploy_model() sets this label at deploy time — the
+    # only place a version number survives on the InferenceService itself
+    # (storageUri is real now, an s3://.../<mlflow-model-id>/... path, not
+    # "models:/<name>/<version>" — see
+    # adapters/openchoreo_inference_adapter.py's module docstring for why
+    # that changed).
+    live_version = cast(str | None, labels.get("version"))
+
+    conditions = cast(
+        list[dict[str, object]],
+        cast(dict[str, object], status.get("status", {})).get("conditions", []),
+    )
+    ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+    pr_url = None
+    if live_version is not None:
+        # ValueError: the version label survived on the InferenceService
+        # but that model version was since deleted from the registry.
+        with contextlib.suppress(ValueError):
+            pr_url = mlflow_adapter.get_model_version_details(name, live_version)["tags"].get(
+                "deploy_pr_url"
+            )
+
+    return DeployStatusResponse(
+        deployed=True,
+        ready=ready,
+        live_version=live_version,
+        traffic_percent=traffic_percent,
+        pr_url=pr_url,
+    )
+
+
+@router.post("/models/{name}/predictions/log")
+def log_prediction(
+    name: str, request: LogPredictionRequest, user: dict = Depends(get_current_user)
+) -> None:
+    """The actual data-collection entry point for Golden Path #4 (data
+    drift monitoring), started now rather than waiting for that Golden
+    Path to exist first. Not automatic: nothing in this codebase proxies
+    real predict traffic (adapters/kserve_adapter.py's own predict()
+    explicitly tells callers to hit the InferenceService directly,
+    IPredictionLogAdapter's docstring has the full reasoning) — whoever
+    calls the deployed model directly calls this too, alongside it, to
+    have that call logged. Always logs what it's given; the
+    "prediction_logging_enabled" tag prepare_deploy_manifest sets is an
+    audit record of the Dev's original choice, not a gate checked here.
+    """
+    prediction_log_adapter.log_prediction(
+        name, request.model_version, request.input, request.output
+    )
+
+
+@router.get("/models/{name}/predictions", response_model=ListPredictionsResponse)
+def list_predictions(
+    name: str, limit: int = 50, user: dict = Depends(get_current_user)
+) -> ListPredictionsResponse:
+    entries = prediction_log_adapter.list_predictions(name, limit)
+    return ListPredictionsResponse(
+        predictions=[
+            PredictionLogEntryResponse(
+                id=entry["id"],
+                model_version=entry["model_version"],
+                logged_at=entry["logged_at"],
+                input=entry["input"],
+                output=entry["output"],
+            )
+            for entry in entries
+        ]
+    )
+
+
+@router.get("/models/{name}/promotion-status", response_model=PromotionStatusResponse)
+def get_promotion_status(
+    name: str, user: dict = Depends(get_current_user)
+) -> PromotionStatusResponse:
+    """promotion_adapter is scoped to the one real Project/Component this
+    repo has, same as OpenChoreoInferenceAdapter's own single-Component
+    scoping (see that adapter's docstring) — `name` is checked against it
+    rather than silently ignored, because the frontend's modelName picker
+    lists every registered model, not just this one, and operating on the
+    wrong project without saying so would be worse than a clear error."""
+    status = promotion_adapter.get_promotion_status()
+    if name != status["project"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' has no promotion pipeline — only '{status['project']}' does today",
+        )
+    return PromotionStatusResponse(**status)
+
+
+@router.post("/models/{name}/promote", response_model=PromotionStatusResponse)
+def promote_model(
+    name: str, request: PromoteRequest, user: dict = Depends(get_current_user)
+) -> PromotionStatusResponse:
+    """The manual-approval gate is that this endpoint is only ever called
+    from a Dev explicitly running a Golden Path Scaffolder template
+    themselves — see adapters/openchoreo_promotion_adapter.py's module
+    docstring for why no separate approval step exists on top of that.
+    Same `name` scope-check as get_promotion_status — see its docstring."""
+    current = promotion_adapter.get_promotion_status()
+    if name != current["project"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
+        )
+    try:
+        status = promotion_adapter.promote(request.target_environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PromotionStatusResponse(**status)
+
+
+@router.post("/models/{name}/promote-rollback", response_model=PromotionStatusResponse)
+def rollback_promotion(
+    name: str, request: RollbackPromotionRequest, user: dict = Depends(get_current_user)
+) -> PromotionStatusResponse:
+    """staging/prod counterpart to the dev-side action=rollback — undoes
+    the last promote()/rollback_promotion() call for one environment. Same
+    manual-approval-via-template and `name` scope-check as promote_model —
+    see its docstring and adapters/openchoreo_promotion_adapter.py's."""
+    current = promotion_adapter.get_promotion_status()
+    if name != current["project"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
+        )
+    try:
+        status = promotion_adapter.rollback_promotion(request.environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return PromotionStatusResponse(**status)

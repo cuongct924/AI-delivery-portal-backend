@@ -21,7 +21,13 @@ from typing import Literal, cast
 from adapters.argo_adapter import ArgoAdapter
 from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
 from adapters.feature_store_adapter import FeastAdapter
-from adapters.interfaces import ILLMGatewayAdapter, IObjectStorageAdapter, IVersionRegistryAdapter
+from adapters.interfaces import (
+    ILLMGatewayAdapter,
+    IObjectStorageAdapter,
+    IPredictionLogAdapter,
+    IPromotionAdapter,
+    IVersionRegistryAdapter,
+)
 from adapters.kserve_adapter import KServeAdapter
 from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
 from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
@@ -29,11 +35,14 @@ from adapters.mlflow_adapter import MlflowAdapter
 from adapters.mock_inference_adapter import MockInferenceAdapter
 from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
 from adapters.mock_notebook_adapter import MockNotebookAdapter
+from adapters.mock_promotion_adapter import MockPromotionAdapter
 from adapters.mock_workflow_adapter import MockWorkflowAdapter
 from adapters.notebook_adapter import JupyterHubAdapter
 from adapters.object_storage_adapter import MinioObjectStorageAdapter
 from adapters.openchoreo_inference_adapter import OpenChoreoInferenceAdapter
+from adapters.openchoreo_promotion_adapter import OpenChoreoPromotionAdapter
 from adapters.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter
+from adapters.prediction_log_adapter import SqlitePredictionLogAdapter
 from adapters.prompt_registry_adapter import MlflowPromptRegistryAdapter
 from adapters.vector_db_adapter import QdrantAdapter
 from adapters.version_registry_adapter import JsonFileVersionRegistryAdapter
@@ -44,9 +53,12 @@ def _use_mock(specific_env_var: str) -> bool:
     falls back to the blanket USE_MOCK_ADAPTERS default. Lets a demo mock
     just one adapter (USE_MOCK_INFERENCE=true) while every other adapter
     stays on its real backend, without needing USE_MOCK_ADAPTERS=true to
-    mock all 4 at once."""
+    mock all 4 at once. An empty string (e.g. an unfilled-in .env template
+    value like "USE_MOCK_NOTEBOOK=") counts as unset, not as an explicit
+    "false" — otherwise it silently defeats the USE_MOCK_ADAPTERS fallback
+    for whichever adapters the .env template happened to list."""
     specific = os.getenv(specific_env_var)
-    if specific is not None:
+    if specific:
         return specific.lower() == "true"
     return os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true"
 
@@ -61,15 +73,29 @@ def _backend_mode(specific_env_var: str) -> BackendMode:
     .env files). Unset falls back to `USE_MOCK_ADAPTERS`, which only ever
     resolves to "mock" or "legacy" — "openchoreo" is never selected via
     the blanket flag, only the specific one, since no adapter using this
-    helper has finished migrating yet.
+    helper has finished migrating yet. An empty string counts as unset —
+    same reasoning as `_use_mock`'s own docstring.
     """
     specific = os.getenv(specific_env_var)
-    if specific is not None:
+    if specific:
         normalized = specific.lower()
         if normalized in ("mock", "legacy", "openchoreo"):
             return cast(BackendMode, normalized)
         return "mock" if normalized == "true" else "legacy"
     return "mock" if os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true" else "legacy"
+
+
+def get_inference_backend_mode() -> BackendMode:
+    """Cheap, side-effect-free version of the decision `get_kserve_adapter`
+    makes internally — unlike that function, never constructs a real
+    adapter (KServeAdapter/OpenChoreoInferenceAdapter's `__init__` isn't
+    free, both eagerly call `kubernetes.config.load_kube_config()`). For a
+    caller that needs to know WHICH backend is active before it needs a
+    working adapter instance — e.g. routers/models.py's
+    prepare_deploy_manifest picking which manifest template/file path a
+    PR-gated deploy renders, without needing cluster access just to render
+    text."""
+    return _backend_mode("USE_MOCK_INFERENCE")
 
 
 @lru_cache
@@ -93,6 +119,25 @@ def get_registry_adapter() -> IVersionRegistryAdapter:
 @lru_cache
 def get_prompt_registry_adapter() -> IVersionRegistryAdapter:
     return MlflowPromptRegistryAdapter()
+
+
+@lru_cache
+def get_prediction_log_adapter() -> IPredictionLogAdapter:
+    # No mock/real split — SQLite has no external service to fake out
+    # (same reasoning as get_registry_adapter's JsonFileVersionRegistryAdapter
+    # never getting one either).
+    return SqlitePredictionLogAdapter()
+
+
+@lru_cache
+def get_promotion_adapter() -> IPromotionAdapter:
+    # No "legacy" branch — the Kargo-based promotion pipeline this would
+    # have replaced was removed before it was ever wired up (see
+    # OpenChoreoPromotionAdapter's own module docstring), so this is
+    # Mock/real only, same 2-way split as get_model_registry_adapter.
+    if _use_mock("USE_MOCK_PROMOTION"):
+        return MockPromotionAdapter()
+    return OpenChoreoPromotionAdapter()
 
 
 @lru_cache

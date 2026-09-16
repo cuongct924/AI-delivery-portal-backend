@@ -123,17 +123,25 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         traffic_fields: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         del name, version  # this Workload serves whichever model_uri it's patched to
-        if traffic_fields:
+        if traffic_fields and traffic_fields.get("canaryTrafficPercent") != 100:
             # ClusterComponentType "proxy/inference-service" has no
             # canaryTrafficPercent-equivalent slot in its environmentConfigs
             # yet (infra/openchoreo/platform/clustercomponenttype-inference-service.yaml)
-            # — silently ignoring a caller's traffic split would deploy
-            # 100% instantly instead, a materially different outcome than
-            # requested.
+            # — this Workload has exactly one `container.image` field, no
+            # "previous vs. new revision" split concept at all, so a
+            # genuine PARTIAL split (1-99%, or 0% "staged dark") has no
+            # honest way to render here. A 100% split is a different
+            # case: it's requesting the exact same outcome as patching the
+            # image directly (send everything to the new version) —
+            # deploy_strategies.py's rollback path always sends exactly
+            # this (adapters/deploy_strategies.py's InstantStrategy via
+            # TrafficSplitStrategy(100)), so treating it as a plain deploy
+            # is what makes rollback (and blue-green at 100%) actually
+            # work against this adapter instead of always raising.
             raise NotImplementedError(
-                "OpenChoreoInferenceAdapter.deploy_model: traffic_fields "
-                "(canary/traffic-split) isn't wired into the InferenceService "
-                "ClusterComponentType template yet"
+                "OpenChoreoInferenceAdapter.deploy_model: a PARTIAL traffic split "
+                f"({traffic_fields!r}) isn't wired into the InferenceService "
+                "ClusterComponentType template yet — only a 100% cutover is supported"
             )
         workload_name = f"{self.component}-workload"
         patch = {"spec": {"container": {"image": model_uri}}}

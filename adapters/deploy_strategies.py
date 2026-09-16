@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from adapters.interfaces import (
     IDeployTrafficStrategy,
     IInferenceAdapter,
+    IModelRegistryAdapter,
     IReleaseStrategy,
     ReleaseResult,
     TrafficFields,
@@ -48,16 +49,31 @@ class InstantStrategy(IReleaseStrategy):
     """Calls the inference adapter directly — no Git/PR."""
 
     def __init__(
-        self, inference_adapter: IInferenceAdapter, traffic_fields: TrafficFields | None = None
+        self,
+        inference_adapter: IInferenceAdapter,
+        traffic_fields: TrafficFields | None = None,
+        model_registry_adapter: IModelRegistryAdapter | None = None,
     ):
         self.inference_adapter = inference_adapter
         self.traffic_fields: TrafficFields = traffic_fields or {}
+        self.model_registry_adapter = model_registry_adapter
 
     def release(self, model_name: str, model_version: str, manifest_content: str) -> ReleaseResult:
         del manifest_content  # unused — KServeAdapter renders its own body
-        # Canonical MLflow Model Registry URI — same formula routers/models.py
-        # already uses to build the Jinja2-rendered manifest's storageUri.
-        storage_uri = f"models:/{model_name}/{model_version}"
+        # Resolves to the real underlying artifact location (e.g.
+        # "s3://...") when a model_registry_adapter is given — KServe's
+        # storage-initializer isn't an MLflow client and can't read the
+        # "models:/<name>/<version>" shorthand at all (confirmed for real:
+        # "Cannot recognize storage type for models:/...";
+        # adapters/openchoreo_inference_adapter.py's module docstring has
+        # the full story). Falls back to that shorthand when no adapter is
+        # given, matching this method's behavior before this resolution
+        # existed — every caller today does pass one.
+        storage_uri = (
+            self.model_registry_adapter.get_model_artifact_uri(model_name, model_version)
+            if self.model_registry_adapter is not None
+            else f"models:/{model_name}/{model_version}"
+        )
         self.inference_adapter.deploy_model(
             model_name, model_version, storage_uri, traffic_fields=self.traffic_fields
         )

@@ -289,6 +289,15 @@ spec:
             value: '{{inputs.parameters.base-model-name}}'
           - name: MLFLOW_TRACKING_URI
             value: http://host.docker.internal:5000
+          # Kept in sync with train-register-template.yaml's own copy of
+          # this block — see that file for why (mlflow-artifacts now
+          # backed by real MinIO storage, --no-serve-artifacts).
+          - name: AWS_ACCESS_KEY_ID
+            value: minioadmin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: minioadmin
+          - name: MLFLOW_S3_ENDPOINT_URL
+            value: http://host.docker.internal:9000
         volumeMounts:
           - name: dataset
             mountPath: /mnt/data

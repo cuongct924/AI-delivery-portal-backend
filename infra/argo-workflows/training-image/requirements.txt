@@ -2,6 +2,11 @@
 torch==2.13.0
 torchvision==0.28.0
 mlflow==3.15.1
+# mlflow's S3 artifact repo needs this itself — not pulled in
+# transitively (confirmed for real: training failed with "No module
+# named 'boto3'" once docker-compose.yml's mlflow service stopped
+# proxying artifacts and this client had to upload directly to MinIO).
+boto3==1.35.99
 pandas==2.3.3
 scikit-learn==1.7.2
 xgboost==3.0.5

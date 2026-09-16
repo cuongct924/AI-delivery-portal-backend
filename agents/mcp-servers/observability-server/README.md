@@ -15,13 +15,15 @@ Tools — MLOps side:
   several namespaces at once, see `infra/environments/README.md`) — reads
   Prometheus (set up via `docker compose up`, scrape config at
   `infra/monitoring/prometheus.yml`).
-- `get_promotion_status` — currently **mock**: the originally-planned
-  Kargo-based promotion pipeline was removed early on and never actually
-  installed; `infra/openchoreo/deployment-pipeline.yaml`'s
-  `DeploymentPipeline` is the current intended replacement, not yet wired
-  (see `docs/openchoreo-migration-next-steps.md` Phase 3/4). Read-only by
-  design: approving a prod promotion stays a human action, this tool only
-  reports state, never triggers one.
+- `get_promotion_status` — real, reads OpenChoreo's
+  `DeploymentPipeline`/`ProjectReleaseBinding`-based promotion state via
+  orchestration-api's `GET /models/{name}/promotion-status`
+  (`adapters/openchoreo_promotion_adapter.py`) — replaces the
+  originally-planned Kargo-based pipeline, which was removed early on and
+  never actually installed. Read-only by design: promoting is a separate,
+  human-triggered action (`POST /models/{name}/promote`, reached only via
+  a Scaffolder Golden Path template) — this tool only reports state, never
+  triggers one.
 
 Tools — LLMOps side:
 - `get_llm_spend` — real, reads LiteLLM's own spend ledger (`GET

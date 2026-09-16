@@ -4,7 +4,52 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.15.1  # matches mlflow==3.15.1 in the Python lock files
     container_name: ai-delivery-portal-mlflow
-    command: mlflow server --host 0.0.0.0 --port 5000
+    # --default-artifact-root: model artifacts land in the existing MinIO
+    # (real s3:// URIs KServe's storage-initializer can read directly)
+    # instead of MLflow's own local-filesystem default (proxied behind a
+    # mlflow-artifacts:/ scheme no external reader understands — the
+    # actual blocker adapters/openchoreo_inference_adapter.py's module
+    # docstring documents; see infra/openchoreo/telco-fraud-detection/'s
+    # Component for where this gets consumed). Depends on `minio` (below)
+    # owning the `mlflow-artifacts` bucket (`mc mb local/mlflow-artifacts`,
+    # run once by hand — MinIO doesn't auto-create buckets from an env
+    # var).
+    #
+    # NOT --artifacts-destination: that flag only takes effect when
+    # --serve-artifacts is also on (confirmed via `mlflow server --help`:
+    # "This option only applies when the tracking server is configured to
+    # stream artifacts") — and --serve-artifacts makes every client
+    # (including this container's own API responses) see a
+    # "mlflow-artifacts:/..." proxy URI instead of the real underlying
+    # location, confirmed for real: GET .../logged-models/<id> returned
+    # artifact_uri "mlflow-artifacts:/0/models/<id>/artifacts" even with
+    # storage really on S3, because the proxy hides that by design.
+    # KServe's storage-initializer isn't an MLflow client and can't read
+    # that scheme — it needs the raw s3:// URI. --default-artifact-root
+    # instead sets new experiments' artifact root directly to S3, so
+    # clients (the training image, given AWS_*/MLFLOW_S3_ENDPOINT_URL env
+    # vars in infra/argo-workflows/train-register-template.yaml/
+    # train-register-cluster-template.yaml) write straight to MinIO
+    # themselves and every URI stays a real s3://. Caveat, also confirmed
+    # for real: this only applies to experiments *created after* the
+    # server starts with this flag — the "Default" experiment (id 0) some
+    # runs land in otherwise picks up whatever artifact root was active
+    # the first time this backend store was ever initialized (harmless
+    # here: no persistent volume, so a fresh SQLite DB + Default
+    # experiment gets created from scratch on every container start).
+    #
+    # `pip install boto3` first: the official mlflow image ships with no S3
+    # support at all (confirmed for real — the server crashed mid-upload
+    # with "ModuleNotFoundError: No module named 'boto3'" the first time
+    # this ran against s3://mlflow-artifacts). Re-runs on every container
+    # start (site-packages lives on the writable layer, not persisted
+    # across recreates) — fine for local dev, not meant for production.
+    entrypoint: sh -c
+    command:
+      - >-
+        pip install --quiet boto3 &&
+        mlflow server --host 0.0.0.0 --port 5000
+        --no-serve-artifacts --default-artifact-root s3://mlflow-artifacts
     ports:
       - "5000:5000"
     environment:
@@ -13,6 +58,18 @@ services:
       # host.docker.internal. Setting this replaces the defaults entirely,
       # so every host needs both a bare and a ":*" form.
       MLFLOW_SERVER_ALLOWED_HOSTS: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,host.docker.internal,host.docker.internal:*,mlflow,mlflow:*"
+      # boto3 (MLflow's S3 client) reads these directly — same
+      # MinIO credentials as the `minio` service below and DVC's
+      # .dvc/config, not separate secrets.
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      # Same-docker-network service name — mlflow and minio are both
+      # docker-compose services here, no host.docker.internal needed
+      # (that's only for callers outside this compose network, e.g. the
+      # k3d cluster or orchestration-api's own container reaching out).
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    depends_on:
+      - minio
     profiles: ["mlops"]
 
   prometheus:
@@ -104,6 +161,14 @@ services:
       # .env's MINIO_ENDPOINT_URL default (localhost:9000) is host-oriented —
       # inside this container "localhost" is itself, not the minio service.
       MINIO_ENDPOINT_URL: http://minio:9000
+      # mlflow's own S3 client (adapters/mlflow_adapter.py's
+      # mlflow.register_model() reads artifacts directly from S3 to
+      # register a model version) reads this exact env var name — separate
+      # from MINIO_ENDPOINT_URL above, which is MinioObjectStorageAdapter's
+      # own boto3 client, not mlflow's. Missing this made register_model()
+      # try real AWS S3 with MinIO's fake credentials and 403 for real:
+      # "The AWS Access Key Id you provided does not exist in our records."
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
       # Argo Server's k3d LoadBalancer publishes to a host port, not a
       # docker-compose service — reach it via the host, not a service name.
       ARGO_SERVER_URL: http://host.docker.internal:10081
@@ -143,9 +208,27 @@ services:
     # /datasets/columns, /datasets/preview here 404/500 on any
     # LocalFileObjectStorageAdapter-sourced dataset_uri, even though the
     # exact same file is sitting right there at /app/data.
+      # OpenChoreoPromotionAdapter/OpenChoreoInferenceAdapter/KServeAdapter
+      # all call kubernetes.config.load_kube_config() with no arguments,
+      # which reads ~/.kube/config for whatever user the process runs as
+      # (appuser, uid 1000 — see the Dockerfile) —
+      # services/orchestration-api/.state/kubeconfig-docker.yaml (gitignored,
+      # contains a real client cert/key) is a copy of the host's kubeconfig
+      # with its server address rewritten from https://0.0.0.0:6550
+      # (meaningless inside a container — that's the container itself, not
+      # the k3d API server) to https://host.docker.internal:6550 (the k3d
+      # loadbalancer's published host port, confirmed reachable the same
+      # way ARGO_SERVER_URL/BACKSTAGE_BASE_URL below already are) and TLS
+      # verification skipped (local dev only — the k3d server cert has no
+      # host.docker.internal SAN). Regenerate it if the k3d cluster is ever
+      # recreated: `kubectl config view --minify --flatten >
+      # services/orchestration-api/.state/kubeconfig-docker.yaml`, then swap
+      # 0.0.0.0 for host.docker.internal and add
+      # insecure-skip-tls-verify: true under `cluster:`.
     volumes:
       - ./data:/app/data:ro
       - ./data:/mnt/data:ro
+      - ./services/orchestration-api/.state/kubeconfig-docker.yaml:/home/appuser/.kube/config:ro
     depends_on:
       - mlflow
       - minio

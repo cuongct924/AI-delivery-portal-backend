@@ -58,7 +58,7 @@ def test_deploy_model_patches_the_fixed_workload(
     assert result == {"metadata": {"name": "serving-workload"}}
 
 
-def test_deploy_model_raises_when_traffic_fields_given(
+def test_deploy_model_raises_for_a_partial_traffic_split(
     adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
 ) -> None:
     with pytest.raises(NotImplementedError):
@@ -69,6 +69,33 @@ def test_deploy_model_raises_when_traffic_fields_given(
             traffic_fields={"canaryTrafficPercent": 10},
         )
     mock_api.patch_namespaced_custom_object.assert_not_called()
+
+
+def test_deploy_model_raises_for_a_0_percent_staged_dark_split(
+    adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
+) -> None:
+    with pytest.raises(NotImplementedError):
+        adapter.deploy_model(
+            "fraud-detection-demo",
+            "1",
+            "models:/fraud-detection-demo/1",
+            traffic_fields={"canaryTrafficPercent": 0},
+        )
+    mock_api.patch_namespaced_custom_object.assert_not_called()
+
+
+def test_deploy_model_treats_a_100_percent_cutover_as_a_plain_deploy(
+    adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
+) -> None:
+    # Rollback (adapters/deploy_strategies.py) always sends exactly this —
+    # it must not raise, or rollback would be unusable under this backend.
+    adapter.deploy_model(
+        "fraud-detection-demo",
+        "1",
+        "models:/fraud-detection-demo/1",
+        traffic_fields={"canaryTrafficPercent": 100},
+    )
+    mock_api.patch_namespaced_custom_object.assert_called_once()
 
 
 def test_deploy_model_ignores_empty_traffic_fields(

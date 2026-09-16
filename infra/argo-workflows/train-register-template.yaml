@@ -281,6 +281,19 @@ spec:
             value: '{{inputs.parameters.base-model-name}}'
           - name: MLFLOW_TRACKING_URI
             value: http://host.docker.internal:5000
+          # mlflow-artifacts store now uses real MinIO storage
+          # (docker-compose.yml's mlflow service, --no-serve-artifacts +
+          # --artifacts-destination s3://mlflow-artifacts) — this client
+          # (mlflow.sklearn.log_model et al.) uploads directly to MinIO
+          # itself rather than through the tracking server's proxy, same
+          # credentials as DVC's .dvc/config and the minio service's own
+          # MINIO_ROOT_USER/PASSWORD.
+          - name: AWS_ACCESS_KEY_ID
+            value: minioadmin
+          - name: AWS_SECRET_ACCESS_KEY
+            value: minioadmin
+          - name: MLFLOW_S3_ENDPOINT_URL
+            value: http://host.docker.internal:9000
         volumeMounts:
           - name: dataset
             mountPath: /mnt/data

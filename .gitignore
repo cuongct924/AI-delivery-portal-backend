@@ -45,5 +45,8 @@ htmlcov/
 # LLMOps version registry — local file-backed state (JsonFileVersionRegistryAdapter)
 services/orchestration-api/.state/
 
+# scripts/watch-and-apply-workload.sh's own poll state (last-applied commit SHA)
+scripts/.watch-state/
+
 *.tgz
 charts/*/charts/

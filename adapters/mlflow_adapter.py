@@ -93,3 +93,27 @@ class MlflowAdapter(IModelRegistryAdapter):
         if not versions:
             raise ValueError(f"Model {name} has no registered versions")
         return max(versions, key=lambda mv: int(mv.version)).version
+
+    def get_model_artifact_uri(self, name: str, version: str) -> str:
+        """Resolves "models:/<name>/<version>" (this repo's existing
+        storage_uri convention — routers/models.py, adapters/deploy_strategies.py)
+        to the real underlying artifact location (e.g. "s3://...").
+        Needed because KServe's storage-initializer isn't an MLflow client
+        — it can't read the "models:/" shorthand at all (confirmed for
+        real: "Cannot recognize storage type for models:/...";
+        adapters/openchoreo_inference_adapter.py's module docstring has
+        the full story). Not part of IModelRegistryAdapter — same
+        precedent as get_latest_version()/list_model_versions() above;
+        MockModelRegistryAdapter has no equivalent since KServe/OpenChoreo
+        deploys never run against the mock registry.
+        """
+        return self.client.get_model_version_download_uri(name, version)
+
+    def list_model_versions(self, name: str) -> list[str]:
+        # Convenience method, not part of IModelRegistryAdapter — same
+        # precedent as get_latest_version above. Powers the Evaluate &
+        # Deploy Model template's version dropdown: listing only versions
+        # that actually exist removes the free-text typo class entirely,
+        # instead of only catching it after the fact (get_model_version_summary's 404).
+        versions = self.client.search_model_versions(f"name='{name}'")
+        return sorted((mv.version for mv in versions), key=int, reverse=True)

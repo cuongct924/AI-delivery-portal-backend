@@ -1,0 +1,14 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: {{ workload_name }}
+  namespace: {{ namespace }}
+  labels:
+    openchoreo.dev/project: {{ project }}
+    openchoreo.dev/component: {{ component }}
+spec:
+  owner:
+    projectName: {{ project }}
+    componentName: {{ component }}
+  container:
+    image: {{ storage_uri }}

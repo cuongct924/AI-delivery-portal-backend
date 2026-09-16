@@ -31,13 +31,26 @@ from adapters.notebook_adapter import JupyterHubAdapter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _clear_caches() -> None:
+def _clear_caches(monkeypatch: pytest.MonkeyPatch) -> None:
     # Every cached getter is a process-wide singleton — tests would leak
     # into each other across USE_MOCK_ADAPTERS values without this.
     factory.get_model_registry_adapter.cache_clear()
     factory.get_workflow_adapter.cache_clear()
     factory.get_notebook_adapter.cache_clear()
     factory._mock_kserve_adapters.clear()
+    # Tests below only set the specific USE_MOCK_* vars they care about and
+    # assume every other one is unset — true in CI (no .env there), but not
+    # on a machine whose local .env pins e.g. USE_MOCK_INFERENCE=true for
+    # everyday `docker compose up` use. Start every test from a clean slate
+    # instead of inheriting whatever the ambient environment happens to have.
+    for var in (
+        "USE_MOCK_ADAPTERS",
+        "USE_MOCK_MODEL_REGISTRY",
+        "USE_MOCK_WORKFLOW",
+        "USE_MOCK_INFERENCE",
+        "USE_MOCK_NOTEBOOK",
+    ):
+        monkeypatch.delenv(var, raising=False)
 
 
 def test_model_registry_adapter_is_mock_when_flag_set(monkeypatch: pytest.MonkeyPatch) -> None:

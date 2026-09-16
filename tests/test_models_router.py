@@ -23,23 +23,34 @@ sys.modules.setdefault("mlflow.tracking", MagicMock())
 
 from routers.models import (  # noqa: E402
     EnrichDatasetFeaturesRequest,
+    LogPredictionRequest,
     PolicyCheckRequest,
     PrepareDeployRequest,
+    PromoteRequest,
     RecordDeployRequest,
     RegisterModelRequest,
+    RollbackPromotionRequest,
     TriggerTrainingRequest,
     ValidateDatasetRequest,
     enrich_dataset_features,
+    get_deploy_status,
+    get_gate_preview,
     get_latest_version,
     get_model_version_summary,
+    get_promotion_status,
     get_training_status,
     list_available_features,
+    list_model_versions,
     list_models,
+    list_predictions,
     list_recent_training_runs,
+    log_prediction,
     policy_check,
     prepare_deploy_manifest,
+    promote_model,
     record_deploy,
     register_model,
+    rollback_promotion,
     trigger_training,
     validate_dataset,
 )
@@ -456,6 +467,66 @@ def test_policy_check_raises_404_when_model_version_does_not_exist() -> None:
     assert "fraud-detection:99" in exc_info.value.detail
 
 
+def test_get_gate_preview_passes_when_metrics_meet_thresholds() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "3",
+            "run_id": "run-1",
+            "tags": {"task_type": "classification"},
+            "metrics": {"accuracy": 0.92, "precision": 0.85, "recall": 0.8, "f1": 0.82},
+            "status": "READY",
+        }
+        result = get_gate_preview("fraud-detection", "3")
+
+    assert result["passed"] is True
+    # Preview only — never writes gate_passed/gate_<metric> tags, unlike
+    # policy_check, since this is called repeatedly while a Dev is still
+    # typing in the form.
+    mock_mlflow.set_model_version_tag.assert_not_called()
+
+
+def test_get_gate_preview_fails_below_threshold_and_reports_thresholds() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "3",
+            "run_id": "run-1",
+            "tags": {"task_type": "classification"},
+            "metrics": {"accuracy": 0.4, "precision": 0.3, "recall": 0.3},
+            "status": "READY",
+        }
+        result = get_gate_preview("fraud-detection", "3")
+
+    assert result["passed"] is False
+    assert {"metric": "accuracy", "minimum": 0.7, "maximum": None} in result["thresholds"]
+    mock_mlflow.set_model_version_tag.assert_not_called()
+
+
+def test_get_gate_preview_raises_400_when_model_has_no_task_type_tag() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "3",
+            "run_id": "run-1",
+            "tags": {},
+            "metrics": {"accuracy": 0.9},
+            "status": "READY",
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            get_gate_preview("fraud-detection", "3")
+
+    assert exc_info.value.status_code == 400
+
+
+def test_get_gate_preview_raises_404_when_model_version_does_not_exist() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.side_effect = ValueError(
+            "model version fraud-detection:99 not found"
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_gate_preview("fraud-detection", "99")
+
+    assert exc_info.value.status_code == 404
+
+
 def test_validate_dataset_returns_check_results(tmp_path) -> None:
     csv_path = tmp_path / "data.csv"
     pd.DataFrame({"x": [1, 2, 3], "y": [0, 1, 0]}).to_csv(csv_path, index=False)
@@ -587,6 +658,22 @@ def test_get_model_version_summary_raises_404_when_model_version_does_not_exist(
     assert "fraud-detection:99" in exc_info.value.detail
 
 
+def test_list_model_versions_returns_newest_first() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.list_model_versions.return_value = ["3", "2", "1"]
+        response = list_model_versions("fraud-detection-demo")
+
+    assert response.versions == ["3", "2", "1"]
+
+
+def test_list_model_versions_fails_open_to_empty_list_for_unknown_model() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.list_model_versions.return_value = []
+        response = list_model_versions("does-not-exist")
+
+    assert response.versions == []
+
+
 def test_list_models_aggregates_latest_version_details() -> None:
     with patch("routers.models.mlflow_adapter") as mock_mlflow:
         mock_mlflow.list_models.return_value = [{"name": "fraud-detection"}]
@@ -629,8 +716,17 @@ def test_get_latest_version_returns_name_and_version() -> None:
 def test_prepare_deploy_manifest_renders_registry_uri_into_template() -> None:
     request = PrepareDeployRequest(model_name="fraud-detection", model_version="3")
 
-    response = prepare_deploy_manifest(request)
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="legacy"),
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        response = prepare_deploy_manifest(request)
 
+    # Tags the version with the Dev's prediction-logging choice regardless
+    # of deploy strategy — see PrepareDeployRequest.enable_prediction_logging.
+    mock_mlflow.set_model_version_tag.assert_called_once_with(
+        "fraud-detection", "3", "prediction_logging_enabled", "True"
+    )
     assert (
         response.file_name
         == "infra/environments/dev/inference-services/mlops-team/fraud-detection/3.yaml"
@@ -642,11 +738,70 @@ def test_prepare_deploy_manifest_renders_registry_uri_into_template() -> None:
     assert response.deployed is False
 
 
+def test_prepare_deploy_manifest_openchoreo_backend_renders_workload_manifest() -> None:
+    request = PrepareDeployRequest(model_name="fraud-detection-demo", model_version="3")
+
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="openchoreo"),
+        patch("routers.models.mlflow_adapter"),
+    ):
+        response = prepare_deploy_manifest(request)
+
+    assert response.file_name == "infra/openchoreo/telco-fraud-detection/workload-serving.yaml"
+    assert "kind: Workload" in response.content
+    assert "name: serving-workload" in response.content
+    assert "image: models:/fraud-detection-demo/3" in response.content
+    # Never the legacy per-model/version InferenceService file — that path
+    # is invisible to OpenChoreoPromotionAdapter's ProjectReleaseBinding
+    # tracking, see prepare_deploy_manifest's own comment.
+    assert "InferenceService" not in response.content
+
+
+def test_prepare_deploy_manifest_openchoreo_backend_allows_a_100_percent_cutover() -> None:
+    request = PrepareDeployRequest(
+        model_name="fraud-detection-demo",
+        model_version="3",
+        traffic_strategy="blue-green",
+        traffic_percent=100,
+    )
+
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="openchoreo"),
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter"),
+    ):
+        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        response = prepare_deploy_manifest(request)
+
+    assert "kind: Workload" in response.content
+
+
+def test_prepare_deploy_manifest_openchoreo_backend_rejects_a_partial_traffic_split() -> None:
+    request = PrepareDeployRequest(
+        model_name="fraud-detection-demo",
+        model_version="3",
+        traffic_strategy="canary",
+        traffic_percent=10,
+    )
+
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="openchoreo"),
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter"),
+    ):
+        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        with pytest.raises(ValueError, match="PARTIAL traffic split"):
+            prepare_deploy_manifest(request)
+
+
 def test_prepare_deploy_manifest_direct_never_touches_kserve() -> None:
     # deployStrategy=direct + releaseStrategy=pr-gated (the defaults) never
     # need a kubeconfig — get_kserve_adapter() must not even be called.
     request = PrepareDeployRequest(model_name="fraud-detection", model_version="3")
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
+    with (
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter"),
+    ):
         prepare_deploy_manifest(request)
     mock_get_kserve.assert_not_called()
 
@@ -658,7 +813,11 @@ def test_prepare_deploy_manifest_traffic_split_renders_canary_percent() -> None:
         traffic_strategy="canary",
         traffic_percent=10,
     )
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="legacy"),
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter"),
+    ):
         mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
         response = prepare_deploy_manifest(request)
 
@@ -693,14 +852,126 @@ def test_prepare_deploy_manifest_instant_deploys_without_a_pr() -> None:
     request = PrepareDeployRequest(
         model_name="fraud-detection", model_version="5", release_strategy="instant"
     )
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
+    with (
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
         mock_adapter = mock_get_kserve.return_value
+        # InstantStrategy resolves "models:/<name>/<version>" to the real
+        # underlying artifact location via this call before handing off to
+        # the inference adapter — KServe's storage-initializer can't read
+        # the "models:/" shorthand at all (adapters/deploy_strategies.py's
+        # InstantStrategy.release() docstring has the full story).
+        mock_mlflow.get_model_artifact_uri.return_value = (
+            "s3://mlflow-artifacts/0/run123/artifacts/model"
+        )
         response = prepare_deploy_manifest(request)
 
+    mock_mlflow.get_model_artifact_uri.assert_called_once_with("fraud-detection", "5")
     mock_adapter.deploy_model.assert_called_once_with(
-        "fraud-detection", "5", "models:/fraud-detection/5", traffic_fields={}
+        "fraud-detection",
+        "5",
+        "s3://mlflow-artifacts/0/run123/artifacts/model",
+        traffic_fields={},
     )
     assert response.deployed is True
+
+
+def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> None:
+    # action="rollback" forces blue-green + 100% + instant regardless of
+    # what the request's own traffic_strategy/traffic_percent/
+    # release_strategy carry — the whole point is the Dev only picks
+    # *which version*, not the mechanism, under production-incident
+    # pressure. Deliberately sends the "wrong" values for those 3 fields
+    # to prove they get overridden, not just left at their defaults.
+    request = PrepareDeployRequest(
+        model_name="fraud-detection",
+        model_version="3",
+        traffic_strategy="direct",
+        release_strategy="pr-gated",
+        action="rollback",
+    )
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="legacy"),
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        mock_mlflow.get_model_artifact_uri.return_value = (
+            "s3://mlflow-artifacts/0/run456/artifacts/model"
+        )
+        response = prepare_deploy_manifest(request)
+
+    assert "canaryTrafficPercent: 100" in response.content
+    mock_get_kserve.return_value.deploy_model.assert_called_once_with(
+        "fraud-detection",
+        "3",
+        "s3://mlflow-artifacts/0/run456/artifacts/model",
+        traffic_fields={"canaryTrafficPercent": 100},
+    )
+    assert response.deployed is True
+
+
+def test_prepare_deploy_manifest_rollback_without_prior_deploy_raises() -> None:
+    request = PrepareDeployRequest(
+        model_name="never-deployed", model_version="1", action="rollback"
+    )
+    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
+        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+        with pytest.raises(ValueError, match="nothing to roll back to"):
+            prepare_deploy_manifest(request)
+
+
+def test_get_deploy_status_returns_not_deployed_on_404() -> None:
+    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
+        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+        response = get_deploy_status("never-deployed")
+
+    assert response.deployed is False
+    assert response.ready is False
+    assert response.live_version is None
+
+
+def test_get_deploy_status_reports_live_version_traffic_and_pr() -> None:
+    with (
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        mock_get_kserve.return_value.get_inference_status.return_value = {
+            "metadata": {"labels": {"version": "4"}},
+            "spec": {"predictor": {"canaryTrafficPercent": 20}},
+            "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+        }
+        mock_mlflow.get_model_version_details.return_value = {
+            "tags": {"deploy_pr_url": "https://github.com/org/repo/pull/9"}
+        }
+        response = get_deploy_status("fraud-detection")
+
+    mock_mlflow.get_model_version_details.assert_called_once_with("fraud-detection", "4")
+    assert response.deployed is True
+    assert response.ready is True
+    assert response.live_version == "4"
+    assert response.traffic_percent == 20
+    assert response.pr_url == "https://github.com/org/repo/pull/9"
+
+
+def test_get_deploy_status_tolerates_a_deleted_live_version() -> None:
+    with (
+        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        mock_get_kserve.return_value.get_inference_status.return_value = {
+            "metadata": {"labels": {"version": "4"}},
+            "spec": {"predictor": {}},
+            "status": {"conditions": []},
+        }
+        mock_mlflow.get_model_version_details.side_effect = ValueError("not registered")
+        response = get_deploy_status("fraud-detection")
+
+    assert response.deployed is True
+    assert response.ready is False
+    assert response.traffic_percent is None
+    assert response.pr_url is None
 
 
 def test_record_deploy_sets_deploy_pr_url_tag() -> None:
@@ -726,3 +997,175 @@ def test_record_deploy_skips_tagging_when_no_pr_url() -> None:
 
     mock_mlflow.set_model_version_tag.assert_not_called()
     assert response.pr_url is None
+
+
+def test_log_prediction_forwards_to_the_prediction_log_adapter() -> None:
+    request = LogPredictionRequest(
+        model_version="3", input={"amount": 100.0}, output={"is_fraud": False}
+    )
+    with patch("routers.models.prediction_log_adapter") as mock_log:
+        log_prediction("fraud-detection", request)
+
+    mock_log.log_prediction.assert_called_once_with(
+        "fraud-detection", "3", {"amount": 100.0}, {"is_fraud": False}
+    )
+
+
+def test_list_predictions_wraps_adapter_entries_in_the_response_model() -> None:
+    with patch("routers.models.prediction_log_adapter") as mock_log:
+        mock_log.list_predictions.return_value = [
+            {
+                "id": 1,
+                "model_name": "fraud-detection",
+                "model_version": "3",
+                "logged_at": "2026-09-16T00:00:00+00:00",
+                "input": {"amount": 100.0},
+                "output": {"is_fraud": False},
+            }
+        ]
+        response = list_predictions("fraud-detection")
+
+    mock_log.list_predictions.assert_called_once_with("fraud-detection", 50)
+    assert len(response.predictions) == 1
+    assert response.predictions[0].model_version == "3"
+    assert response.predictions[0].output == {"is_fraud": False}
+
+
+def test_get_promotion_status_wraps_the_promotion_adapter_result() -> None:
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        response = get_promotion_status("telco-fraud-detection")
+
+    assert response.project == "telco-fraud-detection"
+    assert response.environments["development"] == "rel-1"
+    assert response.prod_pending_approval is False
+
+
+def test_get_promotion_status_raises_404_for_a_model_outside_the_scoped_project() -> None:
+    # The frontend's modelName picker lists every registered model, not
+    # just the one real project promotion_adapter is scoped to — picking
+    # any other name must fail loudly, not silently report the wrong
+    # project's status.
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": None, "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            get_promotion_status("some-other-model")
+
+    assert exc_info.value.status_code == 404
+
+
+def test_promote_model_forwards_the_target_environment() -> None:
+    request = PromoteRequest(target_environment="staging")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.promote.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
+            "prod_pending_approval": True,
+        }
+        response = promote_model("telco-fraud-detection", request)
+
+    mock_promotion.promote.assert_called_once_with("staging")
+    assert response.environments["staging"] == "rel-1"
+    assert response.prod_pending_approval is True
+
+
+def test_promote_model_raises_404_for_a_model_outside_the_scoped_project() -> None:
+    request = PromoteRequest(target_environment="staging")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": None, "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            promote_model("some-other-model", request)
+
+    assert exc_info.value.status_code == 404
+    mock_promotion.promote.assert_not_called()
+
+
+def test_promote_model_raises_400_when_the_adapter_rejects_the_target() -> None:
+    request = PromoteRequest(target_environment="production")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.promote.side_effect = ValueError("nothing to promote")
+        with pytest.raises(HTTPException) as exc_info:
+            promote_model("telco-fraud-detection", request)
+
+    assert exc_info.value.status_code == 400
+
+
+def test_rollback_promotion_forwards_the_environment() -> None:
+    request = RollbackPromotionRequest(environment="staging")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-2", "staging": "rel-2", "production": None},
+            "prod_pending_approval": True,
+        }
+        mock_promotion.rollback_promotion.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-2", "staging": "rel-1", "production": None},
+            "prod_pending_approval": True,
+        }
+        response = rollback_promotion("telco-fraud-detection", request)
+
+    mock_promotion.rollback_promotion.assert_called_once_with("staging")
+    assert response.environments["staging"] == "rel-1"
+
+
+def test_rollback_promotion_raises_404_for_a_model_outside_the_scoped_project() -> None:
+    request = RollbackPromotionRequest(environment="staging")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": None, "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            rollback_promotion("some-other-model", request)
+
+    assert exc_info.value.status_code == 404
+    mock_promotion.rollback_promotion.assert_not_called()
+
+
+def test_rollback_promotion_raises_400_when_the_adapter_rejects_it() -> None:
+    request = RollbackPromotionRequest(environment="staging")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.rollback_promotion.side_effect = ValueError("no prior release recorded")
+        with pytest.raises(HTTPException) as exc_info:
+            rollback_promotion("telco-fraud-detection", request)
+
+    assert exc_info.value.status_code == 400

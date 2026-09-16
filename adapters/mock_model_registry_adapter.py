@@ -84,6 +84,18 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
             raise ValueError(f"Model {name} has no registered versions")
         return max(versions, key=int)
 
+    def list_model_versions(self, name: str) -> list[str]:
+        # Mirrors MlflowAdapter.list_model_versions() — same convention.
+        return sorted(self._versions.get(name, {}), key=int, reverse=True)
+
+    def get_model_artifact_uri(self, name: str, version: str) -> str:
+        # Mirrors MlflowAdapter.get_model_artifact_uri() — same convention.
+        # No real artifact store behind this mock, so this is just the
+        # canonical MLflow shorthand, same as before this method existed;
+        # MockInferenceAdapter never actually fetches it.
+        self._get_details(name, version)  # raises if not registered
+        return f"models:/{name}/{version}"
+
     def _get_details(self, name: str, version: str) -> ModelVersionDetails:
         versions = self._versions.get(name)
         if versions is None or version not in versions:
