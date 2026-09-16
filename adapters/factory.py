@@ -8,10 +8,11 @@ unset.
 
 Workflow and Inference additionally accept a 3rd mode, "openchoreo" (via
 `_backend_mode`, only selectable through the specific env var, never the
-blanket one) — a stub until OpenChoreoWorkflowAdapter/
-OpenChoreoInferenceAdapter exist. Model Registry and Notebook have no
-OpenChoreo-backed replacement planned, so they stay on the plain 2-way
-`_use_mock`.
+blanket one). Workflow's "openchoreo" branch is real
+(OpenChoreoWorkflowAdapter, see adapters/openchoreo_workflow_adapter.py);
+Inference's is still a stub until OpenChoreoInferenceAdapter exists. Model
+Registry and Notebook have no OpenChoreo-backed replacement planned, so
+they stay on the plain 2-way `_use_mock`.
 """
 
 import os
@@ -32,6 +33,7 @@ from adapters.mock_notebook_adapter import MockNotebookAdapter
 from adapters.mock_workflow_adapter import MockWorkflowAdapter
 from adapters.notebook_adapter import JupyterHubAdapter
 from adapters.object_storage_adapter import MinioObjectStorageAdapter
+from adapters.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter
 from adapters.prompt_registry_adapter import MlflowPromptRegistryAdapter
 from adapters.vector_db_adapter import QdrantAdapter
 from adapters.version_registry_adapter import JsonFileVersionRegistryAdapter
@@ -101,7 +103,7 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 
 
 @lru_cache
-def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter:
+def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
     match _backend_mode("USE_MOCK_WORKFLOW"):
         case "mock":
             # Only wired to the registry when that's also mocked — a real
@@ -116,7 +118,7 @@ def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter:
         case "legacy":
             return ArgoAdapter()
         case "openchoreo":
-            raise NotImplementedError("OpenChoreoWorkflowAdapter not implemented yet")
+            return OpenChoreoWorkflowAdapter()
 
 
 @lru_cache

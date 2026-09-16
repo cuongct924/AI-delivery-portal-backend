@@ -120,10 +120,15 @@ services:
       # Thunder first, same prerequisite as llmops-golden-paths-agent below.
       MCP_CLIENT_ID: orchestration-api-agent
       MCP_CLIENT_SECRET: orchestration-api-agent-dev-secret
-    # Routes the k3d gateway hostname to the real host machine — its
+      # Same host-gateway routing as THUNDER_URL above — openchoreo-api is
+      # only reachable through the k3d gateway's external hostname
+      # (adapters/openchoreo_workflow_adapter.py, USE_MOCK_WORKFLOW=openchoreo).
+      OPENCHOREO_API_URL: http://api.openchoreo.localhost:8080/api/v1
+    # Routes the k3d gateway hostnames to the real host machine — their
     # auto-loopback resolution isn't guaranteed inside a container.
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"
+      - "api.openchoreo.localhost:host-gateway"
     # Lets LocalFileObjectStorageAdapter list the same DVC-checked-out
     # sample datasets a host-run `make run-orchestration-api` sees, without
     # needing the mlops-datasets MinIO bucket populated first. Read-only —

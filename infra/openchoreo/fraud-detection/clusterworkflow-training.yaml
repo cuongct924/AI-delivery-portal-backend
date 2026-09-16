@@ -1,0 +1,132 @@
+# The "openchoreo" backend-mode counterpart to
+# infra/argo-workflows/train-register-template.yaml — referenced by
+# adapters/openchoreo_workflow_adapter.py's trigger_workflow() via
+# routers/models.py's TRAIN_REGISTER_TEMPLATE constant
+# ("train-register-golden-path"), so this ClusterWorkflow's `name` must
+# match that constant exactly.
+#
+# Property names below are camelCase, not the hyphenated
+# ArgoWorkflowTemplate argument names (model-name, dataset-uri, ...) —
+# CEL identifiers can't contain hyphens (confirmed against the real CRD:
+# every existing ClusterWorkflow's `parameters.openAPIV3Schema`, e.g.
+# dockerfile-builder's buildArgs/buildEnv, is camelCase). This adapter's
+# trigger_workflow() translates the hyphenated keys routers/models.py
+# already builds into these camelCase names before POSTing — callers
+# never see this detail (adapters/interfaces.py's IWorkflowAdapter
+# contract is unchanged).
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterWorkflow
+metadata:
+  name: train-register-golden-path
+  annotations:
+    openchoreo.dev/description: >-
+      Golden Path #1 (Train -> Track -> Register) — trains a model and
+      registers it in MLflow. Wraps the same train-and-register DAG as
+      "legacy" mode's Argo WorkflowTemplate; see
+      infra/argo-workflows/train-register-cluster-template.yaml.
+spec:
+  parameters:
+    openAPIV3Schema:
+      type: object
+      required: [modelName, datasetUri, taskType]
+      properties:
+        modelName: {type: string}
+        datasetUri: {type: string}
+        taskType: {type: string}
+        architecture: {type: string, default: sklearn}
+        algorithm: {type: string, default: ""}
+        mode: {type: string, default: train}
+        targetColumn: {type: string, default: ""}
+        idColumns: {type: string, default: ""}
+        timeColumn: {type: string, default: ""}
+        baseModelUri: {type: string, default: ""}
+        hiddenLayers: {type: string, default: ""}
+        dropout: {type: string, default: ""}
+        sequenceLength: {type: string, default: ""}
+        numLayers: {type: string, default: ""}
+        hiddenSize: {type: string, default: ""}
+        learningRate: {type: string, default: ""}
+        epochs: {type: string, default: ""}
+        batchSize: {type: string, default: ""}
+        optimizer: {type: string, default: ""}
+        codeRepoUrl: {type: string, default: ""}
+        entrypointPath: {type: string, default: ""}
+        customConfig: {type: string, default: "{}"}
+        searchStrategy: {type: string, default: fixed}
+        numTrials: {type: string, default: ""}
+        searchSpaceJson: {type: string, default: "{}"}
+        objectiveMetric: {type: string, default: ""}
+        objectiveDirection: {type: string, default: maximize}
+        textColumn: {type: string, default: ""}
+        baseModelName: {type: string, default: ""}
+  runTemplate:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Workflow
+    metadata:
+      name: ${metadata.workflowRunName}
+      namespace: ${metadata.namespace}
+    spec:
+      workflowTemplateRef:
+        name: train-register-golden-path-cluster
+        clusterScope: true
+      arguments:
+        parameters:
+          - name: model-name
+            value: ${parameters.modelName}
+          - name: dataset-uri
+            value: ${parameters.datasetUri}
+          - name: task-type
+            value: ${parameters.taskType}
+          - name: architecture
+            value: ${parameters.architecture}
+          - name: algorithm
+            value: ${parameters.algorithm}
+          - name: mode
+            value: ${parameters.mode}
+          - name: target-column
+            value: ${parameters.targetColumn}
+          - name: id-columns
+            value: ${parameters.idColumns}
+          - name: time-column
+            value: ${parameters.timeColumn}
+          - name: base-model-uri
+            value: ${parameters.baseModelUri}
+          - name: hidden-layers
+            value: ${parameters.hiddenLayers}
+          - name: dropout
+            value: ${parameters.dropout}
+          - name: sequence-length
+            value: ${parameters.sequenceLength}
+          - name: num-layers
+            value: ${parameters.numLayers}
+          - name: hidden-size
+            value: ${parameters.hiddenSize}
+          - name: learning-rate
+            value: ${parameters.learningRate}
+          - name: epochs
+            value: ${parameters.epochs}
+          - name: batch-size
+            value: ${parameters.batchSize}
+          - name: optimizer
+            value: ${parameters.optimizer}
+          - name: code-repo-url
+            value: ${parameters.codeRepoUrl}
+          - name: entrypoint-path
+            value: ${parameters.entrypointPath}
+          - name: custom-config
+            value: ${parameters.customConfig}
+          - name: search-strategy
+            value: ${parameters.searchStrategy}
+          - name: num-trials
+            value: ${parameters.numTrials}
+          - name: search-space-json
+            value: ${parameters.searchSpaceJson}
+          - name: objective-metric
+            value: ${parameters.objectiveMetric}
+          - name: objective-direction
+            value: ${parameters.objectiveDirection}
+          - name: text-column
+            value: ${parameters.textColumn}
+          - name: base-model-name
+            value: ${parameters.baseModelName}
+  ttlAfterCompletion: 1d

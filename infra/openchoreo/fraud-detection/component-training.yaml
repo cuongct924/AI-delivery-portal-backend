@@ -2,6 +2,14 @@
 # *scheduling* layer for Golden Path #1 — the actual training/register logic
 # is untouched, still owned by adapters/ + services/orchestration-api (see
 # workload-training.yaml and docs/openchoreo-migration-next-steps.md).
+#
+# NEITHER this Component NOR its Workload has ever actually been applied to
+# the real cluster (verified during Phase 2's work on
+# adapters/openchoreo_workflow_adapter.py: `kubectl get components.openchoreo.dev
+# -A` / `kubectl get cronjobs -A` both come back empty) — this file's
+# `environmentConfigs.schedule` claim below predates that check and was
+# never actually true; corrected here from what verifying it revealed, not
+# guessed.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
@@ -14,14 +22,28 @@ spec:
     projectName: fraud-detection
   componentType:
     kind: ClusterComponentType
+    # "cronjob/scheduled-task" IS correct, unlike what an earlier pass at
+    # this comment guessed — Component.spec.componentType.name is validated
+    # against the `^(deployment|statefulset|cronjob|job|proxy)/[a-z0-9]...`
+    # pattern (confirmed via `kubectl apply --dry-run=server`, which
+    # rejected a bare "scheduled-task"), a compound
+    # "<workloadType>/<ClusterComponentType metadata.name>" reference — not
+    # the same string as `kubectl get clustercomponenttypes`' bare NAME
+    # column ("scheduled-task"), which is just that object's own
+    # metadata.name, a different field entirely.
     name: cronjob/scheduled-task
   autoDeploy: true
-  # ClusterComponentType "scheduled-task" defaults `environmentConfigs.schedule`
-  # to "1 * * * *" — the live cluster's CronJob instead runs "*/3 * * * *",
-  # applied through some per-environment override this snapshot doesn't
-  # capture (`Component.spec` itself rejects `environmentConfigs` — schema
-  # validated via `kubectl apply --dry-run=server`). Applying this file as-is
-  # would fall back to the ComponentType's 1-minute default.
+  # ClusterComponentType "scheduled-task" (`kubectl get clustercomponenttype
+  # scheduled-task -o yaml`) defines `schedule` under `environmentConfigs`,
+  # not `parameters` — and `environmentConfigs` is supplied per-environment
+  # through a ReleaseBinding, not set directly on `Component.spec` (which
+  # only carries `parameters`; confirmed by `kubectl apply --dry-run=server`
+  # rejecting an `environmentConfigs` key here). Applying this file as-is
+  # runs on the ComponentType's own default schedule ("1 * * * *") until a
+  # ReleaseBinding overriding `environmentConfigs.schedule` exists for
+  # fraud-detection's target environment — not built in this session (needs
+  # its own real fraud-detection Project + ProjectReleaseBinding first, the
+  # same prerequisite work Phase 1 did for the "platform" Project).
   parameters:
     restartPolicy: OnFailure
     concurrencyPolicy: Forbid

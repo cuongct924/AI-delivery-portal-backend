@@ -1,0 +1,33 @@
+# Binds orchestration-api's OpenChoreo identity to the workflow-trigger
+# role (authzrole-workflow-trigger.yaml). Subject is matched by the JWT
+# "sub" claim, which for a client_credentials token equals the client_id
+# (confirmed empirically against this cluster's real Thunder instance —
+# see agents/mcp-servers/llmops-golden-paths-server/README.md's Auth
+# section) — same entitlement shape as the pre-existing
+# rca-agent-binding/workload-publisher-binding.
+#
+# Reuses the pre-existing "openchoreo-system-app" client ("Generic system
+# application for automation and integrations", client_secret
+# "openchoreo-system-app-secret" — provisioned by
+# thunder-bootstrap's 55-system-app.sh) rather than registering a new
+# dedicated client: Thunder's /applications admin API still returns
+# 401/403 for every credential available this session (same documented
+# blocker as llmops/mlops-golden-paths-server's README "Known gap"
+# section) — creating a new Thunder application is not possible from here.
+# A dedicated "orchestration-api-openchoreo-client" would be preferable
+# (narrower blast radius than a shared generic client) — swap the
+# entitlement value below once someone with Thunder admin access
+# registers one, following 53-rca-agent-client.sh's pattern.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterAuthzRoleBinding
+metadata:
+  name: workflow-trigger-binding
+spec:
+  effect: allow
+  entitlement:
+    claim: sub
+    value: openchoreo-system-app
+  roleMappings:
+    - roleRef:
+        kind: ClusterAuthzRole
+        name: workflow-trigger

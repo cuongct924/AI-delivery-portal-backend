@@ -1,21 +1,29 @@
-# Used by "legacy" backend mode (adapters/argo_adapter.py) only. DUPLICATED
-# (kept in sync by hand, not referenced) as
-# train-register-cluster-template.yaml's ClusterWorkflowTemplate for
-# "openchoreo" backend mode — Argo's workflowTemplateRef can't resolve a
-# namespace-scoped WorkflowTemplate like this one from the
-# `workflows-<namespaceName>` execution namespace OpenChoreo's
-# ClusterWorkflow mechanism runs in, only a cluster-scoped
-# ClusterWorkflowTemplate. See that file's header for the full reasoning.
-# Retire this duplication once "legacy" mode is fully decommissioned.
+# DUPLICATE of infra/argo-workflows/train-register-template.yaml, kept in
+# sync by hand — see this file's header there for why (Argo's
+# workflowTemplateRef only resolves within the calling Workflow's own
+# namespace; OpenChoreo's ClusterWorkflow mechanism runs every WorkflowRun
+# in an auto-created `workflows-<namespaceName>` execution namespace, never
+# `default`, so the namespace-scoped WorkflowTemplate used by "legacy"
+# ArgoAdapter mode can't be referenced from there — only a cluster-scoped
+# ClusterWorkflowTemplate can). Used by
+# infra/openchoreo/fraud-detection/clusterworkflow-training.yaml
+# ("openchoreo" backend mode only) — "legacy" mode keeps using the
+# original WorkflowTemplate untouched.
 apiVersion: argoproj.io/v1alpha1
-kind: WorkflowTemplate
+kind: ClusterWorkflowTemplate
 metadata:
-  name: train-register-golden-path
-  namespace: default
+  name: train-register-golden-path-cluster
 spec:
   entrypoint: train-and-register
-  # Least-privilege ServiceAccount — provision alongside this template.
-  serviceAccountName: train-register-workflow
+  # workflow-sa, not train-register-workflow: OpenChoreo's workflow-plane
+  # controller auto-provisions "workflow-sa" (+ the workflowtaskresults
+  # create/patch Role it needs to report step outputs) in every
+  # `workflows-<namespaceName>` execution namespace it creates — confirmed
+  # against the real cluster (`kubectl get sa,role -n workflows-default`)
+  # after triggering a real WorkflowRun. "train-register-workflow" only
+  # exists in the `default` namespace (legacy mode's namespace), and
+  # wouldn't exist in `workflows-<namespaceName>` for any namespaceName.
+  serviceAccountName: workflow-sa
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
