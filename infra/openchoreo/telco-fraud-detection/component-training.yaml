@@ -13,13 +13,13 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
-  name: fraud-detection-training
+  name: telco-fraud-detection-training
   namespace: default
   labels:
-    openchoreo.dev/project: fraud-detection
+    openchoreo.dev/project: telco-fraud-detection
 spec:
   owner:
-    projectName: fraud-detection
+    projectName: telco-fraud-detection
   componentType:
     kind: ClusterComponentType
     # "cronjob/scheduled-task" IS correct, unlike what an earlier pass at
@@ -41,8 +41,8 @@ spec:
   # rejecting an `environmentConfigs` key here). Applying this file as-is
   # runs on the ComponentType's own default schedule ("1 * * * *") until a
   # ReleaseBinding overriding `environmentConfigs.schedule` exists for
-  # fraud-detection's target environment — not built in this session (needs
-  # its own real fraud-detection Project + ProjectReleaseBinding first, the
+  # telco-fraud-detection's target environment — not built in this session (needs
+  # its own real telco-fraud-detection Project + ProjectReleaseBinding first, the
   # same prerequisite work Phase 1 did for the "platform" Project).
   parameters:
     restartPolicy: OnFailure

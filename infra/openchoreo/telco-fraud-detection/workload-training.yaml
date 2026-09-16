@@ -7,15 +7,15 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
-  name: fraud-detection-training-workload
+  name: telco-fraud-detection-training-workload
   namespace: default
   labels:
-    openchoreo.dev/project: fraud-detection
-    openchoreo.dev/component: fraud-detection-training
+    openchoreo.dev/project: telco-fraud-detection
+    openchoreo.dev/component: telco-fraud-detection-training
 spec:
   owner:
-    projectName: fraud-detection
-    componentName: fraud-detection-training
+    projectName: telco-fraud-detection
+    componentName: telco-fraud-detection-training
   container:
     image: curlimages/curl:8.11.1
     command: ["sh", "-c"]

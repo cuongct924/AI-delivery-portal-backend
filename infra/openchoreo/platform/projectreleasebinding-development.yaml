@@ -1,6 +1,6 @@
 # Workaround for a controller-manager bug: a brand-new Project's
 # DeploymentPipeline reconciler never fires, so this never gets created on
-# its own. Mirrors fraud-detection-development's ProjectReleaseBinding.
+# its own. Mirrors telco-fraud-detection-development's ProjectReleaseBinding.
 apiVersion: openchoreo.dev/v1alpha1
 kind: ProjectReleaseBinding
 metadata:

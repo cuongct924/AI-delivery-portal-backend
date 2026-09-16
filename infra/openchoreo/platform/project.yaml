@@ -1,5 +1,5 @@
 # Holds the 2 core Portal services (orchestration-api, portal), as opposed
-# to fraud-detection/'s MLOps workload demo.
+# to telco-fraud-detection/'s MLOps workload demo.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Project
 metadata:

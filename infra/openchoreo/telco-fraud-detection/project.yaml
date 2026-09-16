@@ -1,13 +1,13 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Project
 metadata:
-  name: fraud-detection
+  name: telco-fraud-detection
   namespace: default
   labels:
-    openchoreo.dev/name: fraud-detection
+    openchoreo.dev/name: telco-fraud-detection
   annotations:
-    openchoreo.dev/display-name: Fraud Detection
-    openchoreo.dev/description: Fraud Detection — MLOps demo (train → serve) on OpenChoreo
+    openchoreo.dev/display-name: Telco Fraud Detection
+    openchoreo.dev/description: Telco Fraud Detection — MLOps demo (train → serve) on OpenChoreo
 spec:
   type:
     kind: ClusterProjectType

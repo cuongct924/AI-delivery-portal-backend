@@ -7,13 +7,13 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
-  name: fraud-detection-serving
+  name: telco-fraud-detection-serving
   namespace: default
   labels:
-    openchoreo.dev/project: fraud-detection
+    openchoreo.dev/project: telco-fraud-detection
 spec:
   owner:
-    projectName: fraud-detection
+    projectName: telco-fraud-detection
   componentType:
     kind: ClusterComponentType
     name: proxy/inference-service

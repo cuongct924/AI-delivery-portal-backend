@@ -13,7 +13,7 @@ shape/timing fields, not just the frontend's TypeScript types for it.
 
 That live trigger also confirmed a fact the frontend code doesn't need to
 know but this adapter does: a WorkflowRun's ClusterWorkflow.spec.runTemplate
-(see infra/openchoreo/fraud-detection/clusterworkflow-training.yaml) still
+(see infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml) still
 renders and applies a real `argoproj.io/v1alpha1 Workflow` object — just in
 an auto-created `workflows-<namespace>` execution namespace, not `namespace`
 itself. `status.tasks[]`/`status.conditions` (WorkflowRun's own status,
@@ -203,13 +203,14 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
         REST API has no CronWorkflow-equivalent concept; the intended
         OpenChoreo replacement is a per-model `Component`
         (`ClusterComponentType: cronjob/scheduled-task`, see
-        infra/openchoreo/fraud-detection/component-training.yaml for the
-        shape), not a workflow trigger at all — and neither that Component
-        nor a `fraud-detection` Project exist on the real cluster yet
-        (`kubectl get components.openchoreo.dev -A` / `kubectl get
-        projects.openchoreo.dev` both confirm this), so there's no live
-        reference deployment to model this on despite that file's original
-        comment claiming otherwise.
+        infra/openchoreo/telco-fraud-detection/component-training.yaml for
+        the shape), not a workflow trigger at all. The `telco-fraud-detection`
+        Project (renamed from `fraud-detection`) and its ProjectReleaseBinding
+        do now exist for real on the cluster (applied for the serving
+        Component's sake, see openchoreo_inference_adapter.py) — but the
+        `telco-fraud-detection-training` Component/Workload in that same
+        directory are still only applied for CI wiring, never exercised as a
+        working monitoring cron end to end.
 
         The specific blocker: `scheduled-task`'s per-run `schedule` lives
         under `environmentConfigs`, not `spec.parameters` (`kubectl get
@@ -217,9 +218,7 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
         `environmentConfigs` is supplied per-environment via a
         ReleaseBinding, not settable on `Component.spec` directly (confirmed
         by `kubectl apply --dry-run=server` rejecting an
-        `environmentConfigs` key there). Implementing this for real needs,
-        at minimum: a real `fraud-detection` Project + ProjectReleaseBinding
-        (the same prerequisite work Phase 1 did for "platform") plus a
+        `environmentConfigs` key there). Implementing this for real needs a
         ReleaseBinding-creation call this adapter doesn't make yet — out of
         scope for this pass; building a dynamic per-model/per-schedule
         Component on top of a mechanism not yet exercised against the real

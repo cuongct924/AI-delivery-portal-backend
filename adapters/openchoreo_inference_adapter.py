@@ -8,16 +8,18 @@ ClusterComponentType "proxy/inference-service") — matches the same
 just against a different CRD.
 
 Verified for real against the k3d cluster (`k3d-openchoreo-quick-start`):
-applying infra/openchoreo/fraud-detection/{component,workload}-serving.yaml
+applying infra/openchoreo/telco-fraud-detection/{component,workload}-serving.yaml
 + a ClusterAuthzRole fix (see infra/openchoreo/platform/
 clusterrole-dataplane-kserve.yaml — OpenChoreo's own dataplane reconciler
 agent had no RBAC for serving.kserve.io at all, added after KServe, a real
 blocker this session actually hit) made the reconciler render and apply a
-real InferenceService (`fraud-detection-serving-development-a1dd8967`,
+real InferenceService (originally `fraud-detection-serving-development-a1dd8967`,
 confirmed via `kubectl get inferenceservice -n
 dp-default-fraud-detecti-development-d0e7d311` — note the auto-generated
 dataplane namespace name, confirming the migration doc's own warning that
-it can't be assumed/derived, only discovered).
+it can't be assumed/derived, only discovered; the Project/Component were
+later renamed to telco-fraud-detection/telco-fraud-detection-serving,
+which surfaced a second real gap — see this module's own defaults below).
 
 **Known, real, unresolved gap** (not fixed here — out of this phase's
 scope, and not an OpenChoreo-specific problem): the InferenceService gets
@@ -63,20 +65,30 @@ INFERENCESERVICE_PLURAL: Final[str] = "inferenceservices"
 
 class OpenChoreoInferenceAdapter(IInferenceAdapter):
     """Scoped to a single, fixed Component/Workload — this repo has exactly
-    one real serving Component (`fraud-detection-serving`, see
-    infra/openchoreo/fraud-detection/{component,workload}-serving.yaml), so
-    `deploy_model`'s `name`/`version` become the storageUri patched onto
+    one real serving Component (`telco-fraud-detection-serving`, see
+    infra/openchoreo/telco-fraud-detection/{component,workload}-serving.yaml),
+    so `deploy_model`'s `name`/`version` become the storageUri patched onto
     that one Workload rather than selecting/creating a Component per model
     name. Generalizing to "one Component per model" would need dynamic
     Component/Workload provisioning this adapter doesn't do — not
     attempted here; document as a gap if a second real model ever needs
-    this."""
+    this.
+
+    Second real gap surfaced by the fraud-detection -> telco-fraud-detection
+    rename: KServe derives the predictor's hostname as a single DNS label
+    combining `<isvc-name>-predictor-<dataplane-namespace>`, capped at 63
+    characters (RFC 1035) — confirmed via a real `ReconcileFailed` event
+    ("must be no more than 63 characters") once the longer project/component
+    name pushed that combined string over the limit. Not fixed here: serving
+    was already non-functional before this rename (see the models:/ URI gap
+    above), so this doesn't change what works today, only how it fails.
+    """
 
     def __init__(
         self,
         namespace: str = "default",
-        project: str = "fraud-detection",
-        component: str = "fraud-detection-serving",
+        project: str = "telco-fraud-detection",
+        component: str = "telco-fraud-detection-serving",
         environment: str = "development",
     ):
         config.load_kube_config()

@@ -156,7 +156,7 @@ def get_kserve_adapter(
     "legacy" always targets `ai-delivery-portal-dev-<tenant>` — staging/prod
     promotion is DeploymentPipeline-only (infra/openchoreo/deployment-pipeline.yaml).
     "openchoreo" ignores `tenant` entirely: it's scoped to the one real
-    serving Component this repo has (fraud-detection-serving), not a
+    serving Component this repo has (telco-fraud-detection-serving), not a
     per-tenant namespace — see OpenChoreoInferenceAdapter's docstring.
     """
     namespace = f"ai-delivery-portal-dev-{tenant}"

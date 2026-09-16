@@ -1,22 +1,23 @@
 # `container.image` is repurposed as the model's MLflow storageUri, not a
 # real container image — see
 # infra/openchoreo/platform/clustercomponenttype-inference-service.yaml's
-# header for why. "fraud-detection-demo" (not "fraud-detection") because
-# that's the model actually registered in the real MLflow instance right
-# now (`curl http://localhost:5000/api/2.0/mlflow/registered-models/search`)
-# — no model is literally named "fraud-detection" (this file's placeholder
-# claimed one existed; it doesn't).
+# header for why. "fraud-detection-demo" (an MLflow model name, out of
+# scope for the telco-fraud-detection Project/Component rename — MLflow
+# model names weren't touched) because that's the model actually
+# registered in the real MLflow instance right now (`curl
+# http://localhost:5000/api/2.0/mlflow/registered-models/search`) — no
+# model is literally named "fraud-detection".
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
-  name: fraud-detection-serving-workload
+  name: telco-fraud-detection-serving-workload
   namespace: default
   labels:
-    openchoreo.dev/project: fraud-detection
-    openchoreo.dev/component: fraud-detection-serving
+    openchoreo.dev/project: telco-fraud-detection
+    openchoreo.dev/component: telco-fraud-detection-serving
 spec:
   owner:
-    projectName: fraud-detection
-    componentName: fraud-detection-serving
+    projectName: telco-fraud-detection
+    componentName: telco-fraud-detection-serving
   container:
     image: models:/fraud-detection-demo/1
