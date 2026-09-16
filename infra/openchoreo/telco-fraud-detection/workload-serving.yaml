@@ -10,14 +10,14 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
-  name: telco-fraud-detection-serving-workload
+  name: serving-workload
   namespace: default
   labels:
     openchoreo.dev/project: telco-fraud-detection
-    openchoreo.dev/component: telco-fraud-detection-serving
+    openchoreo.dev/component: serving
 spec:
   owner:
     projectName: telco-fraud-detection
-    componentName: telco-fraud-detection-serving
+    componentName: serving
   container:
     image: models:/fraud-detection-demo/1

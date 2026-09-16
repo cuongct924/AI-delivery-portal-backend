@@ -18,8 +18,8 @@ confirmed via `kubectl get inferenceservice -n
 dp-default-fraud-detecti-development-d0e7d311` — note the auto-generated
 dataplane namespace name, confirming the migration doc's own warning that
 it can't be assumed/derived, only discovered; the Project/Component were
-later renamed to telco-fraud-detection/telco-fraud-detection-serving,
-which surfaced a second real gap — see this module's own defaults below).
+later renamed to telco-fraud-detection/serving, which surfaced two more
+real, since-fixed bugs — see this module's own class docstring below).
 
 **Known, real, unresolved gap** (not fixed here — out of this phase's
 scope, and not an OpenChoreo-specific problem): the InferenceService gets
@@ -65,7 +65,8 @@ INFERENCESERVICE_PLURAL: Final[str] = "inferenceservices"
 
 class OpenChoreoInferenceAdapter(IInferenceAdapter):
     """Scoped to a single, fixed Component/Workload — this repo has exactly
-    one real serving Component (`telco-fraud-detection-serving`, see
+    one real serving Component (`serving`, under the `telco-fraud-detection`
+    Project — see
     infra/openchoreo/telco-fraud-detection/{component,workload}-serving.yaml),
     so `deploy_model`'s `name`/`version` become the storageUri patched onto
     that one Workload rather than selecting/creating a Component per model
@@ -74,21 +75,37 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
     attempted here; document as a gap if a second real model ever needs
     this.
 
-    Second real gap surfaced by the fraud-detection -> telco-fraud-detection
-    rename: KServe derives the predictor's hostname as a single DNS label
-    combining `<isvc-name>-predictor-<dataplane-namespace>`, capped at 63
-    characters (RFC 1035) — confirmed via a real `ReconcileFailed` event
-    ("must be no more than 63 characters") once the longer project/component
-    name pushed that combined string over the limit. Not fixed here: serving
-    was already non-functional before this rename (see the models:/ URI gap
-    above), so this doesn't change what works today, only how it fails.
+    Two more real, cluster-verified bugs surfaced by the
+    fraud-detection -> telco-fraud-detection rename, both since fixed live
+    on the cluster (not yet reflected in any GitOps-applied Helm
+    values — these are direct kubectl patches):
+
+    1. `inferenceservice-config`'s `ingress.domainTemplate` defaulted to
+       `"{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}"` — hyphenating
+       Name and Namespace into a single DNS label instead of separating
+       them with a dot. Combined with OpenChoreo's long auto-generated
+       dataplane namespace (`dp-default-<project>-<environment>-<hash>`),
+       this label exceeded the 63-character RFC 1035 cap regardless of
+       project/component naming (the fixed structural overhead alone
+       already exceeds 63 for the "development" environment). Fixed by
+       patching the template to `"{{ .Name }}.{{ .Namespace }}.{{
+       .IngressDomain }}"` (three separate labels, each well under 63) and
+       restarting kserve-controller-manager.
+    2. With that fixed, a second, different 63-*byte* limit surfaced: the
+       raw-mode predictor Service's `isvc.<name>-predictor` label value
+       (a Kubernetes label value, not a DNS hostname — same numeric limit,
+       different mechanism) still overflowed with `component-serving`
+       naming. This one *is* naming-sensitive: fixed by shortening the
+       Component to `serving` (was `telco-fraud-detection-serving`) — the
+       Project name doesn't participate in this label at all, only
+       `<component>-<environment>-<hash>` does.
     """
 
     def __init__(
         self,
         namespace: str = "default",
         project: str = "telco-fraud-detection",
-        component: str = "telco-fraud-detection-serving",
+        component: str = "serving",
         environment: str = "development",
     ):
         config.load_kube_config()

@@ -4,10 +4,21 @@
 # renders a real serving.kserve.io/v1beta1 InferenceService, not a plain
 # Deployment/Service — replaces
 # infra/environments/*/inference-services/<tenant>/<model>.yaml's role.
+#
+# Named "serving", not "telco-fraud-detection-serving" — the Project
+# already carries the full name, and KServe's raw-mode predictor Service
+# hits a real, verified Kubernetes label-value limit (63 bytes) on
+# `isvc.<ClusterWorkflow-rendered-name>-predictor`, where
+# <rendered-name> = "<component>-<environment>-<hash8>". At the
+# "development" environment (11 chars) the fixed overhead alone
+# ("isvc." + "-development-" + hash8 + "-predictor" = 34 bytes) leaves a
+# 63-27 character budget for the component name — confirmed by hitting
+# `Service "telco-fraud-detection-serving-development-<hash>-predictor"
+# is invalid: ... must be no more than 63 bytes` with the longer name.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
-  name: telco-fraud-detection-serving
+  name: serving
   namespace: default
   labels:
     openchoreo.dev/project: telco-fraud-detection

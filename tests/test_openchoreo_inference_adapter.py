@@ -42,7 +42,7 @@ def test_deploy_model_patches_the_fixed_workload(
     adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
 ) -> None:
     mock_api.patch_namespaced_custom_object.return_value = {
-        "metadata": {"name": "telco-fraud-detection-serving-workload"}
+        "metadata": {"name": "serving-workload"}
     }
 
     result = adapter.deploy_model("fraud-detection-demo", "1", "models:/fraud-detection-demo/1")
@@ -52,10 +52,10 @@ def test_deploy_model_patches_the_fixed_workload(
         VERSION,
         "default",
         WORKLOAD_PLURAL,
-        "telco-fraud-detection-serving-workload",
+        "serving-workload",
         {"spec": {"container": {"image": "models:/fraud-detection-demo/1"}}},
     )
-    assert result == {"metadata": {"name": "telco-fraud-detection-serving-workload"}}
+    assert result == {"metadata": {"name": "serving-workload"}}
 
 
 def test_deploy_model_raises_when_traffic_fields_given(
@@ -85,7 +85,7 @@ def test_get_inference_status_finds_by_label_selector(
     adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
 ) -> None:
     mock_api.list_cluster_custom_object.return_value = {
-        "items": [{"metadata": {"name": "telco-fraud-detection-serving-development-a1dd8967"}}]
+        "items": [{"metadata": {"name": "serving-development-a1dd8967"}}]
     }
 
     result = adapter.get_inference_status("fraud-detection-demo")
@@ -94,12 +94,9 @@ def test_get_inference_status_finds_by_label_selector(
         KSERVE_GROUP,
         KSERVE_VERSION,
         INFERENCESERVICE_PLURAL,
-        label_selector=(
-            "openchoreo.dev/component=telco-fraud-detection-serving,"
-            "openchoreo.dev/environment=development"
-        ),
+        label_selector=("openchoreo.dev/component=serving,openchoreo.dev/environment=development"),
     )
-    assert result == {"metadata": {"name": "telco-fraud-detection-serving-development-a1dd8967"}}
+    assert result == {"metadata": {"name": "serving-development-a1dd8967"}}
 
 
 def test_get_inference_status_raises_404_when_reconciler_has_not_run_yet(

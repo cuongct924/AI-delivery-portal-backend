@@ -13,7 +13,11 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
-  name: telco-fraud-detection-training
+  # Short like "serving" (component-serving.yaml) for the same reason —
+  # doesn't hit the 63-byte label limit itself (CronJob, no predictor
+  # Service), but named consistently since both live under the same
+  # already-fully-named "telco-fraud-detection" Project.
+  name: training
   namespace: default
   labels:
     openchoreo.dev/project: telco-fraud-detection
@@ -41,9 +45,11 @@ spec:
   # rejecting an `environmentConfigs` key here). Applying this file as-is
   # runs on the ComponentType's own default schedule ("1 * * * *") until a
   # ReleaseBinding overriding `environmentConfigs.schedule` exists for
-  # telco-fraud-detection's target environment — not built in this session (needs
-  # its own real telco-fraud-detection Project + ProjectReleaseBinding first, the
-  # same prerequisite work Phase 1 did for the "platform" Project).
+  # this Component's "development" ReleaseBinding — not built in this
+  # session (the Project + ProjectReleaseBinding it needs as a
+  # prerequisite are real now, see project.yaml/
+  # projectreleasebinding-development.yaml, but a
+  # ReleaseBinding.spec.environmentConfigs override isn't).
   parameters:
     restartPolicy: OnFailure
     concurrencyPolicy: Forbid
