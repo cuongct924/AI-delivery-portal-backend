@@ -89,6 +89,43 @@ def test_deploy_model_omits_traffic_fields_when_none_given(
     assert "canaryTrafficPercent" not in body["spec"]["predictor"]
 
 
+def test_deploy_llm_model_omits_env_when_no_secret_ref_given(
+    adapter: KServeAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "llama-3"}}
+
+    adapter.deploy_llm_model("llama-3", "1", "meta-llama/Llama-3-8B", "vllm-runtime", 1, None, 4096)
+
+    body = mock_api.patch_namespaced_custom_object.call_args[0][-1]
+    assert "env" not in body["spec"]["predictor"]["model"]
+
+
+def test_deploy_llm_model_injects_secret_key_ref_env_var(
+    adapter: KServeAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "llama-3"}}
+
+    adapter.deploy_llm_model(
+        "llama-3",
+        "1",
+        "meta-llama/Llama-3.1-8B-Instruct",
+        "vllm-runtime",
+        1,
+        None,
+        4096,
+        hf_token_secret_ref="llama-3-hf-token",
+    )
+
+    body = mock_api.patch_namespaced_custom_object.call_args[0][-1]
+    env = body["spec"]["predictor"]["model"]["env"]
+    assert env == [
+        {
+            "name": "HUGGING_FACE_HUB_TOKEN",
+            "valueFrom": {"secretKeyRef": {"name": "llama-3-hf-token", "key": "token"}},
+        }
+    ]
+
+
 def test_get_inference_status_passes_through(adapter: KServeAdapter, mock_api: MagicMock) -> None:
     mock_api.get_namespaced_custom_object_status.return_value = {"status": {"conditions": []}}
 

@@ -72,6 +72,7 @@ class KServeAdapter(IInferenceAdapter):
         vllm_quantization: str | None,
         max_context_length: int,
         traffic_fields: Mapping[str, object] | None = None,
+        hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
         """Same patch-first/create-on-404 shape as deploy_model(), for a
         self-hosted LLM instead of an MLflow-registered artifact —
@@ -87,32 +88,40 @@ class KServeAdapter(IInferenceAdapter):
         translated from the Dev-facing label by the caller,
         llm_serving.registry.VLLM_QUANTIZATION_ARGS — adapters/ doesn't
         import from services/orchestration-api/, so translation can't
-        happen here), or None to omit the flag entirely."""
+        happen here), or None to omit the flag entirely.
+
+        hf_token_secret_ref is a K8s Secret name (key "token"), never a
+        plaintext value — see routers/llm_serving.py's
+        PrepareLlmDeployRequest.hf_token_secret_ref docstring for why
+        nothing upstream of this adapter ever holds the real token."""
         args = [
             f"--tensor-parallel-size={gpu_count}",
             f"--max-model-len={max_context_length}",
         ]
         if vllm_quantization is not None:
             args.append(f"--quantization={vllm_quantization}")
+        model_spec: dict[str, object] = {
+            "modelFormat": {"name": "huggingface"},
+            "runtime": serving_runtime_name,
+            "storageUri": f"hf://{huggingface_model_id}",
+            "args": args,
+            "resources": {
+                "requests": {"nvidia.com/gpu": str(gpu_count)},
+                "limits": {"nvidia.com/gpu": str(gpu_count)},
+            },
+        }
+        if hf_token_secret_ref is not None:
+            model_spec["env"] = [
+                {
+                    "name": "HUGGING_FACE_HUB_TOKEN",
+                    "valueFrom": {"secretKeyRef": {"name": hf_token_secret_ref, "key": "token"}},
+                }
+            ]
         body = {
             "apiVersion": f"{GROUP}/{VERSION}",
             "kind": "InferenceService",
             "metadata": {"name": name, "labels": {"version": version}},
-            "spec": {
-                "predictor": {
-                    **(traffic_fields or {}),
-                    "model": {
-                        "modelFormat": {"name": "huggingface"},
-                        "runtime": serving_runtime_name,
-                        "storageUri": f"hf://{huggingface_model_id}",
-                        "args": args,
-                        "resources": {
-                            "requests": {"nvidia.com/gpu": str(gpu_count)},
-                            "limits": {"nvidia.com/gpu": str(gpu_count)},
-                        },
-                    },
-                }
-            },
+            "spec": {"predictor": {**(traffic_fields or {}), "model": model_spec}},
         }
         try:
             result = self.api.patch_namespaced_custom_object(

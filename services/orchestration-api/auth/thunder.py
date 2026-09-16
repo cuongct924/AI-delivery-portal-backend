@@ -48,3 +48,20 @@ def get_current_user(
     identity = claims.get("azp") or claims.get("preferred_username") or claims.get("sub")
     logger.info("authenticated as %s", identity)
     return claims
+
+
+def user_has_role(user: dict, role: str) -> bool:
+    """Checks a role/group claim on the dict get_current_user() returned.
+
+    The local-dev bypass user (`sub == "local-dev"`, only reachable with
+    `AUTH_ENABLED=false`) always has every role — same trust boundary as
+    that bypass already crossing full authentication, not a separate
+    privilege escalation. A real token's roles live under whichever of
+    "roles"/"groups" Thunder's client actually populates (mirrors
+    persona_tool_scope.py's allowlist-not-denylist stance: a claim shaped
+    unexpectedly denies the role rather than silently granting it).
+    """
+    if user.get("sub") == "local-dev":
+        return True
+    roles = user.get("roles") or user.get("groups") or []
+    return role in roles

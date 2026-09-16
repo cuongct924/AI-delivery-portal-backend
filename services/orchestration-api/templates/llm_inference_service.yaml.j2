@@ -20,6 +20,14 @@ spec:
         {% if vllm_quantization is not none %}
         - --quantization={{ vllm_quantization }}
         {% endif %}
+      {% if hf_token_secret_ref is not none %}
+      env:
+        - name: HUGGING_FACE_HUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ hf_token_secret_ref }}
+              key: token
+      {% endif %}
       resources:
         requests:
           nvidia.com/gpu: "{{ gpu_count }}"

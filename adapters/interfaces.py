@@ -428,3 +428,37 @@ class IObjectStorageAdapter(ABC):
 
     @abstractmethod
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]: ...
+
+
+class HuggingFaceModelInfo(TypedDict):
+    """Everything the "Serve LLM (Self-hosted)" wizard's Model Source step
+    needs to validate a `huggingFaceModelId` and pre-fill the Compute &
+    Runtime step's VRAM estimator (llm_serving/gpu_sizing.py), before a PR
+    ever opens — fail-fast instead of fail-at-PR-merge.
+
+    The `num_*`/`hidden_size` fields are `None` when `exists` is True but
+    `is_gated` is also True and no token was configured to read
+    `config.json` — callers show the VRAM estimator as "unavailable, model
+    is gated" rather than guessing.
+    """
+
+    model_id: str
+    exists: bool
+    is_gated: bool
+    param_count_billion: float | None
+    max_context_length: float | None
+    num_layers: int | None
+    hidden_size: int | None
+    num_attention_heads: int | None
+    num_key_value_heads: int | None
+    license: str | None
+
+
+class IHuggingFaceHubAdapter(ABC):
+    @abstractmethod
+    def get_model_info(self, model_id: str) -> HuggingFaceModelInfo:
+        """Never raises for a model that doesn't exist or is gated —
+        `HuggingFaceModelInfo.exists`/`is_gated` carry that instead, so a
+        routine "model not found" (a typo, most likely) surfaces as a
+        normal field the caller checks, not an exception path."""
+        ...

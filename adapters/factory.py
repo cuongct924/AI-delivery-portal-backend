@@ -21,7 +21,9 @@ from typing import Literal, cast
 from adapters.argo_adapter import ArgoAdapter
 from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
 from adapters.feature_store_adapter import FeastAdapter
+from adapters.huggingface_hub_adapter import HuggingFaceHubAdapter
 from adapters.interfaces import (
+    IHuggingFaceHubAdapter,
     ILLMGatewayAdapter,
     IObjectStorageAdapter,
     IPredictionLogAdapter,
@@ -32,6 +34,7 @@ from adapters.kserve_adapter import KServeAdapter
 from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
 from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
 from adapters.mlflow_adapter import MlflowAdapter
+from adapters.mock_huggingface_hub_adapter import MockHuggingFaceHubAdapter
 from adapters.mock_inference_adapter import MockInferenceAdapter
 from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
 from adapters.mock_notebook_adapter import MockNotebookAdapter
@@ -106,6 +109,13 @@ def get_llm_gateway_adapter() -> ILLMGatewayAdapter:
 @lru_cache
 def get_vector_store_adapter() -> QdrantAdapter:
     return QdrantAdapter()
+
+
+@lru_cache
+def get_huggingface_hub_adapter() -> IHuggingFaceHubAdapter:
+    if _use_mock("USE_MOCK_HUGGINGFACE"):
+        return MockHuggingFaceHubAdapter()
+    return HuggingFaceHubAdapter()
 
 
 @lru_cache

@@ -37,11 +37,13 @@ class MockInferenceAdapter(IInferenceAdapter):
         vllm_quantization: str | None,
         max_context_length: int,
         traffic_fields: Mapping[str, object] | None = None,
+        hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
         """Convenience method, not part of IInferenceAdapter — mirrors
         KServeAdapter.deploy_llm_model() so factory.py can hand either one
         to routers/llm_serving.py without it noticing."""
         del serving_runtime_name, gpu_count, vllm_quantization, max_context_length
+        del hf_token_secret_ref
         status = self._render_status(name, version, f"hf://{huggingface_model_id}", traffic_fields)
         self._deployed[name] = status
         return status

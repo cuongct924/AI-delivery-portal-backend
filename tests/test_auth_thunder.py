@@ -4,7 +4,7 @@ directly, same pattern as tests/test_chat_router.py."""
 from unittest.mock import patch
 
 import pytest
-from auth.thunder import get_current_user
+from auth.thunder import get_current_user, user_has_role
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
@@ -51,3 +51,20 @@ def test_invalid_token_raises_401_even_when_auth_disabled() -> None:
         with pytest.raises(HTTPException) as exc_info:
             get_current_user(credentials=_bearer("a-bad-token"))
     assert exc_info.value.status_code == 401
+
+
+def test_user_has_role_local_dev_bypass_has_every_role() -> None:
+    assert user_has_role({"sub": "local-dev", "preferred_username": "dev"}, "llm-ops-admin")
+
+
+def test_user_has_role_checks_roles_claim() -> None:
+    assert user_has_role({"sub": "real-user", "roles": ["llm-ops-admin"]}, "llm-ops-admin")
+    assert not user_has_role({"sub": "real-user", "roles": ["viewer"]}, "llm-ops-admin")
+
+
+def test_user_has_role_checks_groups_claim_when_roles_absent() -> None:
+    assert user_has_role({"sub": "real-user", "groups": ["llm-ops-admin"]}, "llm-ops-admin")
+
+
+def test_user_has_role_false_when_no_role_claim_present() -> None:
+    assert not user_has_role({"sub": "real-user"}, "llm-ops-admin")

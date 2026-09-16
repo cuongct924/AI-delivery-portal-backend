@@ -1,15 +1,25 @@
 """services/orchestration-api/routers/llm_serving.py — patches
-`routers.llm_serving.get_kserve_adapter` and calls the route function
-directly, same pattern as tests/test_models_router.py's
-prepare_deploy_manifest tests. No mlflow stub needed — this router
-doesn't import the mlflow SDK.
+`routers.llm_serving.get_kserve_adapter`/`routers.llm_serving.huggingface_hub_adapter`
+and calls the route function directly, same pattern as
+tests/test_models_router.py's prepare_deploy_manifest tests. No mlflow
+stub needed — this router doesn't import the mlflow SDK.
 """
 
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from kubernetes.client.exceptions import ApiException
-from routers.llm_serving import PrepareLlmDeployRequest, prepare_llm_deploy_manifest
+from routers.llm_serving import (
+    PrepareLlmDeployRequest,
+    get_gpu_recommendation,
+    get_rollout_eligibility,
+    prepare_llm_deploy_manifest,
+    validate_huggingface_model,
+)
+
+_ADMIN_USER = {"sub": "test-user", "roles": ["llm-ops-admin"]}
+_NON_ADMIN_USER = {"sub": "test-user", "roles": []}
 
 
 def test_prepare_llm_deploy_manifest_renders_manifest_correctly() -> None:
@@ -112,7 +122,7 @@ def test_prepare_llm_deploy_manifest_instant_calls_deploy_llm_model() -> None:
         release_strategy="instant",
     )
     with patch("routers.llm_serving.get_kserve_adapter") as mock_get_kserve:
-        response = prepare_llm_deploy_manifest(request)
+        response = prepare_llm_deploy_manifest(request, user=_ADMIN_USER)
 
     mock_get_kserve.return_value.deploy_llm_model.assert_called_once_with(
         "llama-3-8b",
@@ -123,8 +133,81 @@ def test_prepare_llm_deploy_manifest_instant_calls_deploy_llm_model() -> None:
         "fp8",
         4096,
         traffic_fields={},
+        hf_token_secret_ref=None,
     )
     assert response.deployed is True
+
+
+def test_prepare_llm_deploy_manifest_instant_requires_admin_role() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        release_strategy="instant",
+    )
+    with (
+        patch("routers.llm_serving.get_kserve_adapter") as mock_get_kserve,
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        prepare_llm_deploy_manifest(request, user=_NON_ADMIN_USER)
+    assert exc_info.value.status_code == 403
+    mock_get_kserve.return_value.deploy_llm_model.assert_not_called()
+
+
+def test_prepare_llm_deploy_manifest_instant_rejects_non_dev_environment() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        release_strategy="instant",
+        environment="staging",
+    )
+    with (
+        patch("routers.llm_serving.get_kserve_adapter") as mock_get_kserve,
+        pytest.raises(ValueError, match="only possible for environment='dev'"),
+    ):
+        prepare_llm_deploy_manifest(request, user=_ADMIN_USER)
+    mock_get_kserve.assert_not_called()
+
+
+def test_prepare_llm_deploy_manifest_rejects_unknown_environment() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        environment="canary-env",
+    )
+    with pytest.raises(ValueError, match="unknown environment"):
+        prepare_llm_deploy_manifest(request)
+
+
+def test_prepare_llm_deploy_manifest_pr_gated_staging_renders_under_environment_path() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        environment="staging",
+    )
+    response = prepare_llm_deploy_manifest(request)
+
+    assert (
+        response.file_name
+        == "infra/environments/staging/inference-services/llmops-team/llama-3-8b/llm.yaml"
+    )
+    assert response.deployed is False
+
+
+def test_prepare_llm_deploy_manifest_renders_hf_token_secret_ref() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        hf_token_secret_ref="llama-3-hf-token",
+    )
+    response = prepare_llm_deploy_manifest(request)
+
+    assert "name: llama-3-hf-token" in response.content
+    assert "HUGGING_FACE_HUB_TOKEN" in response.content
 
 
 def test_prepare_llm_deploy_manifest_rejects_incompatible_gpu_quantization() -> None:
@@ -140,3 +223,51 @@ def test_prepare_llm_deploy_manifest_rejects_incompatible_gpu_quantization() -> 
     ):
         prepare_llm_deploy_manifest(request)
     mock_get_kserve.assert_not_called()
+
+
+def test_validate_huggingface_model_returns_adapter_info() -> None:
+    with patch("routers.llm_serving.huggingface_hub_adapter") as mock_adapter:
+        mock_adapter.get_model_info.return_value = {
+            "model_id": "mistralai/Mistral-7B-Instruct-v0.3",
+            "exists": True,
+            "is_gated": False,
+            "param_count_billion": 7.25,
+            "max_context_length": 32768,
+            "num_layers": 32,
+            "hidden_size": 4096,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,
+            "license": "apache-2.0",
+        }
+        response = validate_huggingface_model("mistralai/Mistral-7B-Instruct-v0.3")
+
+    mock_adapter.get_model_info.assert_called_once_with("mistralai/Mistral-7B-Instruct-v0.3")
+    assert response.exists is True
+    assert response.param_count_billion == 7.25
+
+
+def test_get_gpu_recommendation_returns_smallest_fitting_gpu() -> None:
+    response = get_gpu_recommendation(
+        param_count_billion=8.0,
+        num_layers=32,
+        hidden_size=4096,
+        num_attention_heads=32,
+        num_key_value_heads=8,
+    )
+    assert response.recommended is not None
+    assert response.recommended.fits is True
+    assert len(response.estimates) == 24
+
+
+def test_get_rollout_eligibility_true_when_prior_deploy_exists() -> None:
+    with patch("routers.llm_serving.get_kserve_adapter") as mock_get_kserve:
+        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        response = get_rollout_eligibility("llama-3-8b")
+    assert response.has_prior_deploy is True
+
+
+def test_get_rollout_eligibility_false_when_no_prior_deploy() -> None:
+    with patch("routers.llm_serving.get_kserve_adapter") as mock_get_kserve:
+        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+        response = get_rollout_eligibility("never-deployed")
+    assert response.has_prior_deploy is False

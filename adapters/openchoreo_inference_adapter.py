@@ -160,6 +160,7 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         vllm_quantization: str | None,
         max_context_length: int,
         traffic_fields: Mapping[str, object] | None = None,
+        hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
         """Convenience method, not part of IInferenceAdapter — mirrors
         KServeAdapter.deploy_llm_model()/MockInferenceAdapter.deploy_llm_model()
@@ -180,6 +181,7 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
             vllm_quantization,
             max_context_length,
             traffic_fields,
+            hf_token_secret_ref,
         )
         raise NotImplementedError(
             "OpenChoreoInferenceAdapter.deploy_llm_model: no ClusterComponentType "

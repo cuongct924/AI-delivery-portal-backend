@@ -25,6 +25,13 @@ class Settings(BaseSettings):
     # Must match a secret in app-config.yaml's backend.auth.externalAccess.
     backstage_service_token: str = ""
 
+    # Server-side only — never accepted from a Scaffolder form field (see
+    # routers/llm_serving.py's PrepareLlmDeployRequest.hf_token_secret_ref
+    # docstring). Used by adapters/huggingface_hub_adapter.py to read
+    # gated models' config.json for the VRAM estimator; unset means gated
+    # models fall back to manual GPU sizing input.
+    huggingface_hub_token: str = ""
+
     # extra="ignore": .env carries vars other tooling uses that this
     # service doesn't declare.
     model_config = SettingsConfigDict(env_file="../../.env", extra="ignore")
