@@ -1,0 +1,26 @@
+# Smoke-test InferenceService for Phase 3 of
+# docs/openchoreo-migration-next-steps.md — verifies the real KServe
+# control-plane installed on this cluster (kserve-controller-manager,
+# Standard/RawDeployment mode — no Knative/Istio here, only cert-manager)
+# actually reconciles InferenceService -> Deployment/Service and serves a
+# real prediction. Not part of any Golden Path; CPU-only, uses KServe's own
+# public getting-started sklearn-iris model
+# (https://kserve.github.io/website/latest/get_started/first_isvc/).
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: sklearn-iris-cpu-test
+  namespace: default
+spec:
+  predictor:
+    model:
+      modelFormat:
+        name: sklearn
+      storageUri: gs://kfserving-examples/models/sklearn/1.0/model
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
