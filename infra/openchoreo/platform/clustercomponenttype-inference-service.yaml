@@ -1,0 +1,100 @@
+# Modeled on the real "service" ClusterComponentType (`kubectl get
+# clustercomponenttype service -o yaml`) — same environmentConfigs/CEL
+# shape, replacing "service"'s Deployment+Service+HTTPRoute `resources`
+# with a single KServe InferenceService. `workload.container.image` is
+# repurposed as the model's storageUri (an MLflow "models:/<name>/<version>"
+# reference, not a container image — same string field, different
+# meaning) so Workload's existing schema needs no change; this is what
+# docs/openchoreo-migration-next-steps.md's Phase 4 literally asks for
+# ("component-serving.yaml/workload-serving.yaml: đổi placeholder
+# nginxdemos/hello thành storageUri: models:/fraud-detection/<version>").
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterComponentType
+metadata:
+  name: inference-service
+  annotations:
+    openchoreo.dev/description: >-
+      A KServe InferenceService serving an MLflow-registered model
+      (modelFormat "mlflow" always — matches
+      adapters/kserve_adapter.py/openchoreo_inference_adapter.py's fixed
+      convention, not a per-Component choice).
+spec:
+  environmentConfigs:
+    openAPIV3Schema:
+      type: object
+      properties:
+        minReplicas:
+          type: integer
+          default: 1
+        maxReplicas:
+          type: integer
+          default: 1
+        resources:
+          type: object
+          default: {}
+          properties:
+            requests:
+              type: object
+              default: {}
+              properties:
+                cpu: {type: string, default: 100m}
+                memory: {type: string, default: 256Mi}
+            limits:
+              type: object
+              default: {}
+              properties:
+                cpu: {type: string, default: 500m}
+                memory: {type: string, default: 512Mi}
+  resources:
+    - id: inference-service
+      targetPlane: dataplane
+      template:
+        apiVersion: serving.kserve.io/v1beta1
+        kind: InferenceService
+        metadata:
+          labels: ${metadata.labels}
+          name: ${metadata.name}
+          namespace: ${metadata.namespace}
+        spec:
+          predictor:
+            minReplicas: ${environmentConfigs.minReplicas}
+            maxReplicas: ${environmentConfigs.maxReplicas}
+            model:
+              modelFormat:
+                name: mlflow
+                # kserve-mlserver's ClusterServingRuntime only declares
+                # autoSelect supportedModelFormats for mlflow versions "1"
+                # and "2" (`kubectl get clusterservingruntime kserve-mlserver
+                # -o jsonpath='{.spec.supportedModelFormats}'`) — omitting
+                # this entirely (as the first version of this file did)
+                # left KServe unable to pick a runtime at all
+                # (status.modelStatus.lastFailureInfo.reason:
+                # NoSupportingRuntime, reproduced for real against
+                # fraud-detection-demo/1). "2" matches mlflow>=2.x's MLmodel
+                # schema, which is what infra/argo-workflows/training-image
+                # (mlflow==3.15.1) actually writes.
+                version: "2"
+              # kserve-mlserver (the ClusterServingRuntime that declares
+              # mlflow support) only implements protocolVersions: ["v2"]
+              # (`kubectl get clusterservingruntime kserve-mlserver
+              # -o jsonpath='{.spec.protocolVersions}'`) — still got
+              # NoSupportingRuntime with modelFormat.version set but no
+              # explicit protocolVersion.
+              protocolVersion: v2
+              storageUri: ${workload.container.image}
+              resources:
+                requests:
+                  cpu: ${environmentConfigs.resources.requests.cpu}
+                  memory: ${environmentConfigs.resources.requests.memory}
+                limits:
+                  cpu: ${environmentConfigs.resources.limits.cpu}
+                  memory: ${environmentConfigs.resources.limits.memory}
+  # "proxy" — the InferenceService this renders isn't literally a
+  # Deployment/StatefulSet/CronJob/Job, so it can't use one of those
+  # workloadTypes: the CRD schema requires a `resources[].id` matching
+  # `workloadType` for every OTHER value, with "proxy" as the one
+  # explicit exception (confirmed via `kubectl apply --dry-run=server`,
+  # which rejected `workloadType: deployment` + `id: inference-service`
+  # outright: "resources must contain a primary resource with id matching
+  # workloadType (unless workloadType is 'proxy')").
+  workloadType: proxy

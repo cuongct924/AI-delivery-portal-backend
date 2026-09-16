@@ -1,7 +1,11 @@
-# Placeholder image (nginxdemos/hello) — proves the Component/Environment/
-# DeploymentPipeline plumbing for a "deployment/service" ComponentType, not
-# yet the real model. See docs/openchoreo-migration-next-steps.md's
-# "Vẫn còn bespoke/gọi thẳng K8s, cần chuyển" section.
+# `container.image` is repurposed as the model's MLflow storageUri, not a
+# real container image — see
+# infra/openchoreo/platform/clustercomponenttype-inference-service.yaml's
+# header for why. "fraud-detection-demo" (not "fraud-detection") because
+# that's the model actually registered in the real MLflow instance right
+# now (`curl http://localhost:5000/api/2.0/mlflow/registered-models/search`)
+# — no model is literally named "fraud-detection" (this file's placeholder
+# claimed one existed; it doesn't).
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
@@ -15,10 +19,4 @@ spec:
     projectName: fraud-detection
     componentName: fraud-detection-serving
   container:
-    image: nginxdemos/hello:latest
-  endpoints:
-    http:
-      type: HTTP
-      port: 80
-      visibility:
-        - external
+    image: models:/fraud-detection-demo/1

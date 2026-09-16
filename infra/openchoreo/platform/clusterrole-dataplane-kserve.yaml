@@ -1,0 +1,41 @@
+# Grants OpenChoreo's dataplane reconciler agent (ServiceAccount
+# cluster-agent-dataplane, namespace openchoreo-data-plane) permission on
+# KServe's InferenceService CRD — missing because KServe (Phase 3 of
+# docs/openchoreo-migration-next-steps.md) was installed after this
+# cluster's OpenChoreo control-plane, so the Helm-managed
+# cluster-agent-dataplane-openchoreo-data-plane ClusterRole
+# (`kubectl get clusterrole cluster-agent-dataplane-openchoreo-data-plane
+# -o yaml`) predates KServe and has no rule for serving.kserve.io at all.
+#
+# Real, reproduced failure this fixes: applying
+# infra/openchoreo/fraud-detection/component-serving.yaml (ClusterComponentType
+# proxy/inference-service) left its ReleaseBinding stuck —
+# `kubectl get releasebinding fraud-detection-serving-development -n default
+# -o yaml` showed "inferenceservices.serving.kserve.io ... is forbidden:
+# User system:serviceaccount:openchoreo-data-plane:cluster-agent-dataplane
+# cannot patch resource".
+#
+# A separate ClusterRole/Binding, not a patch to the Helm-managed one — so
+# a future `helm upgrade` of openchoreo-data-plane doesn't silently drop
+# this again.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cluster-agent-dataplane-kserve
+rules:
+  - apiGroups: [serving.kserve.io]
+    resources: [inferenceservices, servingruntimes, trainedmodels, inferencegraphs]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-agent-dataplane-kserve
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-agent-dataplane-kserve
+subjects:
+  - kind: ServiceAccount
+    name: cluster-agent-dataplane
+    namespace: openchoreo-data-plane

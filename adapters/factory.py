@@ -8,11 +8,10 @@ unset.
 
 Workflow and Inference additionally accept a 3rd mode, "openchoreo" (via
 `_backend_mode`, only selectable through the specific env var, never the
-blanket one). Workflow's "openchoreo" branch is real
-(OpenChoreoWorkflowAdapter, see adapters/openchoreo_workflow_adapter.py);
-Inference's is still a stub until OpenChoreoInferenceAdapter exists. Model
-Registry and Notebook have no OpenChoreo-backed replacement planned, so
-they stay on the plain 2-way `_use_mock`.
+blanket one) — both real now (OpenChoreoWorkflowAdapter,
+OpenChoreoInferenceAdapter). Model Registry and Notebook have no
+OpenChoreo-backed replacement planned, so they stay on the plain 2-way
+`_use_mock`.
 """
 
 import os
@@ -33,6 +32,7 @@ from adapters.mock_notebook_adapter import MockNotebookAdapter
 from adapters.mock_workflow_adapter import MockWorkflowAdapter
 from adapters.notebook_adapter import JupyterHubAdapter
 from adapters.object_storage_adapter import MinioObjectStorageAdapter
+from adapters.openchoreo_inference_adapter import OpenChoreoInferenceAdapter
 from adapters.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter
 from adapters.prompt_registry_adapter import MlflowPromptRegistryAdapter
 from adapters.vector_db_adapter import QdrantAdapter
@@ -146,13 +146,18 @@ def get_object_storage_adapter() -> IObjectStorageAdapter:
 _mock_kserve_adapters: dict[str, MockInferenceAdapter] = {}
 
 
-def get_kserve_adapter(tenant: str) -> KServeAdapter | MockInferenceAdapter:
+def get_kserve_adapter(
+    tenant: str,
+) -> KServeAdapter | MockInferenceAdapter | OpenChoreoInferenceAdapter:
     """Real branch is never cached (KServeAdapter.__init__ loads a real
     kubeconfig). Mock branch is cached per tenant so a model's "deployed"
     state persists across calls within a demo run.
 
-    Always targets `ai-delivery-portal-dev-<tenant>` — staging/prod
+    "legacy" always targets `ai-delivery-portal-dev-<tenant>` — staging/prod
     promotion is DeploymentPipeline-only (infra/openchoreo/deployment-pipeline.yaml).
+    "openchoreo" ignores `tenant` entirely: it's scoped to the one real
+    serving Component this repo has (fraud-detection-serving), not a
+    per-tenant namespace — see OpenChoreoInferenceAdapter's docstring.
     """
     namespace = f"ai-delivery-portal-dev-{tenant}"
     match _backend_mode("USE_MOCK_INFERENCE"):
@@ -163,4 +168,4 @@ def get_kserve_adapter(tenant: str) -> KServeAdapter | MockInferenceAdapter:
         case "legacy":
             return KServeAdapter(namespace=namespace)
         case "openchoreo":
-            raise NotImplementedError("OpenChoreoInferenceAdapter not implemented yet")
+            return OpenChoreoInferenceAdapter()
