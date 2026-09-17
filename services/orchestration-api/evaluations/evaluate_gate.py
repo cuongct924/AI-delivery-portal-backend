@@ -89,11 +89,6 @@ TASK_TYPE_THRESHOLDS: Final[dict[str, list[MetricThreshold]]] = {
     "anomaly-detection": [
         MetricThreshold("anomaly_rate", minimum=0.01, maximum=0.3),
     ],
-    # RecSys: warm users/items only, cold-start reported separately.
-    "ranking": [
-        MetricThreshold("recall_at_k", minimum=0.20),
-        MetricThreshold("ndcg_at_k", minimum=0.30),
-    ],
 }
 
 

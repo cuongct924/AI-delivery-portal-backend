@@ -1,4 +1,10 @@
 # Profiles: mlops, llmops, observability — e.g. `docker compose --profile mlops up -d`.
+#
+# Pinned: the repo dir was renamed AI-delivery-portal -> AI-delivery-portal-backend,
+# which changed compose's default project name and orphaned the already-running
+# stack (every service has an explicit container_name, so the new project
+# collided on create). Keep this matching the existing containers/network.
+name: ai-delivery-portal
 services:
   # Image tags pinned to verified releases, not `latest`, for reproducible builds.
   mlflow:

@@ -2,8 +2,7 @@
 recent production input data against the model's original training
 dataset with Evidently, logs the result to MLflow as a monitoring run tied
 to the model, and optionally triggers a retrain. Runs periodically via an
-Argo CronWorkflow — a fully separate entrypoint from train.py, like
-train_rec.py.
+Argo CronWorkflow — a fully separate entrypoint from train.py.
 
 Scope: Data Drift only, not Performance/Error monitoring — those need
 production ground-truth labels, which arrive on a separate, slower

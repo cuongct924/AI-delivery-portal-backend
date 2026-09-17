@@ -121,7 +121,7 @@ after the cluster exists):
 kubectl config use-context k3d-openchoreo-quick-start
 
 # ServiceAccount + RBAC for the retained legacy-style templates
-# (rec-train-register-template.yaml, monitor-drift-template.yaml). The
+# (monitor-drift-template.yaml). The
 # OpenChoreo production path does NOT need this — it uses the auto-provisioned
 # workflow-sa in its per-namespace execution namespace instead.
 kubectl -n default apply -f - <<'EOF'
@@ -154,11 +154,9 @@ subjects:
 EOF
 
 # OpenChoreo workflow resources: ClusterWorkflow + its cluster-scoped
-# execution template, for Golden Path #1 and #3
+# execution template, for Golden Path #1
 kubectl apply -f infra/argo-workflows/train-register-cluster-template.yaml
-kubectl apply -f infra/argo-workflows/rec-train-register-cluster-template.yaml
 kubectl apply -f infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml
-kubectl apply -f infra/openchoreo/telco-fraud-detection/clusterworkflow-rec-training.yaml
 
 # training-image isn't pushed to a registry — build it, then import into
 # the cluster's containerd. Re-run after any change under

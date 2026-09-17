@@ -24,7 +24,6 @@ from routers import (
     portal_assistant,
     prompts,
     rag,
-    recommendations,
 )
 
 from adapters.factory import get_llm_gateway_adapter
@@ -76,7 +75,6 @@ app = FastAPI(title="AI Delivery Portal — Orchestration API", lifespan=lifespa
 app.include_router(chat.router)
 app.include_router(prompts.router)
 app.include_router(models.router)
-app.include_router(recommendations.router)
 app.include_router(monitoring.router)
 app.include_router(llm_serving.router)
 app.include_router(rag.router)

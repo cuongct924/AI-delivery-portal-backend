@@ -1,6 +1,6 @@
-"""services/orchestration-api/routers/monitoring.py — same pattern as
-tests/test_recommendations_router.py: patches the module-level
-`workflow_adapter` singleton and calls route functions directly."""
+"""services/orchestration-api/routers/monitoring.py — same pattern as the
+other router tests: patches the module-level `workflow_adapter` singleton
+and calls route functions directly."""
 
 import sys
 from unittest.mock import MagicMock, patch
