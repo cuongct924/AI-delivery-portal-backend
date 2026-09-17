@@ -20,7 +20,6 @@ sys.modules.setdefault("mlflow.tracking", MagicMock())
 import pytest  # noqa: E402
 
 from adapters import factory  # noqa: E402
-from adapters.argo_adapter import ArgoAdapter  # noqa: E402
 from adapters.kserve_adapter import KServeAdapter  # noqa: E402
 from adapters.mlflow_adapter import MlflowAdapter  # noqa: E402
 from adapters.mock_inference_adapter import MockInferenceAdapter  # noqa: E402
@@ -28,6 +27,7 @@ from adapters.mock_model_registry_adapter import MockModelRegistryAdapter  # noq
 from adapters.mock_notebook_adapter import MockNotebookAdapter  # noqa: E402
 from adapters.mock_workflow_adapter import MockWorkflowAdapter  # noqa: E402
 from adapters.notebook_adapter import JupyterHubAdapter  # noqa: E402
+from adapters.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -71,10 +71,33 @@ def test_workflow_adapter_is_mock_when_flag_set(monkeypatch: pytest.MonkeyPatch)
     assert isinstance(factory.get_workflow_adapter(), MockWorkflowAdapter)
 
 
-def test_workflow_adapter_is_real_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workflow_adapter_is_openchoreo_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Golden Paths #1/#3 migrated off Argo Server, so an unset
+    # USE_MOCK_WORKFLOW resolves to the OpenChoreo backend — not ArgoAdapter.
     monkeypatch.delenv("USE_MOCK_ADAPTERS", raising=False)
 
-    assert isinstance(factory.get_workflow_adapter(), ArgoAdapter)
+    assert isinstance(factory.get_workflow_adapter(), OpenChoreoWorkflowAdapter)
+
+
+def test_workflow_adapter_legacy_now_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ArgoAdapter was removed in the OpenChoreo migration — a leftover
+    # `USE_MOCK_WORKFLOW=legacy` must fail loudly, not silently fall back.
+    monkeypatch.delenv("USE_MOCK_ADAPTERS", raising=False)
+    monkeypatch.setenv("USE_MOCK_WORKFLOW", "legacy")
+
+    with pytest.raises(ValueError, match="legacy"):
+        factory.get_workflow_adapter()
+
+
+def test_workflow_adapter_empty_specific_var_means_openchoreo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # `.env.example` ships `USE_MOCK_WORKFLOW=` unfilled — that must land on
+    # the real default, not the old legacy backend.
+    monkeypatch.delenv("USE_MOCK_ADAPTERS", raising=False)
+    monkeypatch.setenv("USE_MOCK_WORKFLOW", "")
+
+    assert isinstance(factory.get_workflow_adapter(), OpenChoreoWorkflowAdapter)
 
 
 def test_notebook_adapter_is_mock_when_flag_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -134,7 +157,6 @@ def test_kserve_adapter_mock_instance_is_separate_per_tenant(
 def test_specific_flag_mocks_just_that_adapter_even_with_blanket_flag_off(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The exact combination scripts/local-demo/fake_argo.py's demo uses:
     # Model Registry/Workflow stay real, only Inference is mocked.
     monkeypatch.delenv("USE_MOCK_ADAPTERS", raising=False)
     monkeypatch.setenv("USE_MOCK_INFERENCE", "true")
@@ -147,7 +169,7 @@ def test_pure_mock_golden_path_1_does_not_500_on_latest_version(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Reproduces the exact bug report: USE_MOCK_ADAPTERS=true end to end
-    # (no fake_argo.py, no real MLflow) — trigger_workflow() -> workflow
+    # (no real cluster, no real MLflow) — trigger_workflow() -> workflow
     # reports Succeeded -> the model must already be queryable, the same
     # sequence routers/models.py's trigger_training() + get_latest_version()
     # actually run.

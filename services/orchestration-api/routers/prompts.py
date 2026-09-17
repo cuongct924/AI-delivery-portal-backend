@@ -11,18 +11,26 @@ seeded at import time so existing behavior survives a first restart
 unchanged; new personas register via POST /prompts.
 """
 
+from datetime import datetime
+
 from auth.thunder import get_current_user
 from evaluations.gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
+from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
-from adapters.factory import get_llm_gateway_adapter, get_prompt_registry_adapter
+from adapters.factory import (
+    get_eval_result_adapter,
+    get_llm_gateway_adapter,
+    get_prompt_registry_adapter,
+)
 
 router = APIRouter(prefix="/prompts", tags=["prompts"])
 
 llm_gateway_adapter = get_llm_gateway_adapter()
 registry_adapter = get_prompt_registry_adapter()
+eval_result_adapter = get_eval_result_adapter()
 
 
 class PromptNamesResponse(BaseModel):
@@ -186,6 +194,7 @@ def evaluate_prompt(
     total_tokens = 0
     total_cost_usd = 0.0
     cost_known = True
+    passed_count = 0
     for eval_case in request.eval_cases:
         response = llm_gateway_adapter.chat_completion(
             model=request.model,
@@ -206,11 +215,31 @@ def evaluate_prompt(
         results.append(
             {"question": eval_case.question, "answer": answer, "passed": gate_result["passed"]}
         )
+        if gate_result["passed"]:
+            passed_count += 1
 
-    passed_count = sum(1 for r in results if r["passed"])
+        # Persist judge result for MTTR calculation
+        eval_result_adapter.log_judge_result(
+            kind="prompt",
+            name=name,
+            version=request.version,
+            judge_result=judge_result,
+            passed=gate_result["passed"],
+        )
+
     pass_rate = passed_count / len(results) if results else 0.0
+    overall_passed = pass_rate >= 0.8
+
+    # Emit DORA gate evaluation metric (LLMOps track, prompt)
+    GATE_EVALUATIONS.labels(
+        track="llmops",
+        subject_type="prompt",
+        subject_id=f"{name}:{request.version}",
+        passed=str(overall_passed).lower(),
+    ).inc()
+
     return EvaluatePromptResponse(
-        passed=pass_rate >= 0.8,
+        passed=overall_passed,
         pass_rate=pass_rate,
         results=results,
         total_tokens=total_tokens,
@@ -223,4 +252,23 @@ def activate_prompt(
     name: str, request: ActivatePromptRequest, user: dict = Depends(get_current_user)
 ) -> ActivatePromptResponse:
     registry_adapter.set_active_version("prompt", name, request.version)
+
+    # Emit DORA deployment event (LLMOps track)
+    DEPLOYMENT_EVENTS.labels(
+        track="llmops",
+        subject_type="prompt",
+        subject_id=name,
+        event_type="deploy",
+    ).inc()
+
+    # MTTR: find last judge failure for this prompt and calculate recovery time
+    last_failure = eval_result_adapter.get_last_failure_at("prompt", name)
+    if last_failure is not None:
+        recovery_seconds = (datetime.now() - last_failure).total_seconds()
+        INCIDENT_RECOVERY.labels(
+            track="llmops",
+            subject_type="prompt",
+            subject_id=name,
+        ).observe(recovery_seconds)
+
     return ActivatePromptResponse(name=name, active_version=request.version)

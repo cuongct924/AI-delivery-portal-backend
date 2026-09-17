@@ -5,6 +5,8 @@ task_type is tagged.
 
 import uuid
 
+import pandas as pd
+
 from adapters.interfaces import (
     DatasetLineageEntry,
     IModelRegistryAdapter,
@@ -101,3 +103,14 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
         if versions is None or version not in versions:
             raise ValueError(f"Model version {name}:{version} is not registered")
         return versions[version]
+
+    def search_runs(
+        self, filter_string: str, order_by: list[str] | None = None, max_results: int = 100
+    ) -> pd.DataFrame:
+        # Mock implementation: return empty DataFrame with expected columns
+        return pd.DataFrame(
+            {
+                "start_time": pd.Series(dtype="datetime64[ns]"),
+                "tags": pd.Series(dtype="object"),
+            }
+        )

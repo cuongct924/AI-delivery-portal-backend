@@ -147,7 +147,11 @@ def test_list_rag_collection_versions_returns_sorted_versions() -> None:
 
 def test_rag_activate_calls_set_active_version() -> None:
     request = RagActivateRequest(collection="smoke-test", index_version="1")
-    with patch("routers.rag.registry_adapter") as mock_registry:
+    with (
+        patch("routers.rag.registry_adapter") as mock_registry,
+        patch("routers.rag.eval_result_adapter") as mock_eval_result,
+    ):
+        mock_eval_result.get_last_failure_at.return_value = None
         response = rag_activate(request)
 
     mock_registry.set_active_version.assert_called_once_with("rag-index", "smoke-test", "1")

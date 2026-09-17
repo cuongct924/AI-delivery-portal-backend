@@ -3,6 +3,7 @@
 import os
 
 import mlflow
+import pandas as pd
 from mlflow.exceptions import RestException
 from mlflow.tracking import MlflowClient
 
@@ -13,6 +14,12 @@ from adapters.interfaces import (
     ModelSummary,
     ModelVersionDetails,
 )
+
+
+def _to_dataframe(result: list | pd.DataFrame) -> pd.DataFrame:
+    if isinstance(result, pd.DataFrame):
+        return result
+    return pd.DataFrame(result)
 
 
 # TODO: expose via orchestration-api for the `orchestration:register-model`
@@ -117,3 +124,13 @@ class MlflowAdapter(IModelRegistryAdapter):
         # instead of only catching it after the fact (get_model_version_summary's 404).
         versions = self.client.search_model_versions(f"name='{name}'")
         return sorted((mv.version for mv in versions), key=int, reverse=True)
+
+    def search_runs(
+        self, filter_string: str, order_by: list[str] | None = None, max_results: int = 100
+    ) -> pd.DataFrame:
+        result = mlflow.search_runs(
+            filter_string=filter_string,
+            order_by=order_by or ["start_time DESC"],
+            max_results=max_results,
+        )
+        return _to_dataframe(result)

@@ -9,6 +9,7 @@ Scaffolder Actions, same as every route in models.py except
 """
 
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Final
 
@@ -16,15 +17,22 @@ from auth.thunder import get_current_user
 from evaluations.gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends
+from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
-from adapters.factory import get_llm_gateway_adapter, get_registry_adapter, get_vector_store_adapter
+from adapters.factory import (
+    get_eval_result_adapter,
+    get_llm_gateway_adapter,
+    get_registry_adapter,
+    get_vector_store_adapter,
+)
 
 router = APIRouter(prefix="/rag", tags=["rag"])
 
 llm_gateway_adapter = get_llm_gateway_adapter()
 vector_store_adapter = get_vector_store_adapter()
 registry_adapter = get_registry_adapter()
+eval_result_adapter = get_eval_result_adapter()
 
 EMBEDDING_MODEL: Final[str] = "voyage-3"
 
@@ -162,6 +170,7 @@ def rag_evaluate(
     total_tokens = 0
     total_cost_usd = 0.0
     cost_known = True
+    passed_count = 0
     for eval_case in request.eval_cases:
         query_vector = llm_gateway_adapter.embed(EMBEDDING_MODEL, [eval_case.question])[0]
         hits = vector_store_adapter.search(
@@ -188,11 +197,31 @@ def rag_evaluate(
         results.append(
             {"question": eval_case.question, "answer": answer, "passed": gate_result["passed"]}
         )
+        if gate_result["passed"]:
+            passed_count += 1
 
-    passed_count = sum(1 for r in results if r["passed"])
+        # Persist judge result for MTTR calculation
+        eval_result_adapter.log_judge_result(
+            kind="rag-index",
+            name=request.collection,
+            version=request.index_version,
+            judge_result=judge_result,
+            passed=gate_result["passed"],
+        )
+
     pass_rate = passed_count / len(results) if results else 0.0
+    overall_passed = pass_rate >= 0.8
+
+    # Emit DORA gate evaluation metric (LLMOps track, rag-index)
+    GATE_EVALUATIONS.labels(
+        track="llmops",
+        subject_type="rag-index",
+        subject_id=f"{request.collection}:{request.index_version}",
+        passed=str(overall_passed).lower(),
+    ).inc()
+
     return RagEvaluateResponse(
-        passed=pass_rate >= 0.8,
+        passed=overall_passed,
         pass_rate=pass_rate,
         results=results,
         total_tokens=total_tokens,
@@ -205,4 +234,23 @@ def rag_activate(
     request: RagActivateRequest, user: dict = Depends(get_current_user)
 ) -> RagActivateResponse:
     registry_adapter.set_active_version("rag-index", request.collection, request.index_version)
+
+    # Emit DORA deployment event (LLMOps track)
+    DEPLOYMENT_EVENTS.labels(
+        track="llmops",
+        subject_type="rag-index",
+        subject_id=request.collection,
+        event_type="deploy",
+    ).inc()
+
+    # MTTR: find last judge failure for this rag-index and calculate recovery time
+    last_failure = eval_result_adapter.get_last_failure_at("rag-index", request.collection)
+    if last_failure is not None:
+        recovery_seconds = (datetime.now() - last_failure).total_seconds()
+        INCIDENT_RECOVERY.labels(
+            track="llmops",
+            subject_type="rag-index",
+            subject_id=request.collection,
+        ).observe(recovery_seconds)
+
     return RagActivateResponse(collection=request.collection, active_version=request.index_version)

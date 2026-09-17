@@ -1,14 +1,13 @@
-# DUPLICATE of infra/argo-workflows/train-register-template.yaml, kept in
-# sync by hand — see this file's header there for why (Argo's
-# workflowTemplateRef only resolves within the calling Workflow's own
-# namespace; OpenChoreo's ClusterWorkflow mechanism runs every WorkflowRun
-# in an auto-created `workflows-<namespaceName>` execution namespace, never
-# `default`, so the namespace-scoped WorkflowTemplate used by "legacy"
-# ArgoAdapter mode can't be referenced from there — only a cluster-scoped
-# ClusterWorkflowTemplate can). Used by
-# infra/openchoreo/fraud-detection/clusterworkflow-training.yaml
-# ("openchoreo" backend mode only) — "legacy" mode keeps using the
-# original WorkflowTemplate untouched.
+# Golden Path #1's Argo execution template. Cluster-scoped (not a namespaced
+# WorkflowTemplate) because Argo's workflowTemplateRef only resolves within
+# the calling Workflow's own namespace, and OpenChoreo's ClusterWorkflow
+# mechanism runs every WorkflowRun in an auto-created
+# `workflows-<namespaceName>` execution namespace, never `default` — so only a
+# ClusterWorkflowTemplate can be referenced from there. Used by
+# infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml
+# ("openchoreo" backend mode). The legacy namespace-scoped
+# train-register-template.yaml was removed once this path was validated — see
+# docs/openchoreo-workflow-migration-plan.md.
 apiVersion: argoproj.io/v1alpha1
 kind: ClusterWorkflowTemplate
 metadata:
@@ -289,9 +288,9 @@ spec:
             value: '{{inputs.parameters.base-model-name}}'
           - name: MLFLOW_TRACKING_URI
             value: http://host.docker.internal:5000
-          # Kept in sync with train-register-template.yaml's own copy of
-          # this block — see that file for why (mlflow-artifacts now
-          # backed by real MinIO storage, --no-serve-artifacts).
+          # mlflow-artifacts is now backed by real MinIO storage
+          # (--no-serve-artifacts), so the training pod writes s3:// URIs
+          # directly — see docker-compose.yml's mlflow service.
           - name: AWS_ACCESS_KEY_ID
             value: minioadmin
           - name: AWS_SECRET_ACCESS_KEY

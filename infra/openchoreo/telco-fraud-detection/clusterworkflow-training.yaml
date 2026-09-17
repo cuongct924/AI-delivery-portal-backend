@@ -1,5 +1,5 @@
-# The "openchoreo" backend-mode counterpart to
-# infra/argo-workflows/train-register-template.yaml — referenced by
+# The OpenChoreo entry point for Golden Path #1 — wraps
+# infra/argo-workflows/train-register-cluster-template.yaml, referenced by
 # adapters/openchoreo_workflow_adapter.py's trigger_workflow() via
 # routers/models.py's TRAIN_REGISTER_TEMPLATE constant
 # ("train-register-golden-path"), so this ClusterWorkflow's `name` must

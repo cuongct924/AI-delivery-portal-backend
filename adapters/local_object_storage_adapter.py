@@ -26,7 +26,7 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
         # URI built from root_path (e.g. path.as_uri()) would 404 there
         # even though it resolves fine right here. `/mnt/data` is synced
         # onto the k3d server node's filesystem separately (docker cp —
-        # see infra/argo-workflows/train-register-template.yaml's hostPath
+        # see infra/argo-workflows/train-register-cluster-template.yaml's hostPath
         # volume comment and top-level README.md); this only ever
         # constructs the URI train.py will read, never touches the file.
         self.mount_path = mount_path

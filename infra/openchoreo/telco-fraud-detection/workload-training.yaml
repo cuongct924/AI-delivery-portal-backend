@@ -1,9 +1,9 @@
 # Same job the manual `curl` smoke test in this session already exercised:
 # POST /trigger-training on the real orchestration-api (reachable from
 # inside the k3d cluster via host.docker.internal), which delegates to
-# scripts/local-demo/fake_argo.py (Golden Path #1's stand-in for a `kind`
-# cluster + Argo Workflows) exactly like any other Golden Path #1 caller —
-# nothing MLOps-specific lives in this Component.
+# OpenChoreoWorkflowAdapter (Golden Path #1 runs as an OpenChoreo
+# WorkflowRun) exactly like any other Golden Path #1 caller — nothing
+# MLOps-specific lives in this Component.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:

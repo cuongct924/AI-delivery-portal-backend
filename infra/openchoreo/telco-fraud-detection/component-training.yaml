@@ -1,5 +1,6 @@
-# Replaces infra/argo-workflows/train-register-template.yaml's role as the
-# *scheduling* layer for Golden Path #1 — the actual training/register logic
+# Replaces the Argo WorkflowTemplate's role as the *scheduling* layer for
+# Golden Path #1 (now infra/argo-workflows/train-register-cluster-template.yaml)
+# — the actual training/register logic
 # is untouched, still owned by adapters/ + services/orchestration-api (see
 # workload-training.yaml and docs/openchoreo-migration-next-steps.md).
 #

@@ -1,7 +1,14 @@
 """Model Monitoring API — "Setup Model Monitoring" Golden Path. A separate
 router: unlike every other Golden Path, this one doesn't trigger a 1-shot
-workflow — it registers a periodic Argo CronWorkflow via
-`ArgoAdapter.create_cron_workflow()`.
+workflow — it registers a periodic cron/WorkflowRun via
+`IWorkflowAdapter.create_cron_workflow()`.
+
+Known gap: the OpenChoreo workflow backend that replaced Argo Server (see
+docs/openchoreo-workflow-migration-plan.md) has no `CronWorkflow`
+equivalent — `OpenChoreoWorkflowAdapter.create_cron_workflow()` raises
+`NotImplementedError` until scheduled monitoring gets its own OpenChoreo
+scheduled-task design. Mocking the workflow adapter is the only way this
+endpoint works today.
 """
 
 from typing import Final
@@ -14,7 +21,7 @@ from adapters.factory import get_workflow_adapter
 
 router = APIRouter(tags=["monitoring"])
 
-argo_adapter = get_workflow_adapter()
+workflow_adapter = get_workflow_adapter()
 
 MONITOR_DRIFT_TEMPLATE: Final[str] = "monitor-drift-golden-path"
 
@@ -59,7 +66,7 @@ def setup_monitoring(
     if request.retrain_request_json is not None:
         parameters["retrain-request-json"] = request.retrain_request_json
 
-    argo_adapter.create_cron_workflow(
+    workflow_adapter.create_cron_workflow(
         cron_workflow_name, request.schedule, MONITOR_DRIFT_TEMPLATE, parameters
     )
     return SetupMonitoringResponse(cron_workflow_name=cron_workflow_name)

@@ -46,6 +46,27 @@ here is the cluster-side prerequisite below.
    Not applied by any script in this repo — apply it by hand on a real
    GPU cluster once KServe itself is wrapped in an OpenChoreo
    `ClusterComponentType` (Phase 2, sub-step 2.3).
+3. **Roadmap runtimes** — the dropdown also lists `tensorrt-llm` and `triton`
+   (mapped to `tensorrt-llm-runtime` / `triton-runtime` ClusterServingRuntimes
+   respectively) but these raise friendly errors at prepare time in the current
+   MVP. See the Runtime/Optimization Support Matrix below.
+
+## Runtime/Optimization Support Matrix — Implemented vs Roadmap
+
+| Runtime | ServingRuntime CR | Continuous Batching | PagedAttention | Prefix Caching | Speculative Decoding | Disaggregation | KV Offload | Pipeline Parallel |
+|---------|-------------------|---------------------|----------------|----------------|----------------------|----------------|------------|-------------------|
+| vLLM | `vllm-runtime` | ✅ Default | ✅ Default | ✅ Configurable | 🔄 Roadmap (MVP: blocked) | 🔄 Roadmap | 🔄 Roadmap | ✅ Configurable |
+| tensorrt-llm | `tensorrt-llm-runtime` | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap |
+| triton | `triton-runtime` | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap |
+
+- ✅ = Implemented and validated in MVP (vLLM on cluster demo)
+- 🔄 = Roadmap — UI dropdown shows the option but prepare-manifest fails with a friendly error pointing here
+
+**Default-on optimizations** (vLLM): continuous batching + PagedAttention are enabled by default in vLLM — no action needed by the Dev. The form's `enablePagedAttention=true` / `batchingStrategy=continuous` reflect this.
+
+**Must configure + benchmark** (vLLM): prefix caching (`enablePrefixCaching`), pipeline parallelism (`pipelineParallelSize>1`). These are exposed in the form but the Dev must test them for their specific model/workload.
+
+**Roadmap optimizations** (all runtimes): speculative decoding (ngram / draft-model), prefill-decode disaggregation, KV cache offload (CPU/SSD), expert/data parallelism beyond tensor-parallel. These require separate infrastructure (draft model serving, prefill/decode pools, offload storage) and are intentionally excluded from MVP.
 
 ## Why quantization/GPU compatibility is enforced in code, not just this doc
 
@@ -53,3 +74,16 @@ here is the cluster-side prerequisite below.
 guard (raises before rendering anything) — the Scaffolder form's JSON
 Schema `allOf`/`if`/`then` narrowing is UX only, not enforcement (CLAUDE.md:
 business logic lives in orchestration-api).
+
+## Optimization validation
+
+`llm_serving/registry.py`'s `validate_runtime_optimizations()` rejects any
+optimization flag not in the runtime's supported set with a clear message:
+```
+Optimization 'speculativeDecoding' is not supported for runtime 'vllm'
+in this MVP — supported flags for 'vllm': ['batchingStrategy', 'enablePagedAttention', 'enablePrefixCaching', 'pipelineParallelSize'].
+See infra/llm-serving/README.md for the roadmap.
+```
+
+This keeps the form honest: it shows all flags, but the backend tells you
+exactly which ones work today.

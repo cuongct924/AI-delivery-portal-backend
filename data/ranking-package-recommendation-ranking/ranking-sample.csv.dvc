@@ -1,0 +1,5 @@
+outs:
+- md5: 1cca3bb58f36d0be826cdf3877b78e4d
+  size: 4440
+  hash: md5
+  path: ranking-sample.csv

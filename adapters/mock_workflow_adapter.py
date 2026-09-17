@@ -1,5 +1,5 @@
-"""Mock adapter for IWorkflowAdapter — stands in for Argo Workflows when no
-`kind` cluster/Argo Server is up.
+"""Mock adapter for IWorkflowAdapter — stands in for the real workflow
+backend when no OpenChoreo cluster is up.
 
 A triggered workflow reports phase="Running" on its first status check and
 phase="Succeeded" from the second onward, to demo a real state transition.
@@ -81,9 +81,10 @@ class MockWorkflowAdapter(IWorkflowAdapter):
     def create_cron_workflow(
         self, name: str, schedule: str, workflow_template_name: str, parameters: dict[str, str]
     ) -> dict[str, object]:
-        """Convenience method, not part of IWorkflowAdapter — mirrors
-        ArgoAdapter.create_cron_workflow() so factory.py can hand either one
-        to routers/monitoring.py without it noticing."""
+        """Convenience method, not part of IWorkflowAdapter — returns an
+        Argo-style CronWorkflow resource. The mock is the only backend that
+        supports scheduled monitoring today: OpenChoreoWorkflowAdapter has
+        no CronWorkflow equivalent and raises NotImplementedError."""
         cron_workflow = {
             "metadata": {"name": name},
             "spec": {
@@ -100,8 +101,8 @@ class MockWorkflowAdapter(IWorkflowAdapter):
         return {"cronWorkflow": cron_workflow}
 
     def list_workflows(self) -> list[WorkflowSummary]:
-        """Convenience method, not part of IWorkflowAdapter — same precedent
-        as ArgoAdapter.list_workflows()."""
+        """Convenience method, not part of IWorkflowAdapter — same
+        list-of-summaries shape the routers expect from the real backend."""
         return [
             {"name": name, "phase": record["phase"], "startedAt": record["startedAt"]}
             for name, record in self._workflows.items()

@@ -1,13 +1,30 @@
+# Cluster-scoped counterpart to infra/argo-workflows/rec-train-register-template.yaml,
+# used by the "openchoreo" workflow backend (ClusterWorkflow
+# rec-train-register-golden-path, see
+# infra/openchoreo/telco-fraud-detection/clusterworkflow-rec-training.yaml).
+#
+# Why a cluster-scoped copy: OpenChoreo's ClusterWorkflow mechanism renders and
+# applies every WorkflowRun in an auto-created `workflows-<namespaceName>`
+# execution namespace, never `default` — so a namespace-scoped WorkflowTemplate
+# can't be referenced from there, only a ClusterWorkflowTemplate (same reason
+# train-register-cluster-template.yaml is cluster-scoped too).
+#
+# register-step is inlined here rather than `templateRef`-ing Golden Path #1's
+# WorkflowTemplate (which rec-train-register-template.yaml used to do): Golden
+# Path #1's legacy namespace-scoped template was removed, and a
+# namespace-scoped templateRef wouldn't resolve from the OpenChoreo execution
+# namespace anyway. Duplicated by hand, same convention as
+# train-register-cluster-template.yaml.
 apiVersion: argoproj.io/v1alpha1
-kind: WorkflowTemplate
+kind: ClusterWorkflowTemplate
 metadata:
-  name: rec-train-register-golden-path
-  namespace: default
+  name: rec-train-register-golden-path-cluster
 spec:
   entrypoint: train-and-register
-  # Same least-privilege ServiceAccount as Golden Path #1 — no new
-  # cluster-level permissions needed for Golden Path #3.
-  serviceAccountName: train-register-workflow
+  # workflow-sa, not train-register-workflow: OpenChoreo's workflow-plane
+  # controller auto-provisions "workflow-sa" in every `workflows-<namespaceName>`
+  # execution namespace it creates — see train-register-cluster-template.yaml.
+  serviceAccountName: workflow-sa
   securityContext:
     runAsNonRoot: true
     runAsUser: 1000
@@ -71,11 +88,6 @@ spec:
                 - name: hyperparameters-json
                   value: '{{workflow.parameters.hyperparameters-json}}'
           - name: register
-            # Inlined (not templateRef to train-register-golden-path): Golden
-            # Path #1's legacy namespace-scoped template is slated for
-            # removal, and this path must not depend on it. Duplicated by
-            # hand, same convention as the cluster-scoped counterpart
-            # (rec-train-register-cluster-template.yaml).
             template: register-step
             dependencies: [train]
             arguments:

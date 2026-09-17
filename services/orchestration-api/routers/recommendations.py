@@ -21,7 +21,7 @@ from adapters.factory import get_workflow_adapter
 
 router = APIRouter(tags=["recommendations"])
 
-argo_adapter = get_workflow_adapter()
+workflow_adapter = get_workflow_adapter()
 
 REC_TRAIN_REGISTER_TEMPLATE: Final[str] = "rec-train-register-golden-path"
 
@@ -92,7 +92,7 @@ def trigger_rec_training(
         parameters["item-id-column-features"] = request.item_id_column_features
     if request.item_text_column is not None:
         parameters["item-text-column"] = request.item_text_column
-    result = argo_adapter.trigger_workflow(REC_TRAIN_REGISTER_TEMPLATE, parameters)
+    result = workflow_adapter.trigger_workflow(REC_TRAIN_REGISTER_TEMPLATE, parameters)
     metadata = cast(dict[str, object], result["metadata"])
     return TriggerRecTrainingResponse(workflow_name=str(metadata["name"]))
 

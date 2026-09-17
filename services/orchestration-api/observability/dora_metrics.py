@@ -13,13 +13,17 @@ Callers must dedupe repeated status polls themselves — `record_workflow_comple
 increments/observes once per call, so anything polling a workflow's status
 in a loop (as the frontend does) must only call this once the workflow
 reaches a terminal phase.
+
+DORA Metrics for both MLOps and LLMOps tracks — unified metric names
+with `track` label ("mlops" | "llmops") so a single dashboard variable
+can filter across both tracks on the same panel.
 """
 
 from collections.abc import Sequence
 from datetime import datetime
 from typing import TypedDict
 
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Gauge, Histogram
 
 STEP_DURATION = Histogram(
     "golden_path_step_duration_seconds",
@@ -38,6 +42,31 @@ COMPLETIONS = Counter(
     "golden_path_completions_total",
     "Golden Path workflow completions, by outcome.",
     labelnames=["golden_path", "status"],
+)
+
+GATE_EVALUATIONS = Counter(
+    "dora_gate_evaluations_total",
+    "Evaluate Gate outcomes, by track and subject.",
+    labelnames=["track", "subject_type", "subject_id", "passed"],
+)
+
+DEPLOYMENT_EVENTS = Counter(
+    "dora_deployment_events_total",
+    "Deploy/rollback events, by track and subject.",
+    labelnames=["track", "subject_type", "subject_id", "event_type"],
+)
+
+INCIDENT_RECOVERY = Histogram(
+    "dora_incident_recovery_seconds",
+    "Time from a detected failure signal to the next remediation event, by track.",
+    labelnames=["track", "subject_type", "subject_id"],
+    buckets=(60, 300, 600, 1800, 3600, 7200, 21600, 86400),
+)
+
+LLM_SPEND_USD = Gauge(
+    "dora_llm_spend_usd",
+    "LLM API spend in USD, by model.",
+    labelnames=["model"],
 )
 
 

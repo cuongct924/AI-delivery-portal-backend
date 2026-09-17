@@ -18,6 +18,7 @@ e2e-test-report/
 .cache/
 *.session.sql
 site
+.state/
 
 # Python
 __pycache__/

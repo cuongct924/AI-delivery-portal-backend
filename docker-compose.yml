@@ -28,8 +28,8 @@ services:
     # that scheme — it needs the raw s3:// URI. --default-artifact-root
     # instead sets new experiments' artifact root directly to S3, so
     # clients (the training image, given AWS_*/MLFLOW_S3_ENDPOINT_URL env
-    # vars in infra/argo-workflows/train-register-template.yaml/
-    # train-register-cluster-template.yaml) write straight to MinIO
+    # vars in infra/argo-workflows/train-register-cluster-template.yaml)
+    # write straight to MinIO
     # themselves and every URI stays a real s3://. Caveat, also confirmed
     # for real: this only applies to experiments *created after* the
     # server starts with this flag — the "Default" experiment (id 0) some
@@ -169,9 +169,6 @@ services:
       # try real AWS S3 with MinIO's fake credentials and 403 for real:
       # "The AWS Access Key Id you provided does not exist in our records."
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      # Argo Server's k3d LoadBalancer publishes to a host port, not a
-      # docker-compose service — reach it via the host, not a service name.
-      ARGO_SERVER_URL: http://host.docker.internal:10081
       # .env has no BACKSTAGE_BASE_URL override, so this fell back to
       # core/config.py's "localhost:7007" default — inside this container
       # that's itself, not the host machine running `yarn start`. Silently
@@ -200,7 +197,7 @@ services:
     # this adapter only ever lists files, never writes.
     #
     # Mounted a second time at /mnt/data — the SAME path the k3d training
-    # pod reads from (train-register-template.yaml's hostPath, synced via
+    # pod reads from (train-register-cluster-template.yaml's hostPath, synced via
     # `docker cp`, see top-level README.md) — because
     # LocalFileObjectStorageAdapter's returned `uri` always uses that path
     # (so it's valid for the training pod once TASK_TYPE_THRESHOLDS steps
@@ -218,7 +215,7 @@ services:
       # (meaningless inside a container — that's the container itself, not
       # the k3d API server) to https://host.docker.internal:6550 (the k3d
       # loadbalancer's published host port, confirmed reachable the same
-      # way ARGO_SERVER_URL/BACKSTAGE_BASE_URL below already are) and TLS
+      # way BACKSTAGE_BASE_URL below already is) and TLS
       # verification skipped (local dev only — the k3d server cert has no
       # host.docker.internal SAN). Regenerate it if the k3d cluster is ever
       # recreated: `kubectl config view --minify --flatten >

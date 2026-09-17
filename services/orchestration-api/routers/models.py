@@ -8,6 +8,7 @@ Path (Train -> Track -> Register) and (Register -> Deploy) drive.
 import contextlib
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Final, cast
 
@@ -19,7 +20,12 @@ from evaluations.gate import MetricsGateResult, evaluate_metrics_gate
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jinja2 import Environment, FileSystemLoader
 from kubernetes.client.exceptions import ApiException
-from observability.dora_metrics import record_workflow_completion
+from observability.dora_metrics import (
+    DEPLOYMENT_EVENTS,
+    GATE_EVALUATIONS,
+    INCIDENT_RECOVERY,
+    record_workflow_completion,
+)
 from pydantic import BaseModel
 
 from adapters.deploy_strategies import (
@@ -29,6 +35,7 @@ from adapters.deploy_strategies import (
     TrafficSplitStrategy,
 )
 from adapters.factory import (
+    get_eval_result_adapter,
     get_feature_store_adapter,
     get_inference_backend_mode,
     get_kserve_adapter,
@@ -47,11 +54,12 @@ router = APIRouter(tags=["models"])
 # Module-level singletons — same convention as
 # agents/mcp-servers/observability-server/server.py.
 mlflow_adapter = get_model_registry_adapter()
-argo_adapter = get_workflow_adapter()
+workflow_adapter = get_workflow_adapter()
 prediction_log_adapter = get_prediction_log_adapter()
 promotion_adapter = get_promotion_adapter()
 feast_adapter = get_feature_store_adapter()
 object_storage_adapter = get_object_storage_adapter()
+eval_result_adapter = get_eval_result_adapter()
 
 # One WorkflowTemplate covers both train and fine-tune; mode is a parameter.
 TRAIN_REGISTER_TEMPLATE: Final[str] = "train-register-golden-path"
@@ -382,7 +390,7 @@ def trigger_training(
         parameters["text-column"] = request.text_column
     if request.base_model_name is not None:
         parameters["base-model-name"] = request.base_model_name
-    result = argo_adapter.trigger_workflow(TRAIN_REGISTER_TEMPLATE, parameters)
+    result = workflow_adapter.trigger_workflow(TRAIN_REGISTER_TEMPLATE, parameters)
     metadata = cast(dict[str, object], result["metadata"])
     return TriggerTrainingResponse(workflow_name=str(metadata["name"]))
 
@@ -391,7 +399,7 @@ def trigger_training(
 def get_training_status(
     workflow_name: str, user: dict = Depends(get_current_user)
 ) -> WorkflowStatusResponse:
-    status = argo_adapter.get_workflow_status(workflow_name)
+    status = workflow_adapter.get_workflow_status(workflow_name)
     phase = status.get("phase")
     if phase in ("Succeeded", "Failed") and workflow_name not in _RECORDED_TERMINAL_WORKFLOWS:
         _RECORDED_TERMINAL_WORKFLOWS.add(workflow_name)
@@ -416,7 +424,7 @@ def get_training_status(
 def list_recent_training_runs(user: dict = Depends(get_current_user)) -> list[WorkflowSummary]:
     return [
         WorkflowSummary(name=w.get("name"), phase=w.get("phase"), started_at=w.get("startedAt"))
-        for w in argo_adapter.list_workflows()
+        for w in workflow_adapter.list_workflows()
     ]
 
 
@@ -646,6 +654,15 @@ def policy_check(
         mlflow_adapter.set_model_version_tag(
             request.model_name, request.model_version, f"gate_{metric_name}", str(value)
         )
+
+    # Emit DORA gate evaluation metric (MLOps track)
+    GATE_EVALUATIONS.labels(
+        track="mlops",
+        subject_type="model",
+        subject_id=f"{request.model_name}:{request.model_version}",
+        passed=str(gate_result["passed"]).lower(),
+    ).inc()
+
     return gate_result
 
 
@@ -938,7 +955,40 @@ def promote_model(
         status = promotion_adapter.promote(request.target_environment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Emit DORA deployment event (MLOps track)
+    DEPLOYMENT_EVENTS.labels(
+        track="mlops",
+        subject_type="model",
+        subject_id=name,
+        event_type="deploy",
+    ).inc()
+
+    # MTTR: find last drift detection for this model and calculate recovery time
+    last_drift = _get_last_drift_detected_at(name)
+    if last_drift is not None:
+        recovery_seconds = (datetime.now() - last_drift).total_seconds()
+        INCIDENT_RECOVERY.labels(
+            track="mlops",
+            subject_type="model",
+            subject_id=name,
+        ).observe(recovery_seconds)
+
     return PromotionStatusResponse(**status)
+
+
+def _get_last_drift_detected_at(model_name: str) -> datetime | None:
+    """Returns the start_time of the most recent monitoring run with drift_detected=True."""
+    filter_string = f"tags.monitoring_model_name = '{model_name}' and tags.drift_detected = 'True'"
+    runs = mlflow_adapter.search_runs(
+        filter_string=filter_string, order_by=["start_time DESC"], max_results=1
+    )
+    if runs.empty:
+        return None
+    start_time = runs.iloc[0]["start_time"]
+    if isinstance(start_time, str):
+        return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+    return start_time
 
 
 @router.post("/models/{name}/promote-rollback", response_model=PromotionStatusResponse)
@@ -959,4 +1009,23 @@ def rollback_promotion(
         status = promotion_adapter.rollback_promotion(request.environment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Emit DORA deployment event (MLOps track)
+    DEPLOYMENT_EVENTS.labels(
+        track="mlops",
+        subject_type="model",
+        subject_id=name,
+        event_type="rollback",
+    ).inc()
+
+    # MTTR: find last drift detection for this model and calculate recovery time
+    last_drift = _get_last_drift_detected_at(name)
+    if last_drift is not None:
+        recovery_seconds = (datetime.now() - last_drift).total_seconds()
+        INCIDENT_RECOVERY.labels(
+            track="mlops",
+            subject_type="model",
+            subject_id=name,
+        ).observe(recovery_seconds)
+
     return PromotionStatusResponse(**status)

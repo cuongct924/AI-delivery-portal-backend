@@ -21,6 +21,7 @@ from llm_serving.registry import (
     VLLM_QUANTIZATION_ARGS,
     get_llm_serving_runtime,
     validate_gpu_quantization,
+    validate_runtime_optimizations,
 )
 from pydantic import BaseModel
 
@@ -70,6 +71,16 @@ class PrepareLlmDeployRequest(BaseModel):
     # KServeAdapter.deploy_llm_model's own docstring) so the token itself
     # never passes through this API, a PR diff, or git history.
     hf_token_secret_ref: str | None = None
+
+    # Optimization flags — only a subset supported per runtime in MVP.
+    # validate_runtime_optimizations() rejects unsupported flags with a clear
+    # error. The form shows all flags; backend enforces what actually works.
+    batchingStrategy: str | None = None  # static | dynamic | continuous
+    enablePagedAttention: bool | None = None
+    enablePrefixCaching: bool | None = None
+    speculativeDecoding: str | None = None  # none | ngram | draft-model
+    draftModelId: str | None = None
+    pipelineParallelSize: int | None = None
 
 
 class PrepareLlmDeployResponse(BaseModel):
@@ -226,6 +237,17 @@ def prepare_llm_deploy_manifest(
     runtime_spec = get_llm_serving_runtime(request.runtime)
     vllm_quantization = VLLM_QUANTIZATION_ARGS.get(request.quantization)
 
+    # Validate optimization flags against runtime support matrix.
+    optimizations = {
+        "batchingStrategy": request.batchingStrategy,
+        "enablePagedAttention": request.enablePagedAttention,
+        "enablePrefixCaching": request.enablePrefixCaching,
+        "speculativeDecoding": request.speculativeDecoding,
+        "draftModelId": request.draftModelId,
+        "pipelineParallelSize": request.pipelineParallelSize,
+    }
+    validate_runtime_optimizations(request.runtime, optimizations)
+
     # Lazy: KServeAdapter.__init__ eagerly calls load_kube_config().
     needs_kserve = request.traffic_strategy != "direct" or request.release_strategy == "instant"
     kserve_adapter = get_kserve_adapter("llmops-team") if needs_kserve else None
@@ -260,6 +282,10 @@ def prepare_llm_deploy_manifest(
         max_context_length=request.max_context_length,
         canary_traffic_percent=traffic_fields.get("canaryTrafficPercent"),
         hf_token_secret_ref=request.hf_token_secret_ref,
+        batching_strategy=request.batchingStrategy,
+        enable_paged_attention=request.enablePagedAttention,
+        enable_prefix_caching=request.enablePrefixCaching,
+        pipeline_parallel_size=request.pipelineParallelSize,
     )
     # environment is validated against _ENVIRONMENTS, and instant release
     # (the only path that writes for real, below) already rejected

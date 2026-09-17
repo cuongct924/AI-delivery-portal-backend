@@ -1,6 +1,8 @@
 """Adapter for OpenChoreo's generic Workflow/WorkflowRun REST API — the
-"openchoreo" branch of adapters/factory.py's get_workflow_adapter(),
-replacing ArgoAdapter's role once a namespace is fully cut over.
+"openchoreo" branch of adapters/factory.py's get_workflow_adapter(), and
+since Golden Paths #1/#3 cut over, the only real workflow backend (the
+legacy Argo Server adapter was removed — see
+docs/openchoreo-workflow-migration-plan.md).
 
 REST shape confirmed two ways, per docs/openchoreo-migration-next-steps.md
 Phase 2's own instruction not to guess it: (1) read against
@@ -83,9 +85,9 @@ def _hyphen_to_camel(key: str) -> str:
     parameters.openAPIV3Schema, e.g. dockerfile-builder's
     buildArgs/buildEnv), but every caller of trigger_workflow()
     (routers/models.py, routers/recommendations.py) already builds its
-    `parameters` dict with Argo's own hyphenated argument-name convention,
-    shared with ArgoAdapter/MockWorkflowAdapter. Translating here, not at
-    the callers, keeps IWorkflowAdapter's contract backend-agnostic."""
+    `parameters` dict with the hyphenated argument-name convention shared
+    with MockWorkflowAdapter. Translating here, not at the callers, keeps
+    IWorkflowAdapter's contract backend-agnostic."""
     head, *rest = key.split("-")
     return head + "".join(word.capitalize() for word in rest)
 
@@ -97,7 +99,7 @@ class WorkflowSummary(TypedDict):
 
 
 def _derive_phase_and_message(conditions: list[dict[str, object]]) -> tuple[str, str | None]:
-    """Maps WorkflowRun's status.conditions to ArgoAdapter's phase
+    """Maps WorkflowRun's status.conditions to the shared phase
     vocabulary ("Succeeded"/"Failed"/"Running"/"Pending") so
     routers/models.py's `phase in ("Succeeded", "Failed")` check keeps
     working unchanged regardless of which adapter is behind it. Priority
@@ -173,8 +175,8 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
         }
 
     def list_workflows(self) -> list[WorkflowSummary]:
-        # Convenience method, not part of IWorkflowAdapter — same precedent
-        # as ArgoAdapter.list_workflows().
+        # Convenience method, not part of IWorkflowAdapter — same
+        # list-of-summaries shape the routers expect from the real backend.
         response = httpx.get(
             f"{self.base_url}/namespaces/{self.namespace}/workflowruns",
             params={"limit": 100},

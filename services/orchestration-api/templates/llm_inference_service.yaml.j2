@@ -20,6 +20,26 @@ spec:
         {% if vllm_quantization is not none %}
         - --quantization={{ vllm_quantization }}
         {% endif %}
+        {% if batching_strategy is not none %}
+        - --batching-strategy={{ batching_strategy }}
+        {% endif %}
+        {% if enable_paged_attention is not none %}
+        {% if enable_paged_attention %}
+        - --enable-paged-attention
+        {% else %}
+        - --disable-paged-attention
+        {% endif %}
+        {% endif %}
+        {% if enable_prefix_caching is not none %}
+        {% if enable_prefix_caching %}
+        - --enable-prefix-caching
+        {% else %}
+        - --disable-prefix-caching
+        {% endif %}
+        {% endif %}
+        {% if pipeline_parallel_size is not none %}
+        - --pipeline-parallel-size={{ pipeline_parallel_size }}
+        {% endif %}
       {% if hf_token_secret_ref is not none %}
       env:
         - name: HUGGING_FACE_HUB_TOKEN

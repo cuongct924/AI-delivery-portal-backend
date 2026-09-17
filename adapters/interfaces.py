@@ -7,6 +7,7 @@ touching code that already depends on the interface.
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import NotRequired, TypedDict
 
 
@@ -58,6 +59,15 @@ class IModelRegistryAdapter(ABC):
         (e.g. "s3://...") — the "models:/<name>/<version>" shorthand alone
         isn't recognized by it. See adapters/deploy_strategies.py's
         InstantStrategy for the caller."""
+        ...
+
+    @abstractmethod
+    def search_runs(
+        self, filter_string: str, order_by: list[str] | None = None, max_results: int = 100
+    ) -> object:
+        """Searches MLflow runs with the given filter string. Returns a
+        pandas DataFrame with columns like start_time, tags, etc. Used for
+        finding drift detection runs for MTTR calculation."""
         ...
 
 
@@ -250,7 +260,7 @@ class WorkflowStatus(TypedDict):
     # Populated once the workflow starts — backs RQ1's Lead Time /
     # step-duration Prometheus metrics (services/orchestration-api's
     # observability/dora_metrics.py), computed from data this call already
-    # fetches, no extra Argo request needed.
+    # fetches, no extra backend request needed.
     started_at: str | None
     finished_at: str | None
     steps: list[WorkflowStepTiming]
@@ -258,7 +268,8 @@ class WorkflowStatus(TypedDict):
 
 class IWorkflowAdapter(ABC):
     """`trigger_workflow` returns `dict[str, object]`, not a TypedDict — it
-    passes through the Argo Server API's raw workflow resource."""
+    passes through the backend's raw workflow resource (an OpenChoreo
+    WorkflowRun, or a mock equivalent)."""
 
     @abstractmethod
     def trigger_workflow(
@@ -461,4 +472,39 @@ class IHuggingFaceHubAdapter(ABC):
         `HuggingFaceModelInfo.exists`/`is_gated` carry that instead, so a
         routine "model not found" (a typo, most likely) surfaces as a
         normal field the caller checks, not an exception path."""
+        ...
+
+
+class IEvalResultAdapter(ABC):
+    """Persists and queries LLM-as-a-judge evaluation results for LLMOps
+    (prompts and RAG indexes). Used by the orchestration-api to log
+    gate evaluation outcomes and to find the last failure for MTTR
+    calculation (time from failure signal to remediation event)."""
+
+    @abstractmethod
+    def log_judge_result(
+        self,
+        kind: str,
+        name: str,
+        version: str,
+        judge_result: object,
+        passed: bool,
+    ) -> None:
+        """Logs a judge evaluation result.
+
+        Args:
+            kind: "prompt" | "rag-index"
+            name: The prompt or collection name
+            version: The version string
+            judge_result: The raw judge result (safety, correctness, relevance, reasoning)
+            passed: Whether the gate evaluation passed
+        """
+        ...
+
+    @abstractmethod
+    def get_last_failure_at(self, kind: str, name: str) -> datetime | None:
+        """Returns the timestamp of the most recent failed evaluation for
+        the given kind and name, or None if no failures exist. Used for
+        MTTR calculation (time from failure to next activate/remediation).
+        """
         ...

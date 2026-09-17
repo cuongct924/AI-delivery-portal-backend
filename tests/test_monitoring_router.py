@@ -1,6 +1,6 @@
 """services/orchestration-api/routers/monitoring.py — same pattern as
 tests/test_recommendations_router.py: patches the module-level
-`argo_adapter` singleton and calls route functions directly."""
+`workflow_adapter` singleton and calls route functions directly."""
 
 import sys
 from unittest.mock import MagicMock, patch
@@ -21,7 +21,7 @@ def test_setup_monitoring_creates_a_deterministically_named_cron_workflow() -> N
         production_data_uri="file:///mnt/monitoring/fraud-detection-recent.csv",
         schedule="0 * * * *",
     )
-    with patch("routers.monitoring.argo_adapter") as mock_argo:
+    with patch("routers.monitoring.workflow_adapter") as mock_argo:
         response = setup_monitoring(request)
 
     mock_argo.create_cron_workflow.assert_called_once_with(
@@ -50,7 +50,7 @@ def test_setup_monitoring_forwards_retrain_request_json_for_auto_retrain() -> No
         on_drift_detected="auto-retrain",
         retrain_request_json='{"model_name": "fraud-detection"}',
     )
-    with patch("routers.monitoring.argo_adapter") as mock_argo:
+    with patch("routers.monitoring.workflow_adapter") as mock_argo:
         setup_monitoring(request)
 
     call_args = mock_argo.create_cron_workflow.call_args.args

@@ -8,13 +8,13 @@ change, `.dvc/config` stays the same).
 Only the small `.dvc` pointer files (md5 hash + size) are committed to git —
 the real data goes to the `storage` remote configured in `.dvc/config`.
 
-Split by which golden path / training path each dataset demos — `recsys/`
-is a separate Golden Path (`routers/recommendations.py`, its own docstring
-calls it "Golden Path #3": different dataset contract and training trigger
-shape from Golden Path #1, even though it also trains via classical
-algorithms, not Deep Learning); `deep-learning/` is Golden Path #1's
-`architecture=mlp/lstm/nlp/cv` (needs `sequenceLength`/`hiddenLayers`/...,
-none of which `sklearn` does).
+Split by which golden path / training path each dataset demos —
+`ranking-package-recommendation-ranking/` is a separate Golden Path
+(`routers/recommendations.py`, its own docstring calls it "Golden Path #3":
+different dataset contract and training trigger shape from Golden Path #1,
+even though it also trains via classical algorithms, not Deep Learning);
+`deep-learning/` is Golden Path #1's `architecture=mlp/lstm/nlp/cv` (needs
+`sequenceLength`/`hiddenLayers`/..., none of which `sklearn` does).
 
 Golden Path #1's `architecture=sklearn` datasets each get their own
 `<taskType>-<useCase>/` directory (one dataset per directory) instead of a
@@ -42,12 +42,16 @@ Clustering test runs reuse the classification or regression file with
 | `sensor-timeseries-sample.csv` | regression | synthetic (trend+seasonality+noise, numpy, not downloaded), 500 rows, `timestamp` column — `classification-telco-fraud-detection/`/`regression-house-price-prediction/` are too small (~10-15 rows) for MLP/LSTM to learn a real signal, and `timeColumn=timestamp` is required for `architecture=lstm`'s sequence windowing |
 | `shapes-sample.zip` | classification | synthetic geometric shapes (circle/square/triangle/...) for `architecture=cv` — image classification |
 
-## `recsys/` — Golden Path #3 (`routers/recommendations.py`)
+## `ranking-package-recommendation-ranking/` — Golden Path #3 (`routers/recommendations.py`)
 
 | File | Task type | Notes |
 |---|---|---|
-| `interactions-sample.csv` | ranking | 30 users × interactions (Pareto-distributed) — collaborative algorithms (SVD/KNN) use this alone |
-| `item-features-sample.csv` | ranking | 20 items with features — combined with `interactions-sample.csv` for content-based algorithms (TF-IDF cosine) |
+| `ranking-sample.csv` | ranking | 119 rows, 30 users × 20 items. Learning-to-rank sample: `query_id` holds user ids, `item_id` the items, `relevance` the graded 0-3 label (pass it as `ratingColumn` for SVD/KNN); also has `price`/`category_score`/`past_purchases`. No event-time column, so `train_rec.py`'s temporal split takes `timestampColumn=price` as an ordering key. Content-based (`tfidf_cosine`) additionally needs an item-features file — not shipped, pass your own `itemFeaturesUri`. |
+
+`recommend-train-register`'s Scaffolder defaults point at this file via
+`file:///mnt/data/ranking-package-recommendation-ranking/ranking-sample.csv`
+— the same path `orchestration-api` reads (`docker-compose.yml` mounts
+`./data` at `/mnt/data`) and the k3d training pod's `hostPath` exposes.
 
 ## `future-pipelines/` — reference shapes, not wired to anything yet
 

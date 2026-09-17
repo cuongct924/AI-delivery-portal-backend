@@ -9,20 +9,23 @@ unset.
 Workflow and Inference additionally accept a 3rd mode, "openchoreo" (via
 `_backend_mode`, only selectable through the specific env var, never the
 blanket one) — both real now (OpenChoreoWorkflowAdapter,
-OpenChoreoInferenceAdapter). Model Registry and Notebook have no
-OpenChoreo-backed replacement planned, so they stay on the plain 2-way
-`_use_mock`.
+OpenChoreoInferenceAdapter). Workflow finished migrating, so its
+unset-specific-var default is "openchoreo" and the old Argo Server backend
+(`USE_MOCK_WORKFLOW=legacy`) is gone — asking for it now raises instead of
+silently running the removed path. Inference hasn't migrated, so it still
+defaults to "legacy". Model Registry and Notebook have no OpenChoreo-backed
+replacement planned, so they stay on the plain 2-way `_use_mock`.
 """
 
 import os
 from functools import lru_cache
 from typing import Literal, cast
 
-from adapters.argo_adapter import ArgoAdapter
 from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
 from adapters.feature_store_adapter import FeastAdapter
 from adapters.huggingface_hub_adapter import HuggingFaceHubAdapter
 from adapters.interfaces import (
+    IEvalResultAdapter,
     IHuggingFaceHubAdapter,
     ILLMGatewayAdapter,
     IObjectStorageAdapter,
@@ -34,6 +37,8 @@ from adapters.kserve_adapter import KServeAdapter
 from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
 from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
 from adapters.mlflow_adapter import MlflowAdapter
+from adapters.mlflow_eval_result_adapter import MlflowEvalResultAdapter
+from adapters.mock_eval_result_adapter import MockEvalResultAdapter
 from adapters.mock_huggingface_hub_adapter import MockHuggingFaceHubAdapter
 from adapters.mock_inference_adapter import MockInferenceAdapter
 from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
@@ -69,23 +74,30 @@ def _use_mock(specific_env_var: str) -> bool:
 type BackendMode = Literal["mock", "legacy", "openchoreo"]
 
 
-def _backend_mode(specific_env_var: str) -> BackendMode:
+def _backend_mode(specific_env_var: str, real_default: BackendMode = "legacy") -> BackendMode:
     """Same fallback semantics as `_use_mock`: `specific_env_var` (e.g.
     "USE_MOCK_WORKFLOW") wins when set — accepts "mock"/"legacy"/
     "openchoreo" or the legacy "true"/"false" (back-compat with existing
-    .env files). Unset falls back to `USE_MOCK_ADAPTERS`, which only ever
-    resolves to "mock" or "legacy" — "openchoreo" is never selected via
-    the blanket flag, only the specific one, since no adapter using this
-    helper has finished migrating yet. An empty string counts as unset —
-    same reasoning as `_use_mock`'s own docstring.
+    .env files). Unset falls back to `USE_MOCK_ADAPTERS`: true -> "mock",
+    otherwise the caller's `real_default` — "openchoreo" is never selected
+    via the blanket flag, only the specific one or a caller opting in.
+    An empty string counts as unset — same reasoning as `_use_mock`'s own
+    docstring.
+
+    `real_default` lets an adapter that has finished migrating (Workflow)
+    make OpenChoreo the real default, while an unmigrated one (Inference)
+    keeps resolving to "legacy". A caller may reject a mode it no longer
+    supports — `get_workflow_adapter()` raises on "legacy".
     """
     specific = os.getenv(specific_env_var)
     if specific:
         normalized = specific.lower()
         if normalized in ("mock", "legacy", "openchoreo"):
             return cast(BackendMode, normalized)
-        return "mock" if normalized == "true" else "legacy"
-    return "mock" if os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true" else "legacy"
+        return "mock" if normalized == "true" else real_default
+    if os.getenv("USE_MOCK_ADAPTERS", "false").lower() == "true":
+        return "mock"
+    return real_default
 
 
 def get_inference_backend_mode() -> BackendMode:
@@ -158,22 +170,29 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 
 
 @lru_cache
-def get_workflow_adapter() -> ArgoAdapter | MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
-    match _backend_mode("USE_MOCK_WORKFLOW"):
+def get_workflow_adapter() -> MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
+    # Golden Paths #1/#3 are fully cut over — OpenChoreo is the real (and
+    # only) production backend; the Argo Server adapter was removed.
+    match _backend_mode("USE_MOCK_WORKFLOW", real_default="openchoreo"):
         case "mock":
             # Only wired to the registry when that's also mocked — a real
             # registry gets its models registered by whatever actually
-            # trained them (e.g. fake_argo.py), same as production.
+            # trained them (the ClusterWorkflow's register-step), same as
+            # production.
             model_registry = get_model_registry_adapter()
             return MockWorkflowAdapter(
                 model_registry=model_registry
                 if isinstance(model_registry, MockModelRegistryAdapter)
                 else None
             )
-        case "legacy":
-            return ArgoAdapter()
         case "openchoreo":
             return OpenChoreoWorkflowAdapter()
+        case "legacy":
+            raise ValueError(
+                "USE_MOCK_WORKFLOW=legacy is no longer supported: adapters/argo_adapter.py "
+                "was removed when Golden Paths #1/#3 moved to OpenChoreo. Set it to "
+                "'openchoreo' (real) or 'mock'."
+            )
 
 
 @lru_cache
@@ -196,6 +215,13 @@ def get_object_storage_adapter() -> IObjectStorageAdapter:
     return CompositeObjectStorageAdapter(
         [LocalFileObjectStorageAdapter(), MinioObjectStorageAdapter()]
     )
+
+
+@lru_cache
+def get_eval_result_adapter() -> IEvalResultAdapter:
+    if _use_mock("USE_MOCK_EVAL_RESULT"):
+        return MockEvalResultAdapter()
+    return MlflowEvalResultAdapter()
 
 
 _mock_kserve_adapters: dict[str, MockInferenceAdapter] = {}

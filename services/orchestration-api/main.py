@@ -2,13 +2,17 @@
 to the AI LLM (Claude, or any model registered in
 infra/llm-gateways/litellm-config.yaml)."""
 
+import asyncio
+import contextlib
 import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 
 from fastapi import FastAPI
 from mcp_client import McpToolRegistry
+from observability.dora_metrics import LLM_SPEND_USD
 from prometheus_fastapi_instrumentator import Instrumentator
 from routers import (
     chat,
@@ -23,9 +27,32 @@ from routers import (
     recommendations,
 )
 
+from adapters.factory import get_llm_gateway_adapter
+
 # Without this, app-level logger.info() calls are silently dropped —
 # uvicorn only configures its own loggers.
 logging.basicConfig(level=logging.INFO)
+
+logger = logging.getLogger(__name__)
+
+
+async def _refresh_llm_spend() -> None:
+    """Background task to refresh LLM spend metrics every 5 minutes."""
+    adapter = get_llm_gateway_adapter()
+    while True:
+        try:
+            # Get spend for the last 24 hours
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            spend_report = adapter.get_spend_report(start_date, end_date, group_by="model")
+            for entry in spend_report:
+                model = entry.get("model")
+                cost = entry.get("cost", 0.0)
+                if model and cost is not None:
+                    LLM_SPEND_USD.labels(model=model).set(float(cost))  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 — background task must not crash the app
+            logger.warning("Failed to refresh LLM spend metrics: %s", exc)
+        await asyncio.sleep(300)  # 5 minutes
 
 
 @asynccontextmanager
@@ -33,7 +60,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     registry = McpToolRegistry()
     await registry.connect_all()  # never raises; degrades gracefully
     app.state.mcp_registry = registry
+
+    # Start background task for LLM spend metrics
+    spend_task = asyncio.create_task(_refresh_llm_spend())
+
     yield
+
+    spend_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await spend_task
+
     await registry.aclose()
 
 

@@ -63,6 +63,38 @@ make check      # lint + typecheck + test
   — [`orchestration-api`](services/orchestration-api/) must be running
   (`docker compose up` or local `uvicorn`) for its Scaffolder actions to work
 
+### Orchestration API (FastAPI)
+
+```bash
+make install                  # one-time: creates .venv + installs every service's deps
+make run-orchestration-api    # uvicorn main:app --reload on http://localhost:8000
+curl http://localhost:8000/healthz   # {"status": "ok"}
+```
+
+Or skip the local Python env entirely and use `docker compose up -d`, which runs
+the same service (plus its MCP neighbours) from `docker-compose.yml`.
+
+### Adapters
+
+Every external integration (MLflow, KServe, Argo/OpenChoreo, Qdrant, LiteLLM,
+Feast, JupyterHub, ...) sits behind an interface in
+[`adapters/interfaces.py`](adapters/interfaces.py); [`adapters/factory.py`](adapters/factory.py)
+picks the concrete class from the `USE_MOCK_*` env vars (see `.env.example`), so
+switching Mock → real backend means adding a class, never touching callers.
+Business logic stays in `services/orchestration-api/`, not in workflow pods or
+the Portal frontend.
+
+### LiteLLM gateway
+
+```bash
+docker compose --profile llmops up -d litellm   # http://localhost:4000
+```
+
+Models and routing are defined in
+[`infra/llm-gateways/litellm-config.yaml`](infra/llm-gateways/litellm-config.yaml)
+(e.g. `claude-sonnet-5`, `voyage-3`, `llama3.1-local`); set
+`ANTHROPIC_API_KEY`/`VOYAGE_API_KEY` in `.env` as needed.
+
 ### Test CI locally
 
 [`act`](https://github.com/nektos/act) runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml) itself, on your machine, before you push:
@@ -88,7 +120,10 @@ after the cluster exists):
 ```bash
 kubectl config use-context k3d-openchoreo-quick-start
 
-# ServiceAccount + RBAC for the workflow pods (see infra/argo-workflows/train-register-template.yaml)
+# ServiceAccount + RBAC for the retained legacy-style templates
+# (rec-train-register-template.yaml, monitor-drift-template.yaml). The
+# OpenChoreo production path does NOT need this — it uses the auto-provisioned
+# workflow-sa in its per-namespace execution namespace instead.
 kubectl -n default apply -f - <<'EOF'
 apiVersion: v1
 kind: ServiceAccount
@@ -118,7 +153,12 @@ subjects:
     namespace: default
 EOF
 
-kubectl apply -f infra/argo-workflows/train-register-template.yaml
+# OpenChoreo workflow resources: ClusterWorkflow + its cluster-scoped
+# execution template, for Golden Path #1 and #3
+kubectl apply -f infra/argo-workflows/train-register-cluster-template.yaml
+kubectl apply -f infra/argo-workflows/rec-train-register-cluster-template.yaml
+kubectl apply -f infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml
+kubectl apply -f infra/openchoreo/telco-fraud-detection/clusterworkflow-rec-training.yaml
 
 # training-image isn't pushed to a registry — build it, then import into
 # the cluster's containerd. Re-run after any change under
@@ -126,11 +166,24 @@ kubectl apply -f infra/argo-workflows/train-register-template.yaml
 docker build -t training-image:local -f infra/argo-workflows/training-image/Dockerfile .
 k3d image import training-image:local --cluster openchoreo-quick-start
 
-# the dataset hostPath (train-register-template.yaml) needs data/ copied
+# the dataset hostPath (train-register-cluster-template.yaml) needs data/ copied
 # into the k3d server node's filesystem — no bind-mount for an
 # already-running node, so this is a one-time (or after dvc pull) docker cp:
 docker cp data/. k3d-openchoreo-quick-start-server-0:/mnt/data/
 ```
+
+Two non-obvious execution requirements apply to the workflow step pods rendered
+by the `ClusterWorkflowTemplate`s above:
+
+- `train-step` must set `command: ["python", "train.py"]` explicitly. The
+  `training-image:local` image is only built + `k3d image import`ed, never pushed
+  to a registry, so without an explicit `command` Argo's emissary executor
+  queries the registry for the image entrypoint and fails with an `UNAUTHORIZED`
+  manifest-pull error even though the image exists on the node.
+- From a step container, reach host-machine services via
+  `http://host.docker.internal:5000` (mlflow) and
+  `http://host.docker.internal:8000` (orchestration-api), not `localhost` — step
+  pods run on the k3d server node, which is itself a Docker container.
 
 Day-to-day:
 
@@ -143,19 +196,32 @@ kubectl get pods -n openchoreo-workflow-plane
 kubectl logs -n openchoreo-workflow-plane -l app=workflow-controller
 kubectl logs -n openchoreo-workflow-plane -l app=argo-server
 
-kubectl get workflowtemplates -n default               # confirm train-register-golden-path / fine-tune-golden-path exist
-kubectl get workflows -n default                       # list runs triggered via POST /trigger-training
-kubectl get workflows -n default -w                    # watch a run's phase live
-kubectl logs -n default <pod-name>                     # logs of a specific train/register step pod
+kubectl get clusterworkflows,clusterworkflowtemplates   # confirm the train/rec ClusterWorkflow + templates exist
+kubectl get workflowruns -n default                     # list runs triggered via POST /trigger-training
+kubectl get workflows -n workflows-default -w           # watch a run's rendered phase live
+kubectl logs -n workflows-default <pod-name>            # logs of a specific train/register step pod
 
-curl http://localhost:10081/api/v1/workflows/default    # Argo Server REST API health check (what ArgoAdapter calls, ARGO_SERVER_URL)
+curl http://localhost:10081/api/v1/workflows/default    # Argo Server REST API health check (the workflow engine OpenChoreo WorkflowRuns run on)
 
 k3d cluster delete openchoreo-quick-start               # tear the whole cluster down (also takes out Thunder/OpenChoreo)
 ```
 
+## Component guides
+
+- [data/README.md](data/README.md) — DVC workflow, dataset layout, dataset contracts.
+- [infra/feature-store/README.md](infra/feature-store/README.md) — Feast init + online/offline store setup.
+- [infra/llm-serving/README.md](infra/llm-serving/README.md) — GPU/KServe/vLLM prerequisites + capability matrix.
+- [infra/monitoring/README.md](infra/monitoring/README.md) — Prometheus/Grafana setup + monitoring limitations.
+- [agents/mcp-servers/golden-path-guide-server/README.md](agents/mcp-servers/golden-path-guide-server/README.md) — Golden Path discovery MCP server.
+- [agents/mcp-servers/llmops-golden-paths-server/README.md](agents/mcp-servers/llmops-golden-paths-server/README.md) — LLMOps Golden Paths MCP server.
+- [agents/mcp-servers/mlops-golden-paths-server/README.md](agents/mcp-servers/mlops-golden-paths-server/README.md) — MLOps Golden Paths MCP server.
+- [agents/mcp-servers/observability-server/README.md](agents/mcp-servers/observability-server/README.md) — Prometheus/MLflow/promotion-status MCP server.
+
 ## Reference
 
-All design decisions (golden path, tech stack, benchmarks, questions for the
-mentor...) are compiled in a separate notebook — keep it alongside this repo
-for reference:
-[`docs/playbook-ai-delivery-portal.md`](docs/playbook-ai-delivery-portal.md)
+- Design decisions (golden path, tech stack, benchmarks, mentor questions):
+  [`docs/playbook-ai-delivery-portal.md`](docs/playbook-ai-delivery-portal.md).
+- Golden Path #1/#3 workflow backend migration:
+  [`docs/openchoreo-workflow-migration-plan.md`](docs/openchoreo-workflow-migration-plan.md).
+- OpenChoreo environments and promotion policy:
+  [`docs/openchoreo-environments.md`](docs/openchoreo-environments.md).

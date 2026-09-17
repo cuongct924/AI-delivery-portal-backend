@@ -1,5 +1,5 @@
 """Golden Path #1 training entrypoint — reads job config from env vars (set
-by the `train-step` container in infra/argo-workflows/train-register-template.yaml),
+by the `train-step` container in infra/argo-workflows/train-register-cluster-template.yaml),
 trains (or fine-tunes) the selected algorithm, logs everything to MLflow,
 and hands the resulting artifact URI + dataset digest to `register-step` via
 /tmp files (Argo reads them back through `outputs.parameters`).
@@ -188,7 +188,7 @@ def _fit(
 
 
 def _read_dl_hyperparameters() -> dict[str, object]:
-    """Reads the DL hyperparameter env vars set by train-register-template.yaml.
+    """Reads the DL hyperparameter env vars set by train-register-cluster-template.yaml.
     Only LEARNING_RATE/EPOCHS/BATCH_SIZE are common to both architectures —
     the rest are architecture-specific and simply absent from the dict when
     unset, letting train_dl.py fail loudly via KeyError if a required one is

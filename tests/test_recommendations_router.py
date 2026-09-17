@@ -1,5 +1,5 @@
 """services/orchestration-api/routers/recommendations.py — same pattern as
-tests/test_models_router.py: patches the module-level `argo_adapter`
+tests/test_models_router.py: patches the module-level `workflow_adapter`
 singleton and calls route functions directly."""
 
 import sys
@@ -28,7 +28,7 @@ def test_trigger_rec_training_forwards_required_fields() -> None:
         timestamp_column="timestamp",
         algorithm="als",
     )
-    with patch("routers.recommendations.argo_adapter") as mock_argo:
+    with patch("routers.recommendations.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-rec-1"}}
         response = trigger_rec_training(request)
 
@@ -61,7 +61,7 @@ def test_trigger_rec_training_forwards_optional_fields_when_set() -> None:
         item_id_column_features="item_id",
         item_text_column="description",
     )
-    with patch("routers.recommendations.argo_adapter") as mock_argo:
+    with patch("routers.recommendations.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-rec-2"}}
         trigger_rec_training(request)
 

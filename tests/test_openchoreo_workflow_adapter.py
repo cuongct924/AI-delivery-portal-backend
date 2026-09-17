@@ -1,6 +1,5 @@
 """Tests adapters/openchoreo_workflow_adapter.py — mocks httpx so no real
-openchoreo-api/Thunder instance is required. Style mirrors
-tests/test_argo_adapter.py."""
+openchoreo-api/Thunder instance is required."""
 
 from unittest.mock import MagicMock, patch
 

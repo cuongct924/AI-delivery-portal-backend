@@ -1,5 +1,5 @@
 """services/orchestration-api/routers/models.py — patches the module-level
-`mlflow_adapter`/`argo_adapter` singleton instances and calls route functions
+`mlflow_adapter`/`workflow_adapter` singleton instances and calls route functions
 directly (same pattern as tests/test_prompts_router.py), no need for a
 FastAPI TestClient since we're not testing the HTTP/routing layer.
 
@@ -64,7 +64,7 @@ def test_trigger_training_sets_mode_finetune_when_base_model_uri_given() -> None
         algorithm="LogisticRegression",
         base_model_uri="models:/fraud-detection/1",
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-123"}}
         response = trigger_training(request)
 
@@ -92,7 +92,7 @@ def test_trigger_training_sets_mode_train_without_base_model_uri() -> None:
         target_column="is_fraud",
         time_column="transaction_time",
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-456"}}
         response = trigger_training(request)
 
@@ -123,7 +123,7 @@ def test_trigger_training_strips_trailing_whitespace_from_dataset_uri() -> None:
         dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv ",
         task_type="classification",
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-456"}}
         trigger_training(request)
 
@@ -149,7 +149,7 @@ def test_trigger_training_forwards_dl_hyperparameters_for_non_sklearn_architectu
         epochs=20,
         batch_size=16,
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-789"}}
         response = trigger_training(request)
 
@@ -188,7 +188,7 @@ def test_trigger_training_forwards_optimizer_when_set() -> None:
         batch_size=16,
         optimizer="sgd",
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-opt"}}
         trigger_training(request)
 
@@ -207,7 +207,7 @@ def test_trigger_training_forwards_byoc_fields_for_custom_algorithm() -> None:
         entrypoint_path="my_train.py",
         custom_config='{"lr": 0.01}',
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-byoc"}}
         response = trigger_training(request)
 
@@ -247,7 +247,7 @@ def test_trigger_training_forwards_hpo_fields_for_non_fixed_search_strategy() ->
         objective_metric="r2",
         objective_direction="maximize",
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-hpo"}}
         response = trigger_training(request)
 
@@ -274,7 +274,7 @@ def test_trigger_training_forwards_nlp_fields_for_nlp_architecture() -> None:
         epochs=3,
         batch_size=16,
     )
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-nlp"}}
         response = trigger_training(request)
 
@@ -287,7 +287,7 @@ def test_trigger_training_forwards_nlp_fields_for_nlp_architecture() -> None:
 
 
 def test_get_training_status_returns_argo_status() -> None:
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.get_workflow_status.return_value = {
             "name": "wf-123",
             "phase": "Failed",
@@ -306,7 +306,7 @@ def test_get_training_status_records_dora_metrics_once_on_terminal_phase() -> No
     the frontend polls this endpoint repeatedly until it sees a terminal
     phase — see routers.models._RECORDED_TERMINAL_WORKFLOWS."""
     with (
-        patch("routers.models.argo_adapter") as mock_argo,
+        patch("routers.models.workflow_adapter") as mock_argo,
         patch("routers.models.record_workflow_completion") as mock_record,
     ):
         mock_argo.get_workflow_status.return_value = {
@@ -331,7 +331,7 @@ def test_get_training_status_records_dora_metrics_once_on_terminal_phase() -> No
 
 def test_get_training_status_does_not_record_metrics_while_running() -> None:
     with (
-        patch("routers.models.argo_adapter") as mock_argo,
+        patch("routers.models.workflow_adapter") as mock_argo,
         patch("routers.models.record_workflow_completion") as mock_record,
     ):
         mock_argo.get_workflow_status.return_value = {
@@ -348,7 +348,7 @@ def test_get_training_status_does_not_record_metrics_while_running() -> None:
 
 
 def test_list_recent_training_runs_maps_workflow_summaries() -> None:
-    with patch("routers.models.argo_adapter") as mock_argo:
+    with patch("routers.models.workflow_adapter") as mock_argo:
         mock_argo.list_workflows.return_value = [
             {"name": "wf-123", "phase": "Succeeded", "startedAt": "2026-08-25T00:00:00Z"}
         ]

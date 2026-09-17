@@ -12,7 +12,7 @@ Tools — MLOps side:
   granting write access.
 - `query_metric` (free-form PromQL), `check_model_latency` (now requires
   `namespace` — multi-env x multi-tenant means the same model can run in
-  several namespaces at once, see `infra/environments/README.md`) — reads
+  several namespaces at once, see `docs/openchoreo-environments.md`) — reads
   Prometheus (set up via `docker compose up`, scrape config at
   `infra/monitoring/prometheus.yml`).
 - `get_promotion_status` — real, reads OpenChoreo's
