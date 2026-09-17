@@ -111,11 +111,8 @@ class McpToolRegistry:
             return
 
         try:
-            # This service's own identity when calling out to an MCP server —
-            # a server with no token_verifier configured just ignores the
-            # header; one that does (llmops-golden-paths-server,
-            # mlops-golden-paths-server) rejects the connection outright
-            # without it.
+            # Our own client_credentials identity — servers with a
+            # token_verifier reject the connection without this header.
             async with (
                 create_mcp_http_client(headers=mcp_auth_client.auth_headers()) as http_client,
                 streamable_http_client(server["endpoint"], http_client=http_client) as (
@@ -138,8 +135,7 @@ class McpToolRegistry:
 
                 await self._shutdown.wait()
         except BaseException as exc:
-            # Broad on purpose: a failed connection can raise a
-            # BaseExceptionGroup, not just Exception.
+            # Broad on purpose — a failed connect can raise a BaseExceptionGroup.
             if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                 raise
             logger.warning(

@@ -38,10 +38,8 @@ class ChatRequest(BaseModel):
     use_tools: bool = False
     # Overridable so chat isn't locked to Claude.
     model: str = "claude-sonnet-5"
-    # Echo of a prior turn's ChatResponse.pending_tool_call, sent only after
-    # the human explicitly approved it — {"name": ..., "arguments": {...}}.
-    # This is the ONLY path that executes a destructive tool; chat.py (never
-    # the model, never raw request input) is what adds "confirm": True.
+    # Echo of a prior ChatResponse.pending_tool_call, only after explicit human
+    # approval — the ONLY path that executes a destructive tool (never model-supplied).
     confirmed_tool_call: dict[str, object] | None = None
 
 
@@ -53,12 +51,10 @@ class ChatResponse(BaseModel):
     # self-hosted model via the Serving LLM Golden Path).
     tokens: int
     cost_usd: float | None
-    # Tools actually executed this turn.
     tools_used: list[str] = []
     # Set when a destructive tool was proposed but not executed.
     pending_confirmation: str | None = None
-    # Structured form of the above — echo this back as
-    # ChatRequest.confirmed_tool_call, unmodified, to actually run it.
+    # Echo this back as ChatRequest.confirmed_tool_call to actually run it.
     pending_tool_call: dict[str, object] | None = None
 
 
@@ -130,9 +126,7 @@ async def send_message(
             call = tool_calls[0]  # bounded to 1 tool call per turn
             tool_name = call["function"]["name"]
             tool_args = json.loads(call["function"]["arguments"])
-            # Never let the model itself smuggle a mutation past the
-            # confirmation gate — only the confirmed_tool_call branch above
-            # is allowed to set this.
+            # Only the confirmed_tool_call branch may pass "confirm" — never the model.
             tool_args.pop("confirm", None)
 
             if registry.is_destructive(tool_name):

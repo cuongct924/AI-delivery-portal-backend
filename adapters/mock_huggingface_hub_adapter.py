@@ -6,9 +6,8 @@ work in CI/local dev without hitting the real Hub.
 
 from adapters.interfaces import HuggingFaceModelInfo, IHuggingFaceHubAdapter
 
-# A few real, commonly-demoed ids with their actual published architecture
-# — lets a demo/test pick a name people recognize and get realistic
-# numbers back, not just synthetic ones.
+# A few real, commonly-demoed ids with their actual published architecture —
+# lets a demo/test pick a recognizable name and get realistic numbers back.
 _KNOWN_MODELS: dict[str, HuggingFaceModelInfo] = {
     "meta-llama/Llama-3.1-8B-Instruct": HuggingFaceModelInfo(
         model_id="meta-llama/Llama-3.1-8B-Instruct",
@@ -54,9 +53,8 @@ class MockHuggingFaceHubAdapter(IHuggingFaceHubAdapter):
         known = _KNOWN_MODELS.get(model_id)
         if known is not None:
             return known
-        # Anything else: treat as a real, ungated 7B-class model — good
-        # enough to exercise the wizard/estimator end-to-end without a
-        # real Hub lookup.
+        # Anything else: treat as a real, ungated 7B-class model — good enough to
+        # exercise the wizard/estimator end-to-end without a real Hub lookup.
         return HuggingFaceModelInfo(
             model_id=model_id,
             exists=True,

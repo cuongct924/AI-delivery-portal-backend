@@ -4,46 +4,15 @@ services:
   mlflow:
     image: ghcr.io/mlflow/mlflow:v3.15.1  # matches mlflow==3.15.1 in the Python lock files
     container_name: ai-delivery-portal-mlflow
-    # --default-artifact-root: model artifacts land in the existing MinIO
-    # (real s3:// URIs KServe's storage-initializer can read directly)
-    # instead of MLflow's own local-filesystem default (proxied behind a
-    # mlflow-artifacts:/ scheme no external reader understands — the
-    # actual blocker adapters/openchoreo_inference_adapter.py's module
-    # docstring documents; see infra/openchoreo/telco-fraud-detection/'s
-    # Component for where this gets consumed). Depends on `minio` (below)
-    # owning the `mlflow-artifacts` bucket (`mc mb local/mlflow-artifacts`,
-    # run once by hand — MinIO doesn't auto-create buckets from an env
-    # var).
+    # --default-artifact-root: artifacts land in MinIO as real s3:// URIs
+    # KServe's storage-initializer can read — NOT --artifacts-destination,
+    # which only works with --serve-artifacts and hides real paths behind an
+    # mlflow-artifacts:/ proxy. Needs the `mlflow-artifacts` bucket in MinIO
+    # (`mc mb`, run once by hand). Applies only to experiments created after
+    # server start, but the DB is recreated every boot anyway.
     #
-    # NOT --artifacts-destination: that flag only takes effect when
-    # --serve-artifacts is also on (confirmed via `mlflow server --help`:
-    # "This option only applies when the tracking server is configured to
-    # stream artifacts") — and --serve-artifacts makes every client
-    # (including this container's own API responses) see a
-    # "mlflow-artifacts:/..." proxy URI instead of the real underlying
-    # location, confirmed for real: GET .../logged-models/<id> returned
-    # artifact_uri "mlflow-artifacts:/0/models/<id>/artifacts" even with
-    # storage really on S3, because the proxy hides that by design.
-    # KServe's storage-initializer isn't an MLflow client and can't read
-    # that scheme — it needs the raw s3:// URI. --default-artifact-root
-    # instead sets new experiments' artifact root directly to S3, so
-    # clients (the training image, given AWS_*/MLFLOW_S3_ENDPOINT_URL env
-    # vars in infra/argo-workflows/train-register-cluster-template.yaml)
-    # write straight to MinIO
-    # themselves and every URI stays a real s3://. Caveat, also confirmed
-    # for real: this only applies to experiments *created after* the
-    # server starts with this flag — the "Default" experiment (id 0) some
-    # runs land in otherwise picks up whatever artifact root was active
-    # the first time this backend store was ever initialized (harmless
-    # here: no persistent volume, so a fresh SQLite DB + Default
-    # experiment gets created from scratch on every container start).
-    #
-    # `pip install boto3` first: the official mlflow image ships with no S3
-    # support at all (confirmed for real — the server crashed mid-upload
-    # with "ModuleNotFoundError: No module named 'boto3'" the first time
-    # this ran against s3://mlflow-artifacts). Re-runs on every container
-    # start (site-packages lives on the writable layer, not persisted
-    # across recreates) — fine for local dev, not meant for production.
+    # `pip install boto3` first: the mlflow image has no S3 support; re-installs
+    # every container start since site-packages isn't persisted.
     entrypoint: sh -c
     command:
       - >-
@@ -53,20 +22,15 @@ services:
     ports:
       - "5000:5000"
     environment:
-      # MLflow 3.x rejects any request whose Host header isn't localhost by
-      # default (DNS-rebinding protection) — 403s callers reaching it via
-      # host.docker.internal. Setting this replaces the defaults entirely,
-      # so every host needs both a bare and a ":*" form.
+      # MLflow 3.x blocks non-localhost Host headers (DNS-rebinding protection),
+      # 403'ing requests via host.docker.internal. Replaces the defaults, so
+      # every host needs both a bare and a ":*" form.
       MLFLOW_SERVER_ALLOWED_HOSTS: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,host.docker.internal,host.docker.internal:*,mlflow,mlflow:*"
-      # boto3 (MLflow's S3 client) reads these directly — same
-      # MinIO credentials as the `minio` service below and DVC's
-      # .dvc/config, not separate secrets.
+      # boto3 (MLflow's S3 client) reads these — same creds as minio/DVC.
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      # Same-docker-network service name — mlflow and minio are both
-      # docker-compose services here, no host.docker.internal needed
-      # (that's only for callers outside this compose network, e.g. the
-      # k3d cluster or orchestration-api's own container reaching out).
+      # Same-network service name — no host.docker.internal inside compose
+      # (only needed for callers outside, e.g. k3d or a separate container).
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
     depends_on:
       - minio
@@ -119,14 +83,8 @@ services:
     profiles: ["mlops"]
 
   litellm:
-    # Bumped from main-v1.66.0-stable: that pin dropped `tool_calls` for
-    # the ollama_chat/ provider (BerriAI/litellm#19742 — tool-call intent
-    # came back as raw JSON text in `content` instead of a structured
-    # `tool_calls` field). Fixed upstream by BerriAI/litellm#40611 (native
-    # tool calling for ollama/ models). 1.99.1 is also litellm's new bare
-    # SemVer tag scheme (no more "-stable" suffix, see their "cleaner
-    # release versions" post) — pin a specific version, not :latest, so
-    # this stays reproducible.
+    # 1.99.1, not main-v1.66.0-stable: that pin dropped `tool_calls` for
+    # ollama_chat/ (litellm#19742), fixed in #40611. Pin, don't use :latest.
     image: ghcr.io/berriai/litellm:1.99.1
     container_name: ai-delivery-portal-litellm
     command: --config /app/config.yaml --port 4000
@@ -150,81 +108,54 @@ services:
     env_file:
       - .env
     environment:
-      # Was hardcoded "true" here, overriding .env's AUTH_ENABLED=false and
-      # 401'ing every protected route (nothing forwards a Thunder token
-      # with the right audience yet). Removed to respect .env's local-dev
-      # bypass; re-add once real end-to-end Thunder auth is wired.
+      # Was hardcoded "true", 401'ing every protected route (no Thunder token
+      # forwarded yet). Removed to respect .env's AUTH_ENABLED=false.
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
       MLFLOW_TRACKING_URI: http://mlflow:5000
       LITELLM_GATEWAY_URL: http://litellm:4000
       QDRANT_URL: http://qdrant:6333
-      # .env's MINIO_ENDPOINT_URL default (localhost:9000) is host-oriented —
-      # inside this container "localhost" is itself, not the minio service.
+      # .env default (localhost:9000) is host-oriented — in-container
+      # "localhost" is itself, not the minio service.
       MINIO_ENDPOINT_URL: http://minio:9000
-      # mlflow's own S3 client (adapters/mlflow_adapter.py's
-      # mlflow.register_model() reads artifacts directly from S3 to
-      # register a model version) reads this exact env var name — separate
-      # from MINIO_ENDPOINT_URL above, which is MinioObjectStorageAdapter's
-      # own boto3 client, not mlflow's. Missing this made register_model()
-      # try real AWS S3 with MinIO's fake credentials and 403 for real:
-      # "The AWS Access Key Id you provided does not exist in our records."
+      # MLflow's own S3 client (register_model reads artifacts from S3), distinct
+      # from MINIO_ENDPOINT_URL (MinioObjectStorageAdapter's boto3). Missing it
+      # 403'd with MinIO creds against real AWS.
       MLFLOW_S3_ENDPOINT_URL: http://minio:9000
-      # .env has no BACKSTAGE_BASE_URL override, so this fell back to
-      # core/config.py's "localhost:7007" default — inside this container
-      # that's itself, not the host machine running `yarn start`. Silently
-      # broken since catalog_client.py never raises, just logs a warning
-      # and degrades (MCP discovery, and now golden-paths lookup, both
-      # depend on this working).
+      # .env has no override, so core/config.py's localhost:7007 pointed the
+      # container at itself — silently broken since catalog_client.py just logs.
       BACKSTAGE_BASE_URL: http://host.docker.internal:7007
-      # This service's own identity when calling out to
-      # llmops-golden-paths-server and mlops-golden-paths-server
-      # (mcp_client.py/mcp_auth_client.py) — needs registering by hand in
-      # Thunder first, same prerequisite as llmops-golden-paths-agent below.
+      # Our identity when calling the golden-paths MCP servers — register by hand
+      # in Thunder first.
       MCP_CLIENT_ID: orchestration-api-agent
       MCP_CLIENT_SECRET: orchestration-api-agent-dev-secret
-      # Same host-gateway routing as THUNDER_URL above — openchoreo-api is
-      # only reachable through the k3d gateway's external hostname
-      # (adapters/openchoreo_workflow_adapter.py, USE_MOCK_WORKFLOW=openchoreo).
+      # Same host-gateway routing as THUNDER_URL — openchoreo-api is only
+      # reachable through the k3d gateway's external hostname.
       OPENCHOREO_API_URL: http://api.openchoreo.localhost:8080/api/v1
-    # Routes the k3d gateway hostnames to the real host machine — their
-    # auto-loopback resolution isn't guaranteed inside a container.
+    # k3d gateway hostnames -> real host machine; auto-loopback isn't guaranteed
+    # inside a container.
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"
       - "api.openchoreo.localhost:host-gateway"
-    # Lets LocalFileObjectStorageAdapter list the same DVC-checked-out
-    # sample datasets a host-run `make run-orchestration-api` sees, without
-    # needing the mlops-datasets MinIO bucket populated first. Read-only —
-    # this adapter only ever lists files, never writes.
+    # Lets LocalFileObjectStorageAdapter list the DVC-checked-out datasets a
+    # host-run API sees, no mlops-datasets bucket needed. Read-only.
     #
-    # Mounted a second time at /mnt/data — the SAME path the k3d training
-    # pod reads from (train-register-cluster-template.yaml's hostPath, synced via
-    # `docker cp`, see top-level README.md) — because
-    # LocalFileObjectStorageAdapter's returned `uri` always uses that path
-    # (so it's valid for the training pod once TASK_TYPE_THRESHOLDS steps
-    # hand it off), not /app/data. Without this, GET /datasets/validate,
-    # /datasets/columns, /datasets/preview here 404/500 on any
-    # LocalFileObjectStorageAdapter-sourced dataset_uri, even though the
-    # exact same file is sitting right there at /app/data.
-      # OpenChoreoPromotionAdapter/OpenChoreoInferenceAdapter/KServeAdapter
-      # all call kubernetes.config.load_kube_config() with no arguments,
-      # which reads ~/.kube/config for whatever user the process runs as
-      # (appuser, uid 1000 — see the Dockerfile) —
-      # services/orchestration-api/.state/kubeconfig-docker.yaml (gitignored,
-      # contains a real client cert/key) is a copy of the host's kubeconfig
-      # with its server address rewritten from https://0.0.0.0:6550
-      # (meaningless inside a container — that's the container itself, not
-      # the k3d API server) to https://host.docker.internal:6550 (the k3d
-      # loadbalancer's published host port, confirmed reachable the same
-      # way BACKSTAGE_BASE_URL below already is) and TLS
-      # verification skipped (local dev only — the k3d server cert has no
-      # host.docker.internal SAN). Regenerate it if the k3d cluster is ever
-      # recreated: `kubectl config view --minify --flatten >
-      # services/orchestration-api/.state/kubeconfig-docker.yaml`, then swap
-      # 0.0.0.0 for host.docker.internal and add
-      # insecure-skip-tls-verify: true under `cluster:`.
+    # Mounted a second time at /mnt/data — the SAME path the k3d training pod
+    # reads (its hostPath, synced via `docker cp`) — because the adapter's
+    # returned `uri` always uses that path. Without it, /datasets/validate etc.
+    # 404 on local-sourced dataset_uri, even though the file sits at /app/data.
+    # OpenChoreo/KServe adapters call load_kube_config() with no args, reading
+    # ~/.kube/config for the process user (appuser, uid 1000). This gitignored
+    # copy swaps the k3d API URL 0.0.0.0:6550 -> host.docker.internal:6550 and
+    # skips TLS verify (no such SAN on the k3d cert). Regenerate after recreating
+    # the cluster: `kubectl config view --minify --flatten`, swap, add
+    # insecure-skip-tls-verify.
     volumes:
       - ./data:/app/data:ro
       - ./data:/mnt/data:ro
+      # /rag/ingest reads repo-relative source_paths (e.g.
+      # docs/playbook-ai-delivery-portal.md) off the container filesystem;
+      # without this every ingest 500s on FileNotFoundError.
+      - ./docs:/app/docs:ro
       - ./services/orchestration-api/.state/kubeconfig-docker.yaml:/home/appuser/.kube/config:ro
     depends_on:
       - mlflow
@@ -243,10 +174,8 @@ services:
       PROMETHEUS_URL: http://prometheus:9090
       LITELLM_GATEWAY_URL: http://litellm:4000
       ORCHESTRATION_API_URL: http://orchestration-api:8000
-    # mlflow/prometheus/litellm/orchestration-api are different profiles —
-    # start them first if needed (no depends_on: this server's tools each
-    # degrade independently, same as query_metric already did against
-    # Prometheus, not an all-or-nothing service).
+    # Deps are in other profiles — start them first if needed (no depends_on;
+    # this server's tools each degrade independently).
     profiles: ["mlops", "llmops", "observability"]
 
   llmops-golden-paths-server:
@@ -261,12 +190,10 @@ services:
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
       THUNDER_CLIENT_ID: llmops-golden-paths-agent
       THUNDER_CLIENT_SECRET: llmops-golden-paths-agent-dev-secret
-      # This server's own resource identifier (AuthSettings.resource_server_url).
+      # This resource server's own identifier (AuthSettings.resource_server_url).
       MCP_SERVER_URL: http://llmops-golden-paths-server:9002/mcp
-      # client_ids allowed to call this server's MCP endpoint at all — Thunder's
-      # client_credentials tokens carry aud == the caller's own client_id (no
-      # separate "resource" audience), so this is an allowlist, not one fixed
-      # audience string. Defaults to just orchestration-api-agent already.
+      # Allowlist of client ids allowed to call this MCP endpoint — Thunder's
+      # tokens carry aud == the caller's own client_id, not one fixed audience.
       THUNDER_MCP_ALLOWED_CLIENTS: orchestration-api-agent
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"
@@ -297,10 +224,9 @@ services:
       THUNDER_URL: http://thunder.openchoreo.localhost:8080
       THUNDER_CLIENT_ID: mlops-golden-paths-agent
       THUNDER_CLIENT_SECRET: mlops-golden-paths-agent-dev-secret
-      # This server's own resource identifier (AuthSettings.resource_server_url).
+      # This resource server's own identifier (AuthSettings.resource_server_url).
       MCP_SERVER_URL: http://mlops-golden-paths-server:9004/mcp
-      # client_ids allowed to call this server's MCP endpoint at all — same
-      # allowlist semantics as llmops-golden-paths-server (see its own comment here).
+      # Same allowlist semantics as llmops-golden-paths-server.
       THUNDER_MCP_ALLOWED_CLIENTS: orchestration-api-agent
     extra_hosts:
       - "thunder.openchoreo.localhost:host-gateway"

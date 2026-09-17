@@ -1,20 +1,15 @@
-"""Single place that decides which concrete class backs each Adapter —
-swapping Mock -> real backend means editing this file, not every caller.
+"""Single place deciding which concrete class backs each Adapter — swapping
+Mock -> real backend means editing this file, not every caller.
 
-`@lru_cache` makes each getter a process-wide singleton. Model
-Registry/Workflow/Inference/Notebook each get a `USE_MOCK_<ADAPTER>` flag
-(see .env.example), falling back to the blanket `USE_MOCK_ADAPTERS` when
-unset.
+`@lru_cache` makes each getter a process-wide singleton. Each adapter gets a
+`USE_MOCK_<NAME>` flag (see .env.example), falling back to the blanket
+`USE_MOCK_ADAPTERS` when unset.
 
-Workflow and Inference additionally accept a 3rd mode, "openchoreo" (via
-`_backend_mode`, only selectable through the specific env var, never the
-blanket one) — both real now (OpenChoreoWorkflowAdapter,
-OpenChoreoInferenceAdapter). Workflow finished migrating, so its
-unset-specific-var default is "openchoreo" and the old Argo Server backend
-(`USE_MOCK_WORKFLOW=legacy`) is gone — asking for it now raises instead of
-silently running the removed path. Inference hasn't migrated, so it still
-defaults to "legacy". Model Registry and Notebook have no OpenChoreo-backed
-replacement planned, so they stay on the plain 2-way `_use_mock`.
+Workflow and Inference add a 3rd mode, "openchoreo", via `_backend_mode`
+(only selectable through the specific env var). Workflow finished migrating —
+its unset default is "openchoreo" and the old Argo backend (USE_MOCK_WORKFLOW=legacy)
+raises. Inference hasn't migrated, so it still defaults to "legacy". Model
+Registry and Notebook stay on the plain 2-way `_use_mock`.
 """
 
 import os
@@ -57,14 +52,9 @@ from adapters.version_registry_adapter import JsonFileVersionRegistryAdapter
 
 
 def _use_mock(specific_env_var: str) -> bool:
-    """`specific_env_var` (e.g. "USE_MOCK_INFERENCE") wins when set; unset
-    falls back to the blanket USE_MOCK_ADAPTERS default. Lets a demo mock
-    just one adapter (USE_MOCK_INFERENCE=true) while every other adapter
-    stays on its real backend, without needing USE_MOCK_ADAPTERS=true to
-    mock all 4 at once. An empty string (e.g. an unfilled-in .env template
-    value like "USE_MOCK_NOTEBOOK=") counts as unset, not as an explicit
-    "false" — otherwise it silently defeats the USE_MOCK_ADAPTERS fallback
-    for whichever adapters the .env template happened to list."""
+    """`specific_env_var` (e.g. "USE_MOCK_INFERENCE") wins when set; unset falls
+    back to the blanket USE_MOCK_ADAPTERS. An empty string (e.g. a blank .env
+    template value) counts as unset, so it can't silently defeat the fallback."""
     specific = os.getenv(specific_env_var)
     if specific:
         return specific.lower() == "true"
@@ -75,19 +65,13 @@ type BackendMode = Literal["mock", "legacy", "openchoreo"]
 
 
 def _backend_mode(specific_env_var: str, real_default: BackendMode = "legacy") -> BackendMode:
-    """Same fallback semantics as `_use_mock`: `specific_env_var` (e.g.
-    "USE_MOCK_WORKFLOW") wins when set — accepts "mock"/"legacy"/
-    "openchoreo" or the legacy "true"/"false" (back-compat with existing
-    .env files). Unset falls back to `USE_MOCK_ADAPTERS`: true -> "mock",
-    otherwise the caller's `real_default` — "openchoreo" is never selected
-    via the blanket flag, only the specific one or a caller opting in.
-    An empty string counts as unset — same reasoning as `_use_mock`'s own
-    docstring.
-
-    `real_default` lets an adapter that has finished migrating (Workflow)
-    make OpenChoreo the real default, while an unmigrated one (Inference)
-    keeps resolving to "legacy". A caller may reject a mode it no longer
-    supports — `get_workflow_adapter()` raises on "legacy".
+    """Same fallback semantics as `_use_mock`, plus "openchoreo": accepts
+    "mock"/"legacy"/"openchoreo" or legacy "true"/"false" (back-compat with
+    existing .env files). Unset falls back to `USE_MOCK_ADAPTERS` (true ->
+    "mock") or `real_default` — "openchoreo" is never picked via the blanket
+    flag. `real_default` lets a migrated adapter (Workflow) default to
+    OpenChoreo while an unmigrated one (Inference) keeps resolving to
+    "legacy"; a caller may reject a mode it no longer supports.
     """
     specific = os.getenv(specific_env_var)
     if specific:
@@ -101,15 +85,10 @@ def _backend_mode(specific_env_var: str, real_default: BackendMode = "legacy") -
 
 
 def get_inference_backend_mode() -> BackendMode:
-    """Cheap, side-effect-free version of the decision `get_kserve_adapter`
-    makes internally — unlike that function, never constructs a real
-    adapter (KServeAdapter/OpenChoreoInferenceAdapter's `__init__` isn't
-    free, both eagerly call `kubernetes.config.load_kube_config()`). For a
-    caller that needs to know WHICH backend is active before it needs a
-    working adapter instance — e.g. routers/models.py's
-    prepare_deploy_manifest picking which manifest template/file path a
-    PR-gated deploy renders, without needing cluster access just to render
-    text."""
+    """Side-effect-free version of `get_kserve_adapter`'s decision — never
+    constructs an adapter (both real `__init__`s eagerly load kubeconfig). For
+    callers that need to know the backend before they need an instance, e.g.
+    routers/models.py picking the PR render template."""
     return _backend_mode("USE_MOCK_INFERENCE")
 
 
@@ -145,18 +124,14 @@ def get_prompt_registry_adapter() -> IVersionRegistryAdapter:
 
 @lru_cache
 def get_prediction_log_adapter() -> IPredictionLogAdapter:
-    # No mock/real split — SQLite has no external service to fake out
-    # (same reasoning as get_registry_adapter's JsonFileVersionRegistryAdapter
-    # never getting one either).
+    # No mock/real split — SQLite has no external service to fake out.
     return SqlitePredictionLogAdapter()
 
 
 @lru_cache
 def get_promotion_adapter() -> IPromotionAdapter:
-    # No "legacy" branch — the Kargo-based promotion pipeline this would
-    # have replaced was removed before it was ever wired up (see
-    # OpenChoreoPromotionAdapter's own module docstring), so this is
-    # Mock/real only, same 2-way split as get_model_registry_adapter.
+    # No "legacy" branch — the Kargo-based pipeline this would have replaced
+    # was removed before ever being wired up.
     if _use_mock("USE_MOCK_PROMOTION"):
         return MockPromotionAdapter()
     return OpenChoreoPromotionAdapter()
@@ -171,14 +146,13 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 
 @lru_cache
 def get_workflow_adapter() -> MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
-    # Golden Paths #1/#3 are fully cut over — OpenChoreo is the real (and
-    # only) production backend; the Argo Server adapter was removed.
+    # Golden Paths #1/#3 are fully cut over — OpenChoreo is the only
+    # production backend; the Argo Server adapter was removed.
     match _backend_mode("USE_MOCK_WORKFLOW", real_default="openchoreo"):
         case "mock":
             # Only wired to the registry when that's also mocked — a real
             # registry gets its models registered by whatever actually
-            # trained them (the ClusterWorkflow's register-step), same as
-            # production.
+            # trained them (the ClusterWorkflow's register-step).
             model_registry = get_model_registry_adapter()
             return MockWorkflowAdapter(
                 model_registry=model_registry
@@ -230,15 +204,13 @@ _mock_kserve_adapters: dict[str, MockInferenceAdapter] = {}
 def get_kserve_adapter(
     tenant: str,
 ) -> KServeAdapter | MockInferenceAdapter | OpenChoreoInferenceAdapter:
-    """Real branch is never cached (KServeAdapter.__init__ loads a real
-    kubeconfig). Mock branch is cached per tenant so a model's "deployed"
-    state persists across calls within a demo run.
+    """Real branch is never cached (KServeAdapter.__init__ loads kubeconfig);
+    mock branch is cached per tenant so a model's "deployed" state persists
+    within a demo run.
 
-    "legacy" always targets `ai-delivery-portal-dev-<tenant>` — staging/prod
-    promotion is DeploymentPipeline-only (infra/openchoreo/deployment-pipeline.yaml).
-    "openchoreo" ignores `tenant` entirely: it's scoped to the one real
-    serving Component this repo has (`serving`, under the
-    `telco-fraud-detection` Project), not a
+    "legacy" targets `ai-delivery-portal-dev-<tenant>` — staging/prod is
+    DeploymentPipeline-only. "openchoreo" ignores `tenant`: it's scoped to the
+    one real serving Component (`serving`, telco-fraud-detection), not a
     per-tenant namespace — see OpenChoreoInferenceAdapter's docstring.
     """
     namespace = f"ai-delivery-portal-dev-{tenant}"

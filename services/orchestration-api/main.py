@@ -41,7 +41,6 @@ async def _refresh_llm_spend() -> None:
     adapter = get_llm_gateway_adapter()
     while True:
         try:
-            # Get spend for the last 24 hours
             end_date = datetime.now().strftime("%Y-%m-%d")
             start_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
             spend_report = adapter.get_spend_report(start_date, end_date, group_by="model")
@@ -52,7 +51,7 @@ async def _refresh_llm_spend() -> None:
                     LLM_SPEND_USD.labels(model=model).set(float(cost))  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 — background task must not crash the app
             logger.warning("Failed to refresh LLM spend metrics: %s", exc)
-        await asyncio.sleep(300)  # 5 minutes
+        await asyncio.sleep(300)
 
 
 @asynccontextmanager
@@ -85,14 +84,9 @@ app.include_router(portal_assistant.router)
 app.include_router(golden_paths.router)
 app.include_router(llm_models.router)
 
-# `feast` (imported transitively via adapters.factory.get_feature_store_adapter,
-# pulled in by several routers above) sets PROMETHEUS_MULTIPROC_DIR as an
-# import-time side effect, for its own Spark/multiprocess metrics use
-# case. That env var makes prometheus_fastapi_instrumentator's /metrics
-# endpoint switch to reading multiprocess .db files from that directory
-# instead of this single-process app's own in-memory registry — files
-# this app never writes, so /metrics silently returned an empty body.
-# Confirmed via bisection: `import feast` alone reproduces it.
+# feast (via adapters.factory) sets PROMETHEUS_MULTIPROC_DIR at import time,
+# which makes Instrumentator's /metrics read empty multiprocess .db files
+# this app never writes — pop it so /metrics stays in-process.
 os.environ.pop("PROMETHEUS_MULTIPROC_DIR", None)
 
 # Expose /metrics — scraped by Prometheus (infra/monitoring/prometheus.yml)

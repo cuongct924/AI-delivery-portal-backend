@@ -80,7 +80,7 @@ def compute_metrics(
         return {"silhouette_score": silhouette_score(y_true, y_pred)}
     if task_type == "anomaly-detection":
         # anomaly_rate needs no ground truth — always computable, so it's
-        # what evaluations/gate.py's threshold gates on. precision/recall/f1
+        # what evaluations/evaluate_gate.py's threshold gates on. precision/recall/f1
         # only get added when a label column was actually provided; IsolationForest/LOF
         # never trained on it either way (see train.py), it's evaluation-only.
         metrics = {"anomaly_rate": float(np.mean(np.asarray(y_pred) == 1))}

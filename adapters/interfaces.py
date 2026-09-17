@@ -65,21 +65,20 @@ class IModelRegistryAdapter(ABC):
     def search_runs(
         self, filter_string: str, order_by: list[str] | None = None, max_results: int = 100
     ) -> object:
-        """Searches MLflow runs with the given filter string. Returns a
-        pandas DataFrame with columns like start_time, tags, etc. Used for
-        finding drift detection runs for MTTR calculation."""
+        """Searches MLflow runs with the given filter string, returning a
+        pandas DataFrame (columns like start_time, tags). Used for finding
+        drift-detection runs for MTTR calculation."""
         ...
 
 
 class IVersionRegistryAdapter(ABC):
     """Tracks versions of an artifact that isn't a trained model (prompt
-    text, RAG index pointer) and which one is currently active — the
-    LLMOps equivalent of IModelRegistryAdapter's "model version", without
-    assuming an MLflow-loadable artifact exists.
+    text, RAG index pointer) and which one is currently active — the LLMOps
+    equivalent of a "model version", without assuming an MLflow-loadable
+    artifact exists.
 
-    `metadata`/return shape is intentionally `dict[str, object]`, not a
-    TypedDict — it's polymorphic per `kind` ("prompt" vs "rag-index" carry
-    different fields), so no single fixed key set exists to declare.
+    `metadata`/return shape is `dict[str, object]`, not a TypedDict — it's
+    polymorphic per `kind` ("prompt" vs "rag-index" carry different fields).
     """
 
     @abstractmethod
@@ -105,24 +104,18 @@ class PredictionLogEntry(TypedDict):
     id: int
     model_name: str
     model_version: str
-    # ISO 8601 — sqlite3 has no native timestamp type, and the columns
-    # this session's own established convention (JsonFileVersionRegistryAdapter)
-    # already treats "just store a plain string, parse if you ever need to"
-    # as good enough for local-dev state.
+    # ISO 8601 — sqlite3 has no native timestamp type; store a plain string.
     logged_at: str
     input: dict[str, object]
     output: dict[str, object] | None
 
 
 class IPredictionLogAdapter(ABC):
-    """Logs individual predict-time (input, output) pairs — the data
-    Golden Path #4 (data drift monitoring) will eventually need, started
-    now rather than waiting for that Golden Path to exist first (see
-    docs/mlops-lifecycle-software-template.md's own note that no such
-    logging existed anywhere yet). Not automatic/transparent: nothing in
-    this codebase proxies real predict traffic (adapters/kserve_adapter.py's
-    own `predict()` explicitly tells callers to hit the InferenceService
-    directly) — a caller that wants its predictions logged calls
+    """Logs predict-time (input, output) pairs — the data for Golden Path #4
+    (data drift monitoring), started now rather than waiting (see docs/
+    mlops-lifecycle-software-template.md). Not automatic: nothing here proxies
+    real predict traffic (kserve_adapter's predict() tells callers to hit the
+    InferenceService directly) — a caller that wants predictions logged calls
     `log_prediction` itself, e.g. via routers/models.py's
     POST /models/{name}/predictions/log.
     """
@@ -155,17 +148,13 @@ class PromotionStatus(TypedDict):
 class IPromotionAdapter(ABC):
     """OpenChoreo DeploymentPipeline/ProjectReleaseBinding-based staging/prod
     promotion — replaces the abandoned Kargo-based pipeline (see
-    agents/mcp-servers/observability-server/server.py's get_promotion_status,
-    which used to just return mock data pending this).
+    agents/mcp-servers/observability-server/server.py's get_promotion_status).
 
-    `promote()` is always a human-initiated action, never something an
-    agent/MCP tool calls on its own — mirrors IInferenceAdapter/
-    IWorkflowAdapter's own read-only-tool split: get_promotion_status stays
-    a read-only MCP tool, promote() is only reachable via a Scaffolder
-    Golden Path template a Dev explicitly runs themselves. There is no
-    separate "approve" step beyond that human action — see
-    OpenChoreoPromotionAdapter's docstring for why a second approval gate
-    on top wasn't built.
+    `promote()` is always a human-initiated action, never an agent/MCP tool —
+    get_promotion_status stays a read-only MCP tool; promote() is only
+    reachable via a Scaffolder Golden Path the Dev runs. There is no separate
+    "approve" step beyond that human action — see OpenChoreoPromotionAdapter's
+    docstring for why a second approval gate wasn't built.
     """
 
     @abstractmethod
@@ -361,9 +350,8 @@ class ILLMGatewayAdapter(ABC):
         self, start_date: str, end_date: str, group_by: str | None = None
     ) -> list[dict[str, object]]:
         """Aggregate spend over [start_date, end_date] (YYYY-MM-DD). Shape
-        varies by `group_by` ("team"/"customer"/None for api_key level) —
-        same polymorphic-dict reasoning as IVersionRegistryAdapter above,
-        no single fixed key set exists across groupings."""
+        varies by `group_by` ("team"/"customer"/None) — polymorphic dict,
+        same as IVersionRegistryAdapter."""
         ...
 
 
@@ -423,18 +411,13 @@ class DatasetInfo(TypedDict):
 
 class IObjectStorageAdapter(ABC):
     """Discovers datasets already available for training — backs the
-    Scaffolder UI's dataset picker so a user chooses from what's actually
-    there instead of typing a `file://` path blind.
+    Scaffolder UI's dataset picker so users choose from what's actually there.
 
-    Two implementations, merged by `CompositeObjectStorageAdapter` into
-    one listing: `MinioObjectStorageAdapter` (MinIO/S3, `source="s3"`) and
-    `LocalFileObjectStorageAdapter` (the `data/` working-tree checkout, for
-    local dev without MinIO running, `source="local"`).
-
-    `DatasetInfo.uri` is always a `file://` path the training pod can
-    actually open (it reads from a hostPath mount, not the bucket
-    directly) — the object store is only consulted here for what dataset
-    *names* exist.
+    Two implementations merged by `CompositeObjectStorageAdapter`:
+    `MinioObjectStorageAdapter` (MinIO/S3, source="s3") and
+    `LocalFileObjectStorageAdapter` (the `data/` working-tree checkout,
+    source="local"). `DatasetInfo.uri` is always a `file://` path the training
+    pod can open (it reads from a hostPath mount, not the bucket).
     """
 
     @abstractmethod
@@ -443,14 +426,12 @@ class IObjectStorageAdapter(ABC):
 
 class HuggingFaceModelInfo(TypedDict):
     """Everything the "Serve LLM (Self-hosted)" wizard's Model Source step
-    needs to validate a `huggingFaceModelId` and pre-fill the Compute &
-    Runtime step's VRAM estimator (llm_serving/gpu_sizing.py), before a PR
-    ever opens — fail-fast instead of fail-at-PR-merge.
+    needs to validate a `huggingFaceModelId` and pre-fill the VRAM estimator,
+    before a PR ever opens — fail-fast instead of fail-at-PR-merge.
 
-    The `num_*`/`hidden_size` fields are `None` when `exists` is True but
-    `is_gated` is also True and no token was configured to read
-    `config.json` — callers show the VRAM estimator as "unavailable, model
-    is gated" rather than guessing.
+    `num_*`/`hidden_size` are None when the model is gated and no token was
+    configured to read config.json — callers show "unavailable, model is
+    gated" rather than guessing.
     """
 
     model_id: str
@@ -477,9 +458,8 @@ class IHuggingFaceHubAdapter(ABC):
 
 class IEvalResultAdapter(ABC):
     """Persists and queries LLM-as-a-judge evaluation results for LLMOps
-    (prompts and RAG indexes). Used by the orchestration-api to log
-    gate evaluation outcomes and to find the last failure for MTTR
-    calculation (time from failure signal to remediation event)."""
+    (prompts and RAG indexes). Used by orchestration-api to log gate
+    evaluation outcomes and to find the last failure for MTTR calculation."""
 
     @abstractmethod
     def log_judge_result(
@@ -503,8 +483,6 @@ class IEvalResultAdapter(ABC):
 
     @abstractmethod
     def get_last_failure_at(self, kind: str, name: str) -> datetime | None:
-        """Returns the timestamp of the most recent failed evaluation for
-        the given kind and name, or None if no failures exist. Used for
-        MTTR calculation (time from failure to next activate/remediation).
-        """
+        """Timestamp of the most recent failed evaluation for kind/name, or
+        None if none — used for MTTR (time from failure to remediation)."""
         ...

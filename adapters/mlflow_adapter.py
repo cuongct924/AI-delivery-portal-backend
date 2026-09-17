@@ -70,12 +70,9 @@ class MlflowAdapter(IModelRegistryAdapter):
         self.client.set_model_version_tag(name, version, key, value)
 
     def get_model_version_details(self, name: str, version: str) -> ModelVersionDetails:
-        # Translated to ValueError (a caller can catch without importing
-        # mlflow — same reasoning as IObjectStorageAdapter's docstring on
-        # keeping the interface swappable) rather than letting MLflow's own
-        # RestException surface — a version that was never registered, or
-        # one whose name is misspelled, is routine caller input, not a
-        # genuine server fault.
+        # Translate RestException -> ValueError so callers need no mlflow
+        # import — an unknown or misspelled version is routine input, not
+        # a server fault.
         try:
             mv = self.client.get_model_version(name=name, version=version)
         except RestException as e:
@@ -94,34 +91,26 @@ class MlflowAdapter(IModelRegistryAdapter):
         }
 
     def get_latest_version(self, name: str) -> str:
-        # Convenience method, not part of IModelRegistryAdapter — same
-        # precedent as QdrantAdapter.ensure_collection() in vector_db_adapter.py.
+        # Convenience method, not part of IModelRegistryAdapter — same precedent
+        # as QdrantAdapter.ensure_collection() in vector_db_adapter.py.
         versions = self.client.search_model_versions(f"name='{name}'")
         if not versions:
             raise ValueError(f"Model {name} has no registered versions")
         return max(versions, key=lambda mv: int(mv.version)).version
 
     def get_model_artifact_uri(self, name: str, version: str) -> str:
-        """Resolves "models:/<name>/<version>" (this repo's existing
-        storage_uri convention — routers/models.py, adapters/deploy_strategies.py)
-        to the real underlying artifact location (e.g. "s3://...").
-        Needed because KServe's storage-initializer isn't an MLflow client
-        — it can't read the "models:/" shorthand at all (confirmed for
-        real: "Cannot recognize storage type for models:/...";
-        adapters/openchoreo_inference_adapter.py's module docstring has
-        the full story). Not part of IModelRegistryAdapter — same
-        precedent as get_latest_version()/list_model_versions() above;
-        MockModelRegistryAdapter has no equivalent since KServe/OpenChoreo
-        deploys never run against the mock registry.
-        """
+        """Resolves a "models:/<name>/<version>" shorthand (the repo-wide
+        storage_uri convention) to the real artifact location (e.g.
+        "s3://..."). KServe's storage-initializer isn't an MLflow client,
+        so it can't read the "models:/" scheme (see openchoreo_inference_adapter.py's
+        module docstring). Not part of IModelRegistryAdapter — same precedent
+        as get_latest_version()/list_model_versions()."""
         return self.client.get_model_version_download_uri(name, version)
 
     def list_model_versions(self, name: str) -> list[str]:
-        # Convenience method, not part of IModelRegistryAdapter — same
-        # precedent as get_latest_version above. Powers the Evaluate &
-        # Deploy Model template's version dropdown: listing only versions
-        # that actually exist removes the free-text typo class entirely,
-        # instead of only catching it after the fact (get_model_version_summary's 404).
+        # Convenience method, not part of IModelRegistryAdapter — powers the
+        # Evaluate & Deploy template's version dropdown with only versions that
+        # actually exist, removing the free-text typo class.
         versions = self.client.search_model_versions(f"name='{name}'")
         return sorted((mv.version for mv in versions), key=int, reverse=True)
 

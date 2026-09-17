@@ -1,7 +1,7 @@
-"""Mock adapter for IPromotionAdapter — in-memory stand-in for OpenChoreo's
-ProjectReleaseBinding-based promotion. Same "development" seed as a demo
+"""Mock adapter for IPromotionAdapter — in-memory stand-in for the
+OpenChoreo ProjectReleaseBinding promotion. Same "development" seed as a demo
 run would have after a real deploy (see MockWorkflowAdapter/
-MockInferenceAdapter's own seeded-state precedent)."""
+MockInferenceAdapter's seeded-state precedent)."""
 
 from adapters.interfaces import IPromotionAdapter, PromotionStatus
 
@@ -15,9 +15,8 @@ class MockPromotionAdapter(IPromotionAdapter):
     def __init__(self, project: str = "telco-fraud-detection") -> None:
         self.project = project
         self._bindings: dict[str, str] = {"development": "1"}
-        # Mirrors OpenChoreoPromotionAdapter's annotation-based undo —
-        # same one-level-deep contract, just a plain dict here since there's
-        # no real CR to annotate.
+        # Same one-level-deep undo contract as OpenChoreoPromotionAdapter's
+        # annotation — just a plain dict here since there's no CR to annotate.
         self._previous: dict[str, str] = {}
 
     def get_promotion_status(self) -> PromotionStatus:

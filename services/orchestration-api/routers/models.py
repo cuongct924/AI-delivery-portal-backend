@@ -16,7 +16,7 @@ import pandas as pd
 from auth.thunder import get_current_user
 from data_quality.checks import CheckResult
 from data_quality.registry import run_checks
-from evaluations.gate import MetricsGateResult, evaluate_metrics_gate
+from evaluations.evaluate_gate import MetricsGateResult, evaluate_metrics_gate
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jinja2 import Environment, FileSystemLoader
 from kubernetes.client.exceptions import ApiException
@@ -72,13 +72,8 @@ _RECORDED_TERMINAL_WORKFLOWS: set[str] = set()
 _TEMPLATES_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "templates"
 _JINJA_ENV: Final[Environment] = Environment(loader=FileSystemLoader(_TEMPLATES_DIR))
 
-# Mirrors OpenChoreoInferenceAdapter's own __init__ defaults — duplicated
-# as plain constants here (not read off that adapter) so rendering a
-# PR-gated manifest never needs to construct one just to read 2 strings;
-# OpenChoreoInferenceAdapter/OpenChoreoPromotionAdapter's __init__ both
-# eagerly call config.load_kube_config(), which a pure-text render
-# shouldn't need cluster access for. Update both places together if this
-# repo ever gets a second real Project/Component.
+# Mirrors OpenChoreoInferenceAdapter's __init__ defaults but duplicated as
+# plain constants so rendering a PR-gated manifest never needs a kubeconfig.
 _OPENCHOREO_PROJECT: Final[str] = "telco-fraud-detection"
 _OPENCHOREO_COMPONENT: Final[str] = "serving"
 
@@ -254,21 +249,12 @@ class PrepareDeployRequest(BaseModel):
     traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
-    # "deploy" | "rollback". Rollback is a production emergency — the Dev
-    # picks *only* which version to roll back to; the mechanism (instant,
-    # 100% cutover, no PR) is the platform's decision, not a 3-parameter
-    # combination the Dev has to remember correctly under time pressure.
-    # Whatever traffic_strategy/traffic_percent/release_strategy the
-    # request carries are ignored and overridden when this is "rollback".
+    # "deploy" | "rollback". Rollback is a production emergency — Dev picks
+    # only the version; the instant 100% cutover is the platform's call, so
+    # the strategy fields are ignored when action="rollback".
     action: str = "deploy"
-    # Tagged onto the deployed model version (not read back by this
-    # request itself) so a later predict-logging caller — or, once it
-    # exists, Golden Path #4's own tooling — can tell whether the Dev
-    # actually asked for this before wiring anything up. Doesn't do
-    # anything on its own: nothing here proxies real predict traffic
-    # (see IPredictionLogAdapter's docstring) — POST
-    # /models/{name}/predictions/log is the actual logging entry point,
-    # called independently of this request.
+    # Audit tag for the version; nothing here proxies predict traffic —
+    # POST /models/{name}/predictions/log is the real logging entry point.
     enable_prediction_logging: bool = True
 
 
@@ -495,9 +481,7 @@ def validate_dataset(
 ) -> list[CheckResultResponse]:
     csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
     df = pd.read_csv(csv_path)
-    # Boundary check: a stale form value (e.g. leftover target_column from a
-    # previously selected dataset) must surface as a clear 400, not a 500
-    # KeyError deep inside a check that indexes df[target_column] directly.
+    # A stale form value must surface as a clear 400, not a 500 KeyError.
     for column, label in (
         (request.target_column, "target_column"),
         (request.time_column, "time_column"),
@@ -559,10 +543,8 @@ def list_available_features(user: dict = Depends(get_current_user)) -> FeatureLi
 def get_model_version_summary(
     name: str, version: str, user: dict = Depends(get_current_user)
 ) -> ModelVersionSummaryResponse:
-    # Same 404-not-500 contract as policy_check below — this is what the
-    # Scaffolder's ModelVersionPickerField polls live while the user is
-    # still typing, so a routine typo'd version needs a clean 404 to show
-    # inline, not an unhandled 500.
+    # 404-not-500: the Scaffolder's live version picker needs a clean 404 on
+    # a typo'd version, not an unhandled 500.
     try:
         details = mlflow_adapter.get_model_version_details(name, version)
     except ValueError as e:
@@ -617,15 +599,9 @@ def list_model_versions(name: str, user: dict = Depends(get_current_user)) -> Mo
 
 
 def _compute_gate_result(model_name: str, model_version: str) -> MetricsGateResult:
-    # Classical ML has ground-truth metrics — compare directly, no LLM-as-judge.
-    # Both failure modes below are routine caller input (wrong version
-    # number, or a version registered before task-type tagging existed),
-    # not a server fault — a clean 404/400 here, not an unhandled 500, so
-    # the Scaffolder step (and the ModelVersionPickerField ahead of it)
-    # can show the real reason. Shared by policy_check (persists the
-    # result as tags) and get_gate_preview (pure read, no side effect) —
-    # one place computing "would this pass", not two copies that could
-    # drift.
+    # Classical ML has ground-truth metrics — no LLM-as-judge. Both failure
+    # modes below are routine caller input, so a clean 404/400 beats a 500.
+    # Shared by policy_check (persists tags) and get_gate_preview (pure read).
     try:
         details = mlflow_adapter.get_model_version_details(model_name, model_version)
     except ValueError as e:
@@ -688,13 +664,9 @@ def prepare_deploy_manifest(
     # Canonical MLflow Model Registry URI — resolvable by any MLflow-aware loader.
     storage_uri = f"models:/{request.model_name}/{request.model_version}"
 
-    # Rollback overrides whatever traffic_strategy/traffic_percent/
-    # release_strategy the request carries — the Dev only chose *which
-    # version*, the mechanism is the platform's call, not something to get
-    # right under production-incident pressure. Local variables, not
-    # request field mutation: PrepareDeployRequest.action's own docstring
-    # says the request's own strategy fields are ignored for rollback, so
-    # this keeps that contract visible at the one place it's honored.
+    # Rollback overrides the strategy fields — Dev chose only the version, the
+    # instant blue-green cutover is the platform's call. Locals, not request
+    # mutation, so PrepareDeployRequest.action's contract stays visible here.
     is_rollback = request.action == "rollback"
     traffic_strategy_value = "blue-green" if is_rollback else request.traffic_strategy
     traffic_percent_value = 100 if is_rollback else request.traffic_percent
@@ -709,11 +681,8 @@ def prepare_deploy_manifest(
     if traffic_strategy_value == "direct":
         traffic_strategy = DirectStrategy()
     else:
-        # Needs a prior deploy to compare/rollback against — enforced here
-        # since the Scaffolder form can't gate on live cluster state. Also
-        # what actually catches "rollback with nothing deployed yet",
-        # which makes no sense but isn't rejected earlier in this
-        # function — this 404 is that rejection.
+        # Needs a prior deploy to compare/rollback against — the form can't
+        # gate on live cluster state; this also rejects empty rollbacks.
         assert kserve_adapter is not None
         try:
             kserve_adapter.get_inference_status(request.model_name)
@@ -735,27 +704,17 @@ def prepare_deploy_manifest(
     canary_percent = traffic_fields.get("canaryTrafficPercent")
     backend_mode = get_inference_backend_mode()
     if backend_mode == "openchoreo" and canary_percent not in (None, 100):
-        # OpenChoreoInferenceAdapter.deploy_model would raise this same
-        # NotImplementedError itself for an instant release — checked here
-        # too so a PR-gated request fails the same way, with a clear 400,
-        # instead of rendering a Workload manifest that silently can't
-        # represent the split it was asked for (Workload has exactly one
-        # `container.image` field, no partial-traffic-split concept at
-        # all — see that adapter's own docstring).
+        # Workload has no partial-traffic-split concept — reject here so a
+        # PR-gated request fails the same way an instant deploy would.
         raise ValueError(
             f"a PARTIAL traffic split ({traffic_fields!r}) isn't wired into the "
             "OpenChoreo Workload template yet — only a 100% cutover is supported"
         )
 
     if backend_mode == "openchoreo":
-        # The real, git-tracked source of truth for the one live Workload
-        # this repo has (see infra/openchoreo/telco-fraud-detection/
-        # workload-serving.yaml) — a PR-gated deploy updates THIS existing
-        # file's storageUri rather than writing a new per-version file, so
-        # `git log` on it is the deploy history and merging it is what a
-        # human actually approves. Replaces the legacy raw-InferenceService
-        # path below, which OpenChoreoPromotionAdapter's ProjectReleaseBinding
-        # tracking knows nothing about.
+        # The one live Workload file is the git-tracked source of truth — a
+        # PR-gated deploy updates THIS file's storageUri, so merging the PR
+        # is the approval and `git log` is the deploy history.
         template = _JINJA_ENV.get_template("workload.yaml.j2")
         content = template.render(
             project=_OPENCHOREO_PROJECT,
@@ -773,9 +732,8 @@ def prepare_deploy_manifest(
             storage_uri=storage_uri,
             canary_traffic_percent=canary_percent,
         )
-        # Always dev — this Golden Path is mlops-team's, and orchestration-api
-        # never writes anywhere but dev (staging/prod promotion is
-        # DeploymentPipeline-only, see infra/openchoreo/deployment-pipeline.yaml).
+        # This Golden Path is mlops-team's; orchestration-api never writes
+        # beyond dev (staging/prod promotion is DeploymentPipeline-only).
         file_name = (
             f"infra/environments/dev/inference-services/mlops-team/"
             f"{request.model_name}/{request.model_version}.yaml"
@@ -846,12 +804,9 @@ def get_deploy_status(name: str, user: dict = Depends(get_current_user)) -> Depl
 
     metadata = cast(dict[str, object], status.get("metadata", {}))
     labels = cast(dict[str, object], metadata.get("labels") or {})
-    # KServeAdapter.deploy_model() sets this label at deploy time — the
-    # only place a version number survives on the InferenceService itself
-    # (storageUri is real now, an s3://.../<mlflow-model-id>/... path, not
-    # "models:/<name>/<version>" — see
-    # adapters/openchoreo_inference_adapter.py's module docstring for why
-    # that changed).
+    # KServeAdapter sets this label at deploy time — the only version that
+    # survives on the InferenceService (storageUri is a real s3 path now,
+    # not "models:/<name>/<version>").
     live_version = cast(str | None, labels.get("version"))
 
     conditions = cast(

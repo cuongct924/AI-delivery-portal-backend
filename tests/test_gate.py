@@ -1,8 +1,8 @@
-"""services/orchestration-api/evaluations/gate.py — pure logic, no external
+"""services/orchestration-api/evaluations/evaluate_gate.py — pure logic, no external
 dependency (dataclasses), runs right away with nothing extra to install."""
 
 import pytest
-from evaluations.gate import (
+from evaluations.evaluate_gate import (
     GateThresholds,
     MetricThreshold,
     evaluate_gate,

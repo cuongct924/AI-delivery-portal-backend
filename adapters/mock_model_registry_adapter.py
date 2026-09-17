@@ -1,5 +1,5 @@
 """Mock adapter for IModelRegistryAdapter — in-memory stand-in for MLflow.
-Returns metrics that pass every evaluations/gate.py threshold, whatever
+Returns metrics that pass every evaluations/evaluate_gate.py threshold, whatever
 task_type is tagged.
 """
 
@@ -15,8 +15,8 @@ from adapters.interfaces import (
     ModelVersionDetails,
 )
 
-# Covers every metric in evaluations/gate.py's TASK_TYPE_THRESHOLDS at once,
-# so the Evaluate Gate demo passes regardless of which task_type gets tagged.
+# Covers every metric in evaluations/evaluate_gate.py's TASK_TYPE_THRESHOLDS,
+# so the Evaluate Gate demo passes regardless of task_type.
 _FAKE_METRICS: dict[str, float] = {
     "accuracy": 0.92,
     "precision": 0.88,
@@ -79,8 +79,7 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
 
     def get_latest_version(self, name: str) -> str:
         # Convenience method, not part of IModelRegistryAdapter — mirrors
-        # MlflowAdapter.get_latest_version() so factory.py can hand either
-        # one to routers/models.py without it noticing.
+        # MlflowAdapter so factory.py can hand either one to routers/models.py.
         versions = self._versions.get(name)
         if not versions:
             raise ValueError(f"Model {name} has no registered versions")
@@ -91,10 +90,9 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
         return sorted(self._versions.get(name, {}), key=int, reverse=True)
 
     def get_model_artifact_uri(self, name: str, version: str) -> str:
-        # Mirrors MlflowAdapter.get_model_artifact_uri() — same convention.
-        # No real artifact store behind this mock, so this is just the
-        # canonical MLflow shorthand, same as before this method existed;
-        # MockInferenceAdapter never actually fetches it.
+        # Mirrors MlflowAdapter.get_model_artifact_uri() — no real artifact
+        # store behind this mock, so this is just the canonical MLflow
+        # shorthand; MockInferenceAdapter never actually fetches it.
         self._get_details(name, version)  # raises if not registered
         return f"models:/{name}/{version}"
 
@@ -107,7 +105,7 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
     def search_runs(
         self, filter_string: str, order_by: list[str] | None = None, max_results: int = 100
     ) -> pd.DataFrame:
-        # Mock implementation: return empty DataFrame with expected columns
+        # Mock implementation: return empty DataFrame with expected columns.
         return pd.DataFrame(
             {
                 "start_time": pd.Series(dtype="datetime64[ns]"),

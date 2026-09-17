@@ -25,10 +25,8 @@ GPU_VRAM_GB: Final[dict[str, int]] = {
     "B200": 180,
 }
 
-# Bytes per parameter at each quantization level. "none" runs in bf16/fp16
-# (2 bytes/param) — matches vLLM's default when no --quantization flag is
-# passed (llm_serving/registry.py's VLLM_QUANTIZATION_ARGS has no "none"
-# entry for the same reason).
+# Bytes/param per quantization. "none" = bf16/fp16, vLLM's default, which is
+# why VLLM_QUANTIZATION_ARGS carries no "none" entry either.
 _BYTES_PER_PARAM: Final[dict[str, float]] = {
     "none": 2.0,
     "fp8": 1.0,
@@ -110,10 +108,8 @@ def estimate_vram_gb(
         )
     weights_bytes = param_count_billion * 1e9 * bytes_per_param * _ACTIVATION_OVERHEAD_FACTOR
 
-    # 2x for K and V; head_dim derived from hidden_size/num_attention_heads
-    # since HF config.json doesn't carry head_dim as its own field for most
-    # architectures — GQA models only shrink num_key_value_heads, head_dim
-    # stays the same as a non-GQA model of that hidden_size.
+    # 2x for K+V; head_dim derives from hidden_size/heads because HF
+    # config.json doesn't carry head_dim, and GQA only shrinks KV heads.
     head_dim = hidden_size / num_attention_heads
     kv_cache_per_token_bytes = (
         2 * num_layers * num_key_value_heads * head_dim * _KV_CACHE_BYTES_PER_ELEMENT

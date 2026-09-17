@@ -1,13 +1,9 @@
-"""MLflow-backed IVersionRegistryAdapter for the "prompt" kind — replaces
-JsonFileVersionRegistryAdapter for prompts specifically. Uses MLflow's
-native Prompt Registry (mlflow.genai.*), not the Model Registry — a prompt
-is text, not a trained model artifact. See routers/prompts.py's docstring
-for why this is a separate getter from get_registry_adapter().
-
-Scoped to kind="prompt" only. routers/rag.py's "rag-index" kind keeps
-using JsonFileVersionRegistryAdapter via get_registry_adapter() — a RAG
-index pointer has no equivalent in MLflow's Prompt Registry, so this class
-does not attempt to also serve that kind.
+"""MLflow-backed IVersionRegistryAdapter for the "prompt" kind — uses
+MLflow's native Prompt Registry (mlflow.genai.*), not the Model Registry (a
+prompt is text, not a trained artifact); see routers/prompts.py's docstring
+for why this is a separate getter. Scoped to kind="prompt" only —
+routers/rag.py's "rag-index" kind keeps JsonFileVersionRegistryAdapter, since
+a RAG index pointer has no MLflow Prompt Registry equivalent.
 """
 
 import os
@@ -47,9 +43,8 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
 
     def get_version(self, kind: str, name: str, version: str) -> dict[str, object]:
         self._check_kind(kind)
-        # get_prompt_version returns None (not a raised exception) when the
-        # version doesn't exist — confirmed from the installed SDK's own
-        # source (mlflow.tracking.MlflowClient.get_prompt_version).
+        # get_prompt_version returns None (not an exception) for a missing
+        # version — e.g. for a typo'd version string.
         prompt_version = self.client.get_prompt_version(name=name, version=version)
         if prompt_version is None:
             raise ValueError(f"{kind}/{name} has no version {version!r}")
@@ -60,19 +55,15 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
 
     def list_versions(self, kind: str, name: str) -> dict[str, dict[str, object]]:
         self._check_kind(kind)
-        # mlflow.genai has no bulk "list all versions of a prompt" call as
-        # of MLflow 3.15.1 (only search_prompts() over prompt *names*) —
-        # walk version numbers until get_prompt_version returns None. Fine
-        # at the low version counts a persona prompt realistically has.
+        # mlflow.genai has no bulk "list all versions of a prompt" call as of
+        # 3.15.1 — walk version numbers until get_prompt_version returns None.
         versions: dict[str, dict[str, object]] = {}
         version = 1
         while True:
             try:
-                # get_prompt_version returns None for a missing *version* of
-                # a name that does exist, but raises MlflowException
-                # (RESOURCE_DOES_NOT_EXIST) when `name` itself was never
-                # registered — same "any MlflowException means not found"
-                # reading as get_active_version above.
+                # None means a missing *version* of an existing name, while an
+                # MlflowException (RESOURCE_DOES_NOT_EXIST) means `name` itself
+                # was never registered — either way it's not found.
                 pv = self.client.get_prompt_version(name=name, version=str(version))
             except MlflowException:
                 break
@@ -98,8 +89,7 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
         try:
             mlflow.genai.set_prompt_alias(name=name, alias=_ACTIVE_ALIAS, version=int(version))
         except MlflowException as exc:
-            # Same reading as get_active_version() above: any MlflowException
-            # here means the version doesn't exist.
+            # Any MlflowException here means the version doesn't exist.
             raise ValueError(f"{kind}/{name} has no registered versions") from exc
 
     @staticmethod

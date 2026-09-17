@@ -75,25 +75,15 @@ class KServeAdapter(IInferenceAdapter):
         hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
         """Same patch-first/create-on-404 shape as deploy_model(), for a
-        self-hosted LLM instead of an MLflow-registered artifact —
-        modelFormat "huggingface" (KServe's own vLLM-backed runtime,
-        confirmed against kserve.github.io/website/docs/getting-started/
-        genai-first-isvc), storageUri as an "hf://" reference instead of a
-        Model Registry URI. Not part of IInferenceAdapter — its
-        deploy_model() signature has no room for GPU/quantization/context-
-        length, same precedent as get_latest_version()/list_workflows()
-        being convenience methods outside their adapter's interface.
+        self-hosted LLM — modelFormat "huggingface" (KServe's own vLLM-backed
+        runtime), storageUri as an "hf://" reference. Not part of
+        IInferenceAdapter — its deploy_model() has no room for
+        GPU/quantization/context-length; same precedent as get_latest_version().
 
-        vllm_quantization is vLLM's own --quantization value (already
-        translated from the Dev-facing label by the caller,
-        llm_serving.registry.VLLM_QUANTIZATION_ARGS — adapters/ doesn't
-        import from services/orchestration-api/, so translation can't
-        happen here), or None to omit the flag entirely.
-
-        hf_token_secret_ref is a K8s Secret name (key "token"), never a
-        plaintext value — see routers/llm_serving.py's
-        PrepareLlmDeployRequest.hf_token_secret_ref docstring for why
-        nothing upstream of this adapter ever holds the real token."""
+        vllm_quantization is vLLM's own --quantization value (translated from
+        the Dev-facing label by llm_serving.registry.VLLM_QUANTIZATION_ARGS —
+        adapters/ can't import from services/orchestration-api/). hf_token_secret_ref
+        is a K8s Secret name (key "token"), never a plaintext value."""
         args = [
             f"--tensor-parallel-size={gpu_count}",
             f"--max-model-len={max_context_length}",

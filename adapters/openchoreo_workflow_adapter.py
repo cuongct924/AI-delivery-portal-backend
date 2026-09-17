@@ -1,26 +1,18 @@
 """Adapter for OpenChoreo's generic Workflow/WorkflowRun REST API — the
-"openchoreo" branch of adapters/factory.py's get_workflow_adapter(), and
-since Golden Paths #1/#3 cut over, the only real workflow backend (the
-legacy Argo Server adapter was removed — see
-docs/openchoreo-workflow-migration-plan.md).
+"openchoreo" branch of factory.py's get_workflow_adapter(); since Golden Paths
+#1/#3 cut over, the only real workflow backend (the Argo Server adapter was
+removed — see docs/openchoreo-workflow-migration-plan.md).
 
-REST shape confirmed two ways, per docs/openchoreo-migration-next-steps.md
-Phase 2's own instruction not to guess it: (1) read against
-openchoreo-workflows-backend's GenericWorkflowService.ts in the
-backstage-plugins repo (POST/GET
-/api/v1/namespaces/{namespaceName}/workflowruns, status derived from
-status.conditions), and (2) a real WorkflowRun triggered against the local
-k3d cluster (`k3d-openchoreo-quick-start`) to see the actual response
-shape/timing fields, not just the frontend's TypeScript types for it.
+REST shape confirmed two ways (per docs/openchoreo-migration-next-steps.md
+Phase 2): (1) read against openchoreo-workflows-backend's
+GenericWorkflowService.ts in the backstage-plugins repo (POST/GET
+/api/v1/namespaces/{ns}/workflowruns), and (2) a real WorkflowRun on the local
+k3d cluster to see the actual response shape.
 
-That live trigger also confirmed a fact the frontend code doesn't need to
-know but this adapter does: a WorkflowRun's ClusterWorkflow.spec.runTemplate
-(see infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml) still
-renders and applies a real `argoproj.io/v1alpha1 Workflow` object — just in
-an auto-created `workflows-<namespace>` execution namespace, not `namespace`
-itself. `status.tasks[]`/`status.conditions` (WorkflowRun's own status,
-already summarized from the underlying Argo Workflow) is everything this
-adapter needs — it never has to know that execution-namespace detail.
+The live trigger also confirmed something the frontend code doesn't need: a
+WorkflowRun's ClusterWorkflow still renders a real argoproj.io Workflow, just
+in an auto-created `workflows-<namespace>` execution namespace. WorkflowRun's
+own status is all this adapter needs — it never has to know that detail.
 """
 
 import os
@@ -35,15 +27,11 @@ OPENCHOREO_API_URL: Final[str] = os.getenv(
     "OPENCHOREO_API_URL", "http://api.openchoreo.localhost:8080/api/v1"
 )
 THUNDER_URL: Final[str] = os.getenv("THUNDER_URL", "http://thunder.openchoreo.localhost:8080")
-# Reuses the pre-existing "openchoreo-system-app" client (a generic
-# automation/integrations service account already provisioned by
-# thunder-bootstrap's 55-system-app.sh) rather than a dedicated one:
-# Thunder's /applications admin API still returns 401/403 for every
-# credential available in dev (same documented blocker as
-# agents/mcp-servers/llmops-golden-paths-server/README.md's "Known gap"
-# section) — registering a new client isn't possible without someone with
-# real Thunder admin access. Swap these once a dedicated client exists; see
-# infra/openchoreo/platform/authzrolebinding-workflow-trigger.yaml.
+# Reuses the pre-existing "openchoreo-system-app" client (provisioned by
+# thunder-bootstrap's 55-system-app.sh) — Thunder's /applications admin API
+# 401s for every credential in dev, so registering a new client isn't
+# possible without real Thunder admin access. Swap once a dedicated client
+# exists; see infra/openchoreo/platform/authzrolebinding-workflow-trigger.yaml.
 THUNDER_CLIENT_ID: Final[str] = os.getenv("OPENCHOREO_CLIENT_ID", "openchoreo-system-app")
 THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
     "OPENCHOREO_CLIENT_SECRET", "openchoreo-system-app-secret"
@@ -80,14 +68,10 @@ def _get_access_token() -> str:
 
 
 def _hyphen_to_camel(key: str) -> str:
-    """ "hidden-size" -> "hiddenSize" — CEL identifiers can't contain
-    hyphens (confirmed against every existing ClusterWorkflow's
-    parameters.openAPIV3Schema, e.g. dockerfile-builder's
-    buildArgs/buildEnv), but every caller of trigger_workflow()
-    (routers/models.py, routers/recommendations.py) already builds its
-    `parameters` dict with the hyphenated argument-name convention shared
-    with MockWorkflowAdapter. Translating here, not at the callers, keeps
-    IWorkflowAdapter's contract backend-agnostic."""
+    """ "hidden-size" -> "hiddenSize" — CEL identifiers can't contain hyphens,
+    but trigger_workflow()'s callers build `parameters` with hyphenated
+    argument names. Translating here keeps IWorkflowAdapter's contract
+    backend-agnostic."""
     head, *rest = key.split("-")
     return head + "".join(word.capitalize() for word in rest)
 
@@ -99,16 +83,11 @@ class WorkflowSummary(TypedDict):
 
 
 def _derive_phase_and_message(conditions: list[dict[str, object]]) -> tuple[str, str | None]:
-    """Maps WorkflowRun's status.conditions to the shared phase
-    vocabulary ("Succeeded"/"Failed"/"Running"/"Pending") so
-    routers/models.py's `phase in ("Succeeded", "Failed")` check keeps
-    working unchanged regardless of which adapter is behind it. Priority
-    order (WorkloadUpdated checked first) mirrors
-    openchoreo-workflows-backend's GenericWorkflowService.ts
-    deriveWorkflowRunStatus() exactly — WorkloadUpdated only ever appears
-    for component-build workflows, never for a training/monitoring
-    ClusterWorkflow, but it's cheap to handle correctly rather than assume
-    it can't happen.
+    """Maps WorkflowRun's status.conditions to the shared phase vocabulary
+    ("Succeeded"/"Failed"/"Running"/"Pending") so routers/models.py's
+    `phase in ("Succeeded", "Failed")` check works unchanged across backends.
+    Priority order mirrors GenericWorkflowService.ts's deriveWorkflowRunStatus():
+    WorkloadUpdated (component-build only) checked first.
     """
     by_type = {c["type"]: c for c in conditions if isinstance(c, dict) and "type" in c}
 
@@ -201,30 +180,18 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
     def create_cron_workflow(
         self, name: str, schedule: str, workflow_template_name: str, parameters: dict[str, str]
     ) -> dict[str, object]:
-        """Not implemented — openchoreo-api's generic Workflow/WorkflowRun
-        REST API has no CronWorkflow-equivalent concept; the intended
-        OpenChoreo replacement is a per-model `Component`
-        (`ClusterComponentType: cronjob/scheduled-task`, see
-        infra/openchoreo/telco-fraud-detection/component-training.yaml for
-        the shape), not a workflow trigger at all. The `telco-fraud-detection`
-        Project (renamed from `fraud-detection`) and its ProjectReleaseBinding
-        do now exist for real on the cluster (applied for the serving
-        Component's sake, see openchoreo_inference_adapter.py) — but the
-        `telco-fraud-detection-training` Component/Workload in that same
-        directory are still only applied for CI wiring, never exercised as a
-        working monitoring cron end to end.
+        """Not implemented — openchoreo-api has no CronWorkflow-equivalent;
+        the intended replacement is a per-model `Component`
+        (ClusterComponentType "cronjob/scheduled-task", see
+        infra/openchoreo/telco-fraud-detection/component-training.yaml), not a
+        workflow trigger. The `telco-fraud-detection-training` Component/
+        Workload is only applied for CI wiring, never exercised end to end.
 
-        The specific blocker: `scheduled-task`'s per-run `schedule` lives
-        under `environmentConfigs`, not `spec.parameters` (`kubectl get
-        clustercomponenttype scheduled-task -o yaml`), and
-        `environmentConfigs` is supplied per-environment via a
-        ReleaseBinding, not settable on `Component.spec` directly (confirmed
-        by `kubectl apply --dry-run=server` rejecting an
-        `environmentConfigs` key there). Implementing this for real needs a
-        ReleaseBinding-creation call this adapter doesn't make yet — out of
-        scope for this pass; building a dynamic per-model/per-schedule
-        Component on top of a mechanism not yet exercised against the real
-        cluster would be guessing, not implementing.
+        Blocker: scheduled-task's per-run `schedule` lives under
+        `environmentConfigs` (supplied per-environment via a ReleaseBinding),
+        not settable on Component.spec directly — confirmed by a
+        `kubectl apply --dry-run=server` rejection. Implementing this needs a
+        ReleaseBinding-creation call this adapter doesn't make yet.
         """
         raise NotImplementedError(
             "OpenChoreoWorkflowAdapter.create_cron_workflow: no CronWorkflow-equivalent "

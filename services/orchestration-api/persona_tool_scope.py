@@ -41,9 +41,8 @@ _GOLDEN_PATH_TOOLS: ToolScope = frozenset(
     }
 )
 
-# agents/mcp-servers/mlops-golden-paths-server/server.py — Train->Track->
-# Register / Register->Deploy / Serving LLM lifecycle, includes the 4
-# NEEDS_CONFIRMATION mutating tools.
+# agents/mcp-servers/mlops-golden-paths-server/server.py — Train->Register->
+# Deploy/Serving LLM lifecycle, includes the 4 NEEDS_CONFIRMATION tools.
 _MLOPS_GOLDEN_PATH_TOOLS: ToolScope = frozenset(
     {
         "validate_dataset",

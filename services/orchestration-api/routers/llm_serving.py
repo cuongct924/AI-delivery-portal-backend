@@ -38,11 +38,8 @@ _JINJA_ENV: Final[Environment] = Environment(loader=FileSystemLoader(_TEMPLATES_
 
 _ENVIRONMENTS: Final[frozenset[str]] = frozenset({"dev", "staging", "prod"})
 
-# Gates POST /llm-deploy/prepare's release_strategy="instant" — see that
-# route's docstring for why this is checked there instead of as a Scaffolder
-# UI-only restriction (RbacGatedEnum in the frontend redesign plan still
-# needs a real server-side gate behind it, or hiding the field client-side
-# is security theater).
+# release_strategy="instant" needs llm-ops-admin — a real server-side gate,
+# since hiding the field client-side alone would be security theater.
 _LLM_OPS_ADMIN_ROLE: Final[str] = "llm-ops-admin"
 
 
@@ -54,27 +51,21 @@ class PrepareLlmDeployRequest(BaseModel):
     gpu_count: int = 1
     quantization: str = "none"
     max_context_length: int = 4096
-    # "direct" | "canary" | "ab" | "blue-green" — same shape as models.py.
+    # "direct" | "canary" | "ab" | "blue-green" (same shape as models.py).
     traffic_strategy: str = "direct"
     traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
-    # "dev" | "staging" | "prod" — only "dev" can ever pair with
-    # release_strategy="instant", see prepare_llm_deploy_manifest's
-    # docstring for why.
+    # "dev" | "staging" | "prod" — only "dev" may pair with "instant",
+    # see prepare_llm_deploy_manifest's docstring for why.
     environment: str = "dev"
-    # A K8s Secret name (key "token"), resolved server-side — never a
-    # plaintext HuggingFace token. Required when
-    # GET /llm-deploy/validate-model reported is_gated=true for
-    # huggingface_model_id; the rendered manifest references this name via
-    # secretKeyRef (see templates/llm_inference_service.yaml.j2 and
-    # KServeAdapter.deploy_llm_model's own docstring) so the token itself
-    # never passes through this API, a PR diff, or git history.
+    # A K8s Secret name (key "token"), resolved server-side so a plaintext
+    # HuggingFace token never passes through this API or a PR. Required when
+    # /llm-deploy/validate-model reported is_gated=true.
     hf_token_secret_ref: str | None = None
 
-    # Optimization flags — only a subset supported per runtime in MVP.
-    # validate_runtime_optimizations() rejects unsupported flags with a clear
-    # error. The form shows all flags; backend enforces what actually works.
+    # Only a subset is supported per runtime — validate_runtime_optimizations()
+    # rejects the rest with a clear error.
     batchingStrategy: str | None = None  # static | dynamic | continuous
     enablePagedAttention: bool | None = None
     enablePrefixCaching: bool | None = None
@@ -237,7 +228,6 @@ def prepare_llm_deploy_manifest(
     runtime_spec = get_llm_serving_runtime(request.runtime)
     vllm_quantization = VLLM_QUANTIZATION_ARGS.get(request.quantization)
 
-    # Validate optimization flags against runtime support matrix.
     optimizations = {
         "batchingStrategy": request.batchingStrategy,
         "enablePagedAttention": request.enablePagedAttention,
@@ -287,12 +277,9 @@ def prepare_llm_deploy_manifest(
         enable_prefix_caching=request.enablePrefixCaching,
         pipeline_parallel_size=request.pipelineParallelSize,
     )
-    # environment is validated against _ENVIRONMENTS, and instant release
-    # (the only path that writes for real, below) already rejected
-    # anything but "dev" above — a PR-gated staging/prod manifest still
-    # renders under its own environment directory so the human applying
-    # it (via the normal promotion path, see
-    # infra/openchoreo/deployment-pipeline.yaml) opens it in the right place.
+    # Only "dev" + "instant" writes for real (checked above); a PR-gated
+    # staging/prod manifest renders under its own environment directory so
+    # the human applying it opens it in the right place.
     file_name = (
         f"infra/environments/{request.environment}/inference-services/llmops-team/"
         f"{request.model_name}/llm.yaml"

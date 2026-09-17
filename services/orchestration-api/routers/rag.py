@@ -14,9 +14,9 @@ from pathlib import Path
 from typing import Final
 
 from auth.thunder import get_current_user
-from evaluations.gate import evaluate_gate
+from evaluations.evaluate_gate import evaluate_gate
 from evaluations.llm_judge import judge_response
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
@@ -100,10 +100,8 @@ def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
     return [text[i : i + chunk_size] for i in range(0, len(text), step)]
 
 
-# Declared ahead of the "/{collection}" catch-all below — FastAPI matches
-# routes in declaration order, so "/collections" would otherwise be
-# swallowed by "/{collection}" (collection="collections") and never reach
-# these handlers.
+# Declared before the "/{collection}" catch-all below — FastAPI matches
+# routes in declaration order, or "/collections" would swallow it.
 @router.get("/collections", response_model=RagCollectionNamesResponse)
 def list_rag_collections(user: dict = Depends(get_current_user)) -> RagCollectionNamesResponse:
     return RagCollectionNamesResponse(names=registry_adapter.list_names("rag-index"))
@@ -137,6 +135,10 @@ def rag_ingest(
     chunks: list[str] = []
     sources: list[str] = []
     for source_path in request.source_paths:
+        # Repo-relative path resolved against the container's WORKDIR — 400 for
+        # a typo or an unmounted doc instead of a raw FileNotFoundError 500.
+        if not Path(source_path).is_file():
+            raise HTTPException(400, f"source file not found: {source_path}")
         text = Path(source_path).read_text()
         for chunk in _chunk_text(text, request.chunk_size, request.chunk_overlap):
             chunks.append(chunk)

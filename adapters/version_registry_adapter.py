@@ -18,8 +18,7 @@ class _NameEntry(TypedDict):
     active_version: str | None
 
 
-# {kind: {name: _NameEntry}} — e.g. {"prompt": {"mlops": {"versions": {...},
-# "active_version": "1"}}}
+# {kind: {name: _NameEntry}} — e.g. {"prompt": {"mlops": {"versions": ...}}}
 type _RegistryData = dict[str, dict[str, _NameEntry]]
 
 

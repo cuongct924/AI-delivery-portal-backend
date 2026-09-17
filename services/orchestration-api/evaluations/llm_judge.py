@@ -1,7 +1,7 @@
 """LLM-as-a-judge — uses Claude itself to score another Agent's/model's
 response against a rubric (safety, correctness, relevance) before allowing it
 into production. Unlike traditional MLOps: not based on a single simple
-accuracy threshold (see evaluations/gate.py).
+accuracy threshold (see evaluations/evaluate_gate.py).
 """
 
 import json

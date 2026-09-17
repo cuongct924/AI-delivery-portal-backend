@@ -2,7 +2,7 @@
 backend when no OpenChoreo cluster is up.
 
 A triggered workflow reports phase="Running" on its first status check and
-phase="Succeeded" from the second onward, to demo a real state transition.
+"Succeeded" from the second on, to demo a real state transition.
 """
 
 import uuid
@@ -83,8 +83,8 @@ class MockWorkflowAdapter(IWorkflowAdapter):
     ) -> dict[str, object]:
         """Convenience method, not part of IWorkflowAdapter — returns an
         Argo-style CronWorkflow resource. The mock is the only backend that
-        supports scheduled monitoring today: OpenChoreoWorkflowAdapter has
-        no CronWorkflow equivalent and raises NotImplementedError."""
+        supports scheduled monitoring today; OpenChoreoWorkflowAdapter raises
+        NotImplementedError."""
         cron_workflow = {
             "metadata": {"name": name},
             "spec": {

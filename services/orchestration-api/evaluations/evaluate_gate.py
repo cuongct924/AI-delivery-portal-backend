@@ -83,12 +83,9 @@ TASK_TYPE_THRESHOLDS: Final[dict[str, list[MetricThreshold]]] = {
     "clustering": [
         MetricThreshold("silhouette_score", minimum=0.25),
     ],
-    # anomaly_rate is the only metric guaranteed to exist (train.py's
-    # target_column is optional for this task type — see metrics.py) —
-    # bounds are a sanity check, not a quality bar: too low means the
-    # model isn't flagging anything, too high means it's flagging most of
-    # the dataset. precision/recall/f1 get logged too when a label column
-    # was provided, but aren't gated on since they're not always present.
+    # anomaly_rate is the only metric guaranteed to exist (target_column is
+    # optional for this task type) — bounds sanity-check it isn't flagging
+    # nothing or everything; the optional precision/recall/f1 aren't gated.
     "anomaly-detection": [
         MetricThreshold("anomaly_rate", minimum=0.01, maximum=0.3),
     ],

@@ -140,8 +140,6 @@ def check_target_leakage_correlation(
     for column in df.columns:
         if column == target_column or not pd.api.types.is_numeric_dtype(df[column]):
             continue
-        # pandas' bundled stub resolves corr()'s overload/return type
-        # unreliably — cast to the actual runtime type (float).
         correlation = cast(
             float,
             df[column].corr(target_series),  # pyright: ignore
@@ -276,8 +274,8 @@ def check_time_gaps(df: pd.DataFrame, time_column: str) -> CheckResult:
     if len(timestamps) < 3:
         return CheckResult("check_time_gaps", "info", "not enough timestamps to evaluate gaps", {})
     gaps = timestamps.diff().dropna()
-    # Series.median()'s stub isn't dtype-specialized — it's actually a
-    # Timedelta here (gaps come from diffing datetimes), not a float.
+    # Series.median() of datetime diffs is a Timedelta at runtime, despite the
+    # stub typing it as a float.
     median_gap = cast(pd.Timedelta, gaps.median())
     if median_gap == pd.Timedelta(0):
         return CheckResult(

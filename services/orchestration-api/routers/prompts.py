@@ -1,20 +1,13 @@
-"""Prompt Registry API — manages versions of system prompts, kept fully
-separate from the Model Registry (unlike traditional MLOps, see docs/architecture.md).
-The Portal reads this data through the `plugins/prompt-registry/` plugin
-(Backstage), via the `/orchestration-api` proxy declared in app-config.yaml.
-
-Backed by MlflowPromptRegistryAdapter (kind="prompt") — MLflow's native
-Prompt Registry (mlflow.genai.*), not the file-backed adapter
-routers/rag.py uses for "rag-index" (a prompt is a real MLflow-tracked
-artifact; a RAG index pointer isn't). Two personas ("mlops", "k8s") are
-seeded at import time so existing behavior survives a first restart
-unchanged; new personas register via POST /prompts.
-"""
+"""Prompt Registry API — versions system prompts separately from the Model
+Registry (see docs/architecture.md). Backed by MLflow's native Prompt
+Registry (MlflowPromptRegistryAdapter, kind="prompt"), not routers/rag.py's
+file-backed "rag-index" adapter. Two personas ("mlops", "k8s") seed at
+import time; new ones register via POST /prompts."""
 
 from datetime import datetime
 
 from auth.thunder import get_current_user
-from evaluations.gate import evaluate_gate
+from evaluations.evaluate_gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
@@ -140,10 +133,8 @@ def list_prompt_versions(
 def get_prompt_active_version(
     name: str, user: dict = Depends(get_current_user)
 ) -> PromptActiveVersionResponse:
-    # Mirrors routers/rag.py's get_rag_active_version — added for
-    # agents/mcp-servers/observability-server's get_active_prompt_version,
-    # which used to fetch every persona and filter client-side because no
-    # by-name endpoint existed.
+    # Mirrors rag.py's get_rag_active_version — added for observability-server's
+    # get_active_prompt_version, which previously filtered every persona client-side.
     return PromptActiveVersionResponse(
         name=name, active_version=registry_adapter.get_active_version("prompt", name)
     )

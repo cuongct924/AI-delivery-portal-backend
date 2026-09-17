@@ -18,17 +18,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
     def __init__(self, root_path: str | None = None, mount_path: str = "/mnt/data"):
         self.root_path = Path(root_path or os.getenv("LOCAL_DATASETS_PATH") or _REPO_ROOT / "data")
-        # Where the training pod (k3d, not this process) sees these same
-        # files — same reasoning as MinioObjectStorageAdapter's own
-        # mount_path. `root_path` is wherever *this* process happens to
-        # run (the repo checkout, or docker-compose's ./data bind-mount at
-        # /app/data) — neither is the k3d training pod's filesystem, so a
-        # URI built from root_path (e.g. path.as_uri()) would 404 there
-        # even though it resolves fine right here. `/mnt/data` is synced
-        # onto the k3d server node's filesystem separately (docker cp —
-        # see infra/argo-workflows/train-register-cluster-template.yaml's hostPath
-        # volume comment and top-level README.md); this only ever
-        # constructs the URI train.py will read, never touches the file.
+        # Where the k3d training pod sees these files (hostPath mount, synced
+        # via `docker cp`) — not this process's filesystem, so uris are always
+        # built from mount_path, never root_path (see the hostPath comment in
+        # infra/argo-workflows/train-register-cluster-template.yaml).
         self.mount_path = mount_path
 
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
@@ -36,9 +29,8 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
             return []
         datasets: list[DatasetInfo] = []
         for path in sorted(self.root_path.rglob(f"{prefix}*")):
-            # A ".dvc" pointer file sitting next to it is what makes a file
-            # a *dataset* DVC tracks, as opposed to README.md/.gitignore or
-            # any other non-tracked file that happens to live under data/.
+            # A ".dvc" pointer file next to it marks a *tracked dataset*, as
+            # opposed to any other file living under data/.
             if not path.is_file() or not Path(f"{path}.dvc").exists():
                 continue
             relative_path = path.relative_to(self.root_path)

@@ -50,7 +50,6 @@ class QdrantAdapter(IVectorStoreAdapter):
         hits = self.client.query_points(
             collection_name=collection or self.collection, query=query_vector, limit=top_k
         ).points
-        # str(): upsert() takes ids: list[str] — IDs are strings throughout
-        # this interface, even though qdrant-client's ExtendedPointId can
-        # also carry int/UUID at the wire level.
+        # str(): upsert() takes ids: list[str] — IDs are strings throughout this
+        # interface, even though qdrant-client also supports int/UUID.
         return [SearchHit(id=str(h.id), score=h.score, payload=h.payload or {}) for h in hits]

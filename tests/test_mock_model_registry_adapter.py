@@ -30,7 +30,7 @@ def test_register_model_with_dataset_version_tags_it(adapter: MockModelRegistryA
 def test_registered_metrics_pass_every_task_type_threshold(
     adapter: MockModelRegistryAdapter,
 ) -> None:
-    from evaluations.gate import TASK_TYPE_THRESHOLDS, evaluate_metrics_gate
+    from evaluations.evaluate_gate import TASK_TYPE_THRESHOLDS, evaluate_metrics_gate
 
     adapter.register_model("fraud-detection", "runs:/abc/model")
     metrics = adapter.get_model_metrics("fraud-detection", "1")

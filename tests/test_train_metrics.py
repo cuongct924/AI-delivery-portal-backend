@@ -32,7 +32,7 @@ def test_clustering_metrics_shape() -> None:
 
 def test_anomaly_detection_metrics_without_labels() -> None:
     # No target_column set — anomaly_rate is the only metric that needs no
-    # ground truth (see gate.py's threshold, which only gates on this one).
+    # ground truth (see evaluate_gate.py's threshold, which only gates on this one).
     y_pred = np.array([0, 0, 1, 0, 0])
     result = compute_metrics("anomaly-detection", None, y_pred)
     assert set(result) == {"anomaly_rate"}

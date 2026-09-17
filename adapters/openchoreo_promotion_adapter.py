@@ -1,44 +1,29 @@
-"""Adapter for OpenChoreo's DeploymentPipeline/ProjectReleaseBinding-based
-promotion — the "openchoreo" real implementation of IPromotionAdapter,
-replacing observability-server's mocked get_promotion_status.
+"""Real IPromotionAdapter for OpenChoreo's DeploymentPipeline/
+ProjectReleaseBinding-based promotion, replacing observability-server's mocked
+get_promotion_status. Same `CustomObjectsApi` convention as
+adapters/openchoreo_inference_adapter.py, against the ProjectReleaseBinding CRD
+(see infra/openchoreo/deployment-pipeline.yaml).
 
-Same `kubernetes.client.CustomObjectsApi` convention as
-adapters/openchoreo_inference_adapter.py, against the ProjectReleaseBinding
-CRD (see infra/openchoreo/deployment-pipeline.yaml,
-infra/openchoreo/environments.yaml,
-infra/openchoreo/telco-fraud-detection/projectreleasebinding-development.yaml).
+The promotion path (development -> staging -> production) is hardcoded rather
+than read from the live DeploymentPipeline object — it mirrors
+infra/openchoreo/deployment-pipeline.yaml's spec.promotionPaths exactly, and
+parsing an arbitrary DAG for one fixed 2-hop chain isn't worth it. Update both
+places together if promotionPaths ever changes.
 
-The promotion *path* (development -> staging -> production) is hardcoded
-here rather than read from the live DeploymentPipeline object — it mirrors
-infra/openchoreo/deployment-pipeline.yaml's `spec.promotionPaths` exactly,
-and reading it dynamically would need parsing an arbitrary DAG for a
-single, fixed 2-hop chain this repo will only ever have one of. Update both
-places together if that file's promotionPaths ever change.
+**Why `promote()` alone counts as "manual approval"**: the only path reaching
+it is a Dev running the "Evaluate & Deploy Model" Golden Path with action=promote
+(the frontend repo's register-deploy template) — nothing in agents/mcp-servers/
+calls it (get_promotion_status stays the read-only MCP tool; promote() isn't a
+tool at all). A second stored "pending" approval gate was rejected: this repo
+has no distinct requester/approver identities yet (every call carries the same
+Thunder-authenticated user), so a same-person request-then-approve would be
+theater. Revisit if that identity model ever exists.
 
-**Why `promote()` alone counts as "manual approval"**: the only real path
-that reaches this method is a Dev running the "Evaluate & Deploy Model"
-Golden Path template themselves with action=promote (see
-templates/register-deploy/template.yaml's `promote` step in the frontend
-repo — merged into that template rather than a separate one, same screen
-as deploy/rollback) — nothing in agents/mcp-servers/ ever calls it
-(get_promotion_status stays the read-only MCP tool; promote() isn't
-exposed as a tool at all). A
-second approval gate on top (e.g. a stored "pending" state a *different*
-human must separately click "approve" on) was considered and rejected:
-this repo has no notion of distinct requester/approver identities yet
-(every call carries the same Thunder-authenticated user, see
-routers/models.py's `Depends(get_current_user)`), so a same-person
-"request" then "approve" step would be theater, not a real control. If
-that identity model ever exists, revisit this.
-
-`rollback_promotion()` is the staging/prod counterpart to
-adapters/deploy_strategies.py's dev-side rollback — undoes the last
-`promote()`/`rollback_promotion()` call for one environment by swapping
-back to whatever release was there immediately before it, read from the
-`_PREVIOUS_RELEASE_ANNOTATION` every `_upsert_binding()` call records on
-the binding it's about to overwrite. One level deep (an undo, not a full
-history) — `ProjectReleaseBinding` itself only ever held one pointer, so
-this is strictly additive, not a redesign.
+`rollback_promotion()` is the staging/prod counterpart to deploy_strategies.py's
+dev-side rollback — swaps an environment back to whatever release was there via
+the `_PREVIOUS_RELEASE_ANNOTATION` every `_upsert_binding()` records. One level
+deep (an undo, not a history) — ProjectReleaseBinding only ever held one
+pointer, so this is strictly additive.
 """
 
 from typing import Final, cast
@@ -59,12 +44,9 @@ _SOURCE_ENVIRONMENT: Final[dict[str, str]] = {
 }
 _ENVIRONMENTS: Final[tuple[str, ...]] = ("development", "staging", "production")
 
-# ProjectReleaseBinding is a single pointer with no history of its own —
-# this annotation is how rollback_promotion() gets one, recorded on every
-# _upsert_binding() call that actually changes the pointer. One level deep
-# (an undo, not a full log) — enough for "the last promote to this
-# environment was a mistake, put it back," which is the actual emergency
-# this exists for.
+# ProjectReleaseBinding is a single pointer with no history of its own — this
+# annotation records the previous release on every _upsert_binding() that
+# changes it, one level deep (an undo, not a log).
 _PREVIOUS_RELEASE_ANNOTATION: Final[str] = "ai-delivery-portal.io/previous-release"
 
 

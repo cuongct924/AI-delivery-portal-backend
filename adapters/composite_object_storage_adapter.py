@@ -21,8 +21,7 @@ class CompositeObjectStorageAdapter(IObjectStorageAdapter):
             try:
                 datasets.extend(adapter.list_datasets(prefix))
             except Exception:
-                # One source being unreachable (e.g. MinIO not running
-                # locally) shouldn't hide datasets the other source(s)
-                # can still list.
+                # One source being unreachable (e.g. MinIO down) shouldn't
+                # hide datasets the other source(s) can still list.
                 logger.warning("%s failed to list datasets", type(adapter).__name__, exc_info=True)
         return datasets

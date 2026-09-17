@@ -86,11 +86,8 @@ VLLM_QUANTIZATION_ARGS: Final[dict[str, str]] = {
 }
 
 
-# Optimization flags supported by each runtime — same registry-by-dimension
-# pattern as GPU_QUANTIZATION_COMPATIBILITY. Only flags in this set for the
-# chosen runtime pass validate_runtime_optimizations(); others raise a clear
-# "not supported in MVP" error. This keeps the UI honest: the form shows all
-# flags, but the backend tells you exactly which ones work today.
+# Flags each runtime supports — only these pass validate_runtime_optimizations();
+# the UI shows all flags, the backend enforces the working subset.
 RUNTIME_OPTIMIZATION_SUPPORT: Final[dict[str, frozenset[str]]] = {
     "vllm": frozenset(
         {
@@ -147,7 +144,6 @@ def validate_runtime_optimizations(runtime: str, optimizations: dict[str, object
 
     for flag, value in optimizations.items():
         if flag not in supported and value not in (None, False, "", 0):
-            # Only flag an error if the value is truthy/set (not None/False/"")
             raise ValueError(
                 f"Optimization '{flag}' is not supported for runtime '{runtime}' "
                 f"in this MVP — supported flags for '{runtime}': {sorted(supported)}. "
