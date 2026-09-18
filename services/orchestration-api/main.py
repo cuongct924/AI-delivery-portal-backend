@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from mcp_client import McpToolRegistry
 from observability.dora_metrics import LLM_SPEND_USD
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -19,6 +20,7 @@ from routers import (
     golden_paths,
     llm_models,
     llm_serving,
+    mock_observer,
     models,
     monitoring,
     portal_assistant,
@@ -72,6 +74,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="AI Delivery Portal — Orchestration API", lifespan=lifespan)
+
+# The Portal frontend calls the mock observer (routers/mock_observer.py)
+# directly from the browser, so it needs CORS. Comma-separated override via
+# CORS_ALLOWED_ORIGINS; defaults to the local Backstage dev server.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=os.getenv(
+        "CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:7007"
+    ).split(","),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(chat.router)
 app.include_router(prompts.router)
 app.include_router(models.router)
@@ -81,6 +97,7 @@ app.include_router(rag.router)
 app.include_router(portal_assistant.router)
 app.include_router(golden_paths.router)
 app.include_router(llm_models.router)
+app.include_router(mock_observer.router)
 
 # feast (via adapters.factory) sets PROMETHEUS_MULTIPROC_DIR at import time,
 # which makes Instrumentator's /metrics read empty multiprocess .db files

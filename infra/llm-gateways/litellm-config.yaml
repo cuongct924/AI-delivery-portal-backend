@@ -31,3 +31,10 @@ model_list:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+
+# When the Anthropic key has no credit (or is rate-limited), fall back to the
+# free local Ollama model instead of 400'ing the whole chat. qwen2.5-local is
+# the tool-calling-capable one (see its note above).
+litellm_settings:
+  fallbacks:
+    - claude-sonnet-5: ["qwen2.5-local"]

@@ -137,6 +137,10 @@ services:
       # Same host-gateway routing as THUNDER_URL — openchoreo-api is only
       # reachable through the k3d gateway's external hostname.
       OPENCHOREO_API_URL: http://api.openchoreo.localhost:8080/api/v1
+      # Delivery Insights mock observer data source: "mock" (synthetic,
+      # default) or "captured" (real runs from
+      # scripts/capture-delivery-insights-runs.sh). See routers/mock_observer.py.
+      MOCK_OBSERVER_DATA_SOURCE: ${MOCK_OBSERVER_DATA_SOURCE:-mock}
     # k3d gateway hostnames -> real host machine; auto-loopback isn't guaranteed
     # inside a container.
     extra_hosts:

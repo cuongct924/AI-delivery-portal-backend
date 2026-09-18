@@ -1,0 +1,400 @@
+{
+  "captured_at": "2026-09-18T05:32:04.908520+00:00",
+  "source": "k3d openchoreo-quick-start / namespace default / train-register-golden-path",
+  "runs": [
+    {
+      "name": "train-register-golden-path-1789625808788",
+      "started_at": "2026-09-17T06:16:48Z",
+      "finished_at": "2026-09-17T06:17:30Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T06:16:49Z",
+          "finished_at": "2026-09-17T06:17:15Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789628461749",
+      "started_at": "2026-09-17T07:01:01Z",
+      "finished_at": "2026-09-17T07:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T07:01:02Z",
+          "finished_at": "2026-09-17T07:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789632061468",
+      "started_at": "2026-09-17T08:01:01Z",
+      "finished_at": "2026-09-17T08:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T08:01:02Z",
+          "finished_at": "2026-09-17T08:01:31Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789635661543",
+      "started_at": "2026-09-17T09:01:01Z",
+      "finished_at": "2026-09-17T09:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T09:01:02Z",
+          "finished_at": "2026-09-17T09:01:30Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789639261852",
+      "started_at": "2026-09-17T10:01:01Z",
+      "finished_at": "2026-09-17T10:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T10:01:02Z",
+          "finished_at": "2026-09-17T10:01:28Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789642861842",
+      "started_at": "2026-09-17T11:01:01Z",
+      "finished_at": "2026-09-17T11:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T11:01:02Z",
+          "finished_at": "2026-09-17T11:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789649064026",
+      "started_at": "2026-09-17T12:44:24Z",
+      "finished_at": "2026-09-17T12:45:05Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T12:44:24Z",
+          "finished_at": "2026-09-17T12:44:52Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789650061468",
+      "started_at": "2026-09-17T13:01:01Z",
+      "finished_at": "2026-09-17T13:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T13:01:01Z",
+          "finished_at": "2026-09-17T13:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789653661936",
+      "started_at": "2026-09-17T14:01:01Z",
+      "finished_at": "2026-09-17T14:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T14:01:02Z",
+          "finished_at": "2026-09-17T14:01:24Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789657261140",
+      "started_at": "2026-09-17T15:01:01Z",
+      "finished_at": "2026-09-17T15:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T15:01:02Z",
+          "finished_at": "2026-09-17T15:01:31Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789660862154",
+      "started_at": "2026-09-17T16:01:02Z",
+      "finished_at": "2026-09-17T16:01:43Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T16:01:02Z",
+          "finished_at": "2026-09-17T16:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789664461075",
+      "started_at": "2026-09-17T17:01:01Z",
+      "finished_at": "2026-09-17T17:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T17:01:01Z",
+          "finished_at": "2026-09-17T17:01:27Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789668061258",
+      "started_at": "2026-09-17T18:01:01Z",
+      "finished_at": "2026-09-17T18:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T18:01:02Z",
+          "finished_at": "2026-09-17T18:01:27Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789671661168",
+      "started_at": "2026-09-17T19:01:01Z",
+      "finished_at": "2026-09-17T19:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T19:01:01Z",
+          "finished_at": "2026-09-17T19:01:28Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789675261221",
+      "started_at": "2026-09-17T20:01:01Z",
+      "finished_at": "2026-09-17T20:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T20:01:02Z",
+          "finished_at": "2026-09-17T20:01:28Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789678861430",
+      "started_at": "2026-09-17T21:01:01Z",
+      "finished_at": "2026-09-17T21:01:44Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T21:01:02Z",
+          "finished_at": "2026-09-17T21:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789682460969",
+      "started_at": "2026-09-17T22:01:01Z",
+      "finished_at": "2026-09-17T22:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T22:01:01Z",
+          "finished_at": "2026-09-17T22:01:28Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789686061095",
+      "started_at": "2026-09-17T23:01:01Z",
+      "finished_at": "2026-09-17T23:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-17T23:01:02Z",
+          "finished_at": "2026-09-17T23:01:29Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789693571188",
+      "started_at": "2026-09-18T01:06:11Z",
+      "finished_at": "2026-09-18T01:06:54Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T01:06:12Z",
+          "finished_at": "2026-09-18T01:06:40Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789696861502",
+      "started_at": "2026-09-18T02:01:01Z",
+      "finished_at": "2026-09-18T02:02:03Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T02:01:02Z",
+          "finished_at": "2026-09-18T02:01:35Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789700461367",
+      "started_at": "2026-09-18T03:01:01Z",
+      "finished_at": "2026-09-18T03:01:44Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T03:01:02Z",
+          "finished_at": "2026-09-18T03:01:33Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789706914995",
+      "started_at": "2026-09-18T04:48:35Z",
+      "finished_at": "2026-09-18T04:49:57Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T04:48:36Z",
+          "finished_at": "2026-09-18T04:49:20Z"
+        },
+        {
+          "name": "register",
+          "started_at": "2026-09-18T04:49:30Z",
+          "finished_at": "2026-09-18T04:49:41Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789707661004",
+      "started_at": "2026-09-18T05:01:01Z",
+      "finished_at": "2026-09-18T05:01:42Z",
+      "outcome": "failure",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:01:01Z",
+          "finished_at": "2026-09-18T05:01:22Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789709346890",
+      "started_at": "2026-09-18T05:29:06Z",
+      "finished_at": "2026-09-18T05:31:38Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "register",
+          "started_at": "2026-09-18T05:30:23Z",
+          "finished_at": "2026-09-18T05:30:35Z"
+        },
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:29:09Z",
+          "finished_at": "2026-09-18T05:30:12Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789709346959",
+      "started_at": "2026-09-18T05:29:07Z",
+      "finished_at": "2026-09-18T05:30:58Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "register",
+          "started_at": "2026-09-18T05:30:23Z",
+          "finished_at": "2026-09-18T05:30:32Z"
+        },
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:29:09Z",
+          "finished_at": "2026-09-18T05:30:12Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789709346996",
+      "started_at": "2026-09-18T05:29:07Z",
+      "finished_at": "2026-09-18T05:31:08Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:29:09Z",
+          "finished_at": "2026-09-18T05:30:11Z"
+        },
+        {
+          "name": "register",
+          "started_at": "2026-09-18T05:30:22Z",
+          "finished_at": "2026-09-18T05:30:34Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789709347032",
+      "started_at": "2026-09-18T05:29:07Z",
+      "finished_at": "2026-09-18T05:31:48Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:29:22Z",
+          "finished_at": "2026-09-18T05:30:20Z"
+        },
+        {
+          "name": "register",
+          "started_at": "2026-09-18T05:30:51Z",
+          "finished_at": "2026-09-18T05:31:10Z"
+        }
+      ]
+    },
+    {
+      "name": "train-register-golden-path-1789709347067",
+      "started_at": "2026-09-18T05:29:07Z",
+      "finished_at": "2026-09-18T05:31:48Z",
+      "outcome": "success",
+      "steps": [
+        {
+          "name": "train",
+          "started_at": "2026-09-18T05:29:14Z",
+          "finished_at": "2026-09-18T05:30:14Z"
+        },
+        {
+          "name": "register",
+          "started_at": "2026-09-18T05:30:53Z",
+          "finished_at": "2026-09-18T05:31:08Z"
+        }
+      ]
+    }
+  ]
+}
