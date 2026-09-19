@@ -1,0 +1,20 @@
+# agents/mcp-servers/golden-path-guide-server as a real OpenChoreo
+# Component, pinned onto worker1 — see component-observability-server.yaml.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: golden-path-guide-server
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/pinned-service
+  autoDeploy: true
+  # Actual nodeSelector/tolerations/resources pin lives on
+  # releasebinding-golden-path-guide-server-development.yaml — see
+  # releasebinding-orchestration-api-development.yaml's comment for why
+  # Component.spec.parameters doesn't work for this.

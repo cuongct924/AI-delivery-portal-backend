@@ -1,0 +1,40 @@
+# Was docker-compose.yml's `qdrant` service — same image, no persistence
+# config (matches the old compose setup, which had none either; add a PVC
+# here if that changes).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qdrant
+  namespace: ai-platform-zone
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: qdrant}
+  template:
+    metadata:
+      labels: {app: qdrant}
+    spec:
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
+      containers:
+        - name: qdrant
+          image: qdrant/qdrant:v1.19.0
+          ports:
+            - {containerPort: 6333, name: http}
+            - {containerPort: 6334, name: grpc}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: ai-platform-zone
+spec:
+  selector: {app: qdrant}
+  ports:
+    - {name: http, port: 6333, targetPort: 6333}
+    - {name: grpc, port: 6334, targetPort: 6334}

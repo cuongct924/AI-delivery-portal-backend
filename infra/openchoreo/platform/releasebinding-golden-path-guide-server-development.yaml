@@ -1,0 +1,24 @@
+# See releasebinding-orchestration-api-development.yaml's comment for why
+# this file (not Component.spec.parameters) is the real place the
+# worker1 node pin lives.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ReleaseBinding
+metadata:
+  name: golden-path-guide-server-development
+  namespace: default
+spec:
+  environment: development
+  owner:
+    componentName: golden-path-guide-server
+    projectName: platform
+  componentTypeEnvironmentConfigs:
+    resources:
+      requests: {cpu: 100m, memory: 128Mi}
+      limits: {cpu: 500m, memory: 256Mi}
+    nodeSelector:
+      plane.viettel.vn: data-plane-portal
+    tolerations:
+      - key: dedicated.viettel.vn
+        operator: Equal
+        value: data-plane-portal
+        effect: NoSchedule

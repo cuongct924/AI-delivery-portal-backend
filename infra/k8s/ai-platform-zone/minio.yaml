@@ -1,0 +1,58 @@
+# Was docker-compose.yml's `minio` service (docker-compose retired — see
+# CLAUDE.md). hostPath, not a PVC: /mnt/ai-platform-data is the repo's own
+# ./data (dataset folders) `docker cp`'d onto k3d-worker2-0 by
+# scripts/setup-3node-infra.sh — same trick already used for the training
+# workflow's dataset mount (infra/argo-workflows/train-register-cluster-template.yaml's
+# /mnt/data) — so every top-level folder under ./data shows up as a bucket,
+# reusing the files as-is instead of re-uploading them.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: ai-platform-zone
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: minio}
+  template:
+    metadata:
+      labels: {app: minio}
+    spec:
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
+      containers:
+        - name: minio
+          # docker.io/minio/minio is gone (repository no longer exists there
+          # as of this writing) — quay.io is MinIO's actual distribution
+          # channel now.
+          image: quay.io/minio/minio:RELEASE.2025-04-08T15-41-24Z
+          args: ["server", "/mnt/ai-platform-data", "--console-address", ":9091"]
+          env:
+            - {name: MINIO_ROOT_USER, value: minioadmin}
+            - {name: MINIO_ROOT_PASSWORD, value: minioadmin}
+          ports:
+            - {containerPort: 9000, name: s3-api}
+            - {containerPort: 9091, name: console}
+          volumeMounts:
+            - {name: data, mountPath: /mnt/ai-platform-data}
+      volumes:
+        - name: data
+          hostPath:
+            path: /mnt/ai-platform-data
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: ai-platform-zone
+spec:
+  selector: {app: minio}
+  ports:
+    - {name: s3-api, port: 9000, targetPort: 9000}
+    - {name: console, port: 9091, targetPort: 9091}

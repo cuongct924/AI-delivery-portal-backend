@@ -60,7 +60,14 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         component: str = "serving",
         environment: str = "development",
     ):
-        config.load_kube_config()
+        # In-cluster once this runs as a pod on worker1 (see
+        # infra/openchoreo/platform/workload-orchestration-api.yaml);
+        # ConfigException means it's not running in a pod (local dev via
+        # `make run-orchestration-api`), so fall back to ~/.kube/config.
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config()
         self.namespace = namespace
         self.project = project
         self.component = component

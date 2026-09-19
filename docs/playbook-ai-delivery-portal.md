@@ -119,23 +119,39 @@ là tính năng Portal độc lập, không đóng khung thành golden path.
 
 ## 4. KIẾN TRÚC HỆ THỐNG
 
-```
-┌───────────────────────────────────────────────────────────────────────┐
-│ Portal UI (Backstage) — packages/app-backstage                        │
-│ + plugins/prompt-registry                                             │
-├───────────────────────────────────────────────────────────────────────┤
-│ Orchestration API (FastAPI) — services/orchestration-api              │
-│ - auth/thunder.py     - evaluations/gate.py + llm_judge               │
-│ - routers/chat.py, prompts.py                                         │
-├───────────────┬───────────────┬───────────────┬───────────────┬───────┤
-│   Registry    │   Inference   │   Workflow    │   VectorDB    │ LLM GW│
-│   (MLflow)    │   (KServe)    │    (Argo)     │   (Qdrant)    │(LiteLLM)
-└───────────────┴───────────────┴───────────────┴───────────────┴───────┘
-  Adapter Layer
+Chạy trên cụm Kubernetes 3 node (1 master + 2 worker, k3d local —
+`scripts/setup-3node-infra.sh`), phân vùng theo plane:
 
-Cross-cutting: Prometheus/Grafana | Thunder (OpenChoreo's bundled IdP)
-agents/mcp-servers/: mlops, k8s, metrics (3 server)
 ```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Backstage Portal (repo riêng) — packages/app-backstage               │
+└───────────────────────────────┬───────────────────────────────────────┘
+                                 │
+┌────────────────────────────────┼───────────────────────────────────────┐
+│ MASTER — Control plane (OpenChoreo, do OpenChoreo quản lý)             │
+│  OpenChoreo API (REST+RBAC) · Controllers (reconcile CRD)              │
+│  Thunder (IdP, OAuth2)                                                 │
+└────────────────────────────────┼───────────────────────────────────────┘
+                                 │
+┌────────────────────────────────▼───────────┐  ┌───────────────────────┐
+│ WORKER 1 — Data plane portal                │  │ WORKER 2              │
+│ (do OpenChoreo quản lý)                     │  │                       │
+│  Orchestration API (FastAPI) + Adapter layer│  │ AI Platform zone      │
+│  - auth/thunder.py, evaluations/gate.py     │  │ (ngoài OpenChoreo —   │
+│  - routers/chat.py, prompts.py              │  │  phía Viettel)        │
+│  MCP servers: mlops, llmops, golden-path-   │  │  MLflow · Qdrant      │
+│  guide, observability                       │  │  MinIO · Feast serve  │
+└──────────────────────────────────────────────┘  │  · LiteLLM            │
+                                                    │───────────────────────│
+                                                    │ Workflow plane        │
+                                                    │ (training/fine-tune)  │
+                                                    │  Argo Workflows       │
+                                                    └───────────────────────┘
+  Adapter Layer (adapters/) nói với cả 2 worker qua Service DNS trong cụm
+```
+
+agents/mcp-servers/: observability, llmops-golden-paths, mlops-golden-paths,
+golden-path-guide (4 server, chạy trên worker1)
 
 ### Adapter Pattern — nguyên tắc bất biến
 

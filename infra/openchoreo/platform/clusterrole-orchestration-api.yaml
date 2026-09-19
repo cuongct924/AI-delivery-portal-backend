@@ -1,0 +1,45 @@
+# orchestration-api's own pod now calls the k8s API directly in-cluster
+# (adapters/kserve_adapter.py, openchoreo_inference_adapter.py,
+# openchoreo_promotion_adapter.py — see their load_incluster_config() calls)
+# instead of an externally-mounted kubeconfig, once it runs as a Deployment
+# on worker1 (workload-orchestration-api.yaml) rather than a docker-compose
+# container outside the cluster. Its Deployment has no serviceAccountName
+# override (pinned-service's template doesn't set one), so it runs as the
+# "default" ServiceAccount of whatever dp-*-platform-development-* namespace
+# OpenChoreo generates for the platform project's development environment —
+# bind to that, not a new dedicated ServiceAccount, since Component/Workload
+# don't expose a way to request one.
+#
+# Separate ClusterRole/Binding, not a change to the Helm-managed
+# cluster-agent-dataplane ClusterRole (clusterrole-dataplane-kserve.yaml) —
+# that one is OpenChoreo's own reconciler identity, a different principal
+# from this pod's own ServiceAccount.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orchestration-api-k8s-adapters
+rules:
+  - apiGroups: [openchoreo.dev]
+    resources: [workloads]
+    verbs: [get, list, watch, patch, update]
+  - apiGroups: [serving.kserve.io]
+    resources: [inferenceservices]
+    verbs: [get, list, watch, patch, create, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: orchestration-api-k8s-adapters
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: orchestration-api-k8s-adapters
+subjects:
+  - kind: ServiceAccount
+    name: default
+    # Matches the live namespace OpenChoreo already generated for the
+    # `platform` Project's `development` Environment
+    # (`kubectl get ns -l openchoreo.dev/environment=development`) — update
+    # this if the Project/Environment naming ever changes and OpenChoreo
+    # regenerates a different hash suffix.
+    namespace: dp-default-platform-development-8260e221

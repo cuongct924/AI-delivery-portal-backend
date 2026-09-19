@@ -1,9 +1,8 @@
-# Registers the MLflow instance already running via docker-compose
-# (docker-compose.yml's `mlflow` service, port 5000) as OpenChoreo Catalog
+# Registers the MLflow instance running in ai-platform-zone on worker2
+# (infra/k8s/ai-platform-zone/mlflow.yaml, port 5000) as OpenChoreo Catalog
 # metadata — does not change adapters/mlflow_adapter.py, does not change
-# the port, does not deploy a second MLflow. Same host.docker.internal
-# convention already used by workload-orchestration-api.yaml's
-# MLFLOW_TRACKING_URI.
+# the port, does not deploy a second MLflow. Same in-cluster Service DNS
+# already used by workload-orchestration-api.yaml's MLFLOW_TRACKING_URI.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Resource
 metadata:
@@ -18,4 +17,4 @@ spec:
     kind: ClusterResourceType
     name: external-service
   parameters:
-    url: http://host.docker.internal:5000
+    url: http://mlflow.ai-platform-zone.svc.cluster.local:5000

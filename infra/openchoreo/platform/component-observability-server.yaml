@@ -1,0 +1,22 @@
+# observability-server (agents/mcp-servers/observability-server) as a real
+# OpenChoreo Component, pinned onto worker1 ("data plane portal" — see
+# scripts/setup-3node-infra.sh), same shape as component-orchestration-api.yaml.
+# Replaces docker-compose.yml's `observability-server` service (retired).
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: observability-server
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+spec:
+  owner:
+    projectName: platform
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/pinned-service
+  autoDeploy: true
+  # Actual nodeSelector/tolerations/resources pin lives on
+  # releasebinding-observability-server-development.yaml — see
+  # releasebinding-orchestration-api-development.yaml's comment for why
+  # Component.spec.parameters doesn't work for this.

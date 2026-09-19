@@ -1,0 +1,33 @@
+# OpenChoreo auto-generates a NetworkPolicy per Component
+# (openchoreo-orchestration-api, in
+# dp-default-platform-development-8260e221 — reconciler-owned, do not edit
+# in place, same reasoning as not touching cluster-agent-dataplane's
+# ClusterRole) that only allows ingress from pods in the SAME namespace or
+# from pods labeled openchoreo.dev/system-component (the gateway). Argo's
+# workflow-plane runs every WorkflowRun in its own `workflows-<name>`
+# namespace, which matches neither — confirmed real, reproduced failure:
+# register-step's httpx.post to orchestration-api's in-cluster Service got
+# `ConnectionRefused` even though the Service/pod were both healthy.
+#
+# Multiple NetworkPolicies selecting the same pod are additive (OR'd, not
+# merged) in standard k8s semantics, so this is a second, independent
+# policy — not a patch to OpenChoreo's own.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workflows-default-to-orchestration-api
+  namespace: dp-default-platform-development-8260e221
+spec:
+  podSelector:
+    matchLabels:
+      openchoreo.dev/component: orchestration-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: workflows-default
+      ports:
+        - port: 8000
+          protocol: TCP

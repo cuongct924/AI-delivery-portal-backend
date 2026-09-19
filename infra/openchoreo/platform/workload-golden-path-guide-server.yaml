@@ -1,0 +1,24 @@
+# Was docker-compose.yml's `golden-path-guide-server` service.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: golden-path-guide-server-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: golden-path-guide-server
+spec:
+  owner:
+    projectName: platform
+    componentName: golden-path-guide-server
+  container:
+    image: golden-path-guide-server:openchoreo-local
+    env:
+      - key: ORCHESTRATION_API_URL
+        value: http://orchestration-api:8000
+  endpoints:
+    http:
+      type: HTTP
+      port: 9003
+      visibility:
+        - external

@@ -49,5 +49,8 @@ services/orchestration-api/.state/
 # scripts/watch-and-apply-workload.sh's own poll state (last-applied commit SHA)
 scripts/.watch-state/
 
+# scripts/setup-3node-infra.sh's own verbose run logs (one per run)
+scripts/.setup-logs/
+
 *.tgz
 charts/*/charts/

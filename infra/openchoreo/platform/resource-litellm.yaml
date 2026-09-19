@@ -1,9 +1,9 @@
-# Registers the LiteLLM gateway already running via docker-compose
-# (docker-compose.yml's `litellm` service, port 4000) as OpenChoreo
+# Registers the LiteLLM gateway running in ai-platform-zone on worker2
+# (infra/k8s/ai-platform-zone/litellm.yaml, port 4000) as OpenChoreo
 # Catalog metadata — does not change adapters/llm_gateway_adapter.py,
 # does not change the port, does not deploy a second LiteLLM. Same
-# host.docker.internal convention already used by
-# workload-orchestration-api.yaml's LITELLM_GATEWAY_URL.
+# in-cluster Service DNS already used by workload-orchestration-api.yaml's
+# LITELLM_GATEWAY_URL.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Resource
 metadata:
@@ -18,4 +18,4 @@ spec:
     kind: ClusterResourceType
     name: external-service
   parameters:
-    url: http://host.docker.internal:4000
+    url: http://litellm.ai-platform-zone.svc.cluster.local:4000

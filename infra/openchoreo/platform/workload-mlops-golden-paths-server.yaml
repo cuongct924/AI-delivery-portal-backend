@@ -1,0 +1,35 @@
+# Was docker-compose.yml's `mlops-golden-paths-server` service — same
+# in-cluster Thunder DNS as llmops-golden-paths-server-workload.yaml.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: mlops-golden-paths-server-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: mlops-golden-paths-server
+spec:
+  owner:
+    projectName: platform
+    componentName: mlops-golden-paths-server
+  container:
+    image: mlops-golden-paths-server:openchoreo-local
+    env:
+      - key: ORCHESTRATION_API_URL
+        value: http://orchestration-api:8000
+      - key: THUNDER_URL
+        value: http://thunder-service.thunder.svc.cluster.local:8090
+      - key: THUNDER_CLIENT_ID
+        value: mlops-golden-paths-agent
+      - key: THUNDER_CLIENT_SECRET
+        value: mlops-golden-paths-agent-dev-secret
+      - key: MCP_SERVER_URL
+        value: http://mlops-golden-paths-server:9004/mcp
+      - key: THUNDER_MCP_ALLOWED_CLIENTS
+        value: orchestration-api-agent
+  endpoints:
+    http:
+      type: HTTP
+      port: 9004
+      visibility:
+        - external

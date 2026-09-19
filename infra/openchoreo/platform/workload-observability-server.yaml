@@ -1,0 +1,39 @@
+# Was docker-compose.yml's `observability-server` service — MLflow/LiteLLM
+# now in-cluster on worker2 (ai-platform-zone); orchestration-api is a
+# same-namespace Component (dp-default-platform-development-*), so its short
+# Service name still resolves, same as it did as a compose network alias.
+# PROMETHEUS_URL now points at OpenChoreo's own real in-cluster Prometheus
+# (openchoreo-observability-plane's `prometheus-operated` Service) instead of
+# the old compose-only Prometheus (which only scraped the compose
+# containers, all retired) — query compatibility with what OpenChoreo
+# actually scrapes there isn't verified by this change, flagging as a
+# follow-up if this MCP server's Prometheus queries need adjusting.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: observability-server-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: observability-server
+spec:
+  owner:
+    projectName: platform
+    componentName: observability-server
+  container:
+    image: observability-server:openchoreo-local
+    env:
+      - key: MLFLOW_TRACKING_URI
+        value: http://mlflow.ai-platform-zone.svc.cluster.local:5000
+      - key: PROMETHEUS_URL
+        value: http://prometheus-operated.openchoreo-observability-plane.svc.cluster.local:9090
+      - key: LITELLM_GATEWAY_URL
+        value: http://litellm.ai-platform-zone.svc.cluster.local:4000
+      - key: ORCHESTRATION_API_URL
+        value: http://orchestration-api:8000
+  endpoints:
+    http:
+      type: HTTP
+      port: 9001
+      visibility:
+        - external

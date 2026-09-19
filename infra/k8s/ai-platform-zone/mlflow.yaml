@@ -1,0 +1,52 @@
+# Was docker-compose.yml's `mlflow` service — same image/command/behavior,
+# now targeting the in-cluster `minio` Service instead of a compose network
+# alias. MLFLOW_SERVER_ALLOWED_HOSTS keeps the same "any host that might call
+# in" list documented in the old compose file (MLflow 3.x's DNS-rebinding
+# guard 403s anything not on this list) plus this Service's own DNS names.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: ai-platform-zone
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mlflow}
+  template:
+    metadata:
+      labels: {app: mlflow}
+    spec:
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v3.15.1
+          command: ["sh", "-c"]
+          args:
+            - >-
+              pip install --quiet boto3 &&
+              mlflow server --host 0.0.0.0 --port 5000
+              --no-serve-artifacts --default-artifact-root s3://mlflow-artifacts
+          env:
+            - name: MLFLOW_SERVER_ALLOWED_HOSTS
+              value: "localhost,localhost:*,127.0.0.1,127.0.0.1:*,host.docker.internal,host.docker.internal:*,mlflow,mlflow:*,mlflow.ai-platform-zone,mlflow.ai-platform-zone:*,mlflow.ai-platform-zone.svc.cluster.local,mlflow.ai-platform-zone.svc.cluster.local:*"
+            - {name: AWS_ACCESS_KEY_ID, value: minioadmin}
+            - {name: AWS_SECRET_ACCESS_KEY, value: minioadmin}
+            - {name: MLFLOW_S3_ENDPOINT_URL, value: "http://minio.ai-platform-zone.svc.cluster.local:9000"}
+          ports:
+            - {containerPort: 5000}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: ai-platform-zone
+spec:
+  selector: {app: mlflow}
+  ports:
+    - {port: 5000, targetPort: 5000}

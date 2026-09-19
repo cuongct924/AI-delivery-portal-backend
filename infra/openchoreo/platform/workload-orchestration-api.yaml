@@ -1,7 +1,14 @@
-# Real image, not a placeholder. MLflow/Qdrant/LiteLLM stay on the host via
-# docker-compose, reached via host.docker.internal. ANTHROPIC_API_KEY is
-# omitted — not read eagerly at import time, so the container boots fine;
-# only chat/portal_assistant need it added as a real Secret.
+# Real image, not a placeholder. MLflow/Qdrant/LiteLLM/Feast now run
+# in-cluster on worker2 (infra/k8s/ai-platform-zone/, "AI Platform zone" —
+# outside OpenChoreo), reached over normal in-cluster Service DNS instead of
+# host.docker.internal (docker-compose retired — see CLAUDE.md). Thunder and
+# the OpenChoreo API are likewise reached via their real in-cluster Service
+# DNS now that this pod runs inside the same cluster, not the
+# thunder.openchoreo.localhost/api.openchoreo.localhost host-gateway
+# hostnames a docker-compose container on the host needed.
+# ANTHROPIC_API_KEY is omitted — not read eagerly at import time, so the
+# container boots fine; only chat/portal_assistant need it added as a real
+# Secret.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
@@ -19,12 +26,50 @@ spec:
     env:
       - key: AUTH_ENABLED
         value: "false"
+      - key: THUNDER_URL
+        value: http://thunder-service.thunder.svc.cluster.local:8090
       - key: MLFLOW_TRACKING_URI
-        value: http://host.docker.internal:5000
+        value: http://mlflow.ai-platform-zone.svc.cluster.local:5000
       - key: LITELLM_GATEWAY_URL
-        value: http://host.docker.internal:4000
+        value: http://litellm.ai-platform-zone.svc.cluster.local:4000
       - key: QDRANT_URL
-        value: http://host.docker.internal:6333
+        value: http://qdrant.ai-platform-zone.svc.cluster.local:6333
+      - key: MINIO_ENDPOINT_URL
+        value: http://minio.ai-platform-zone.svc.cluster.local:9000
+      - key: MLFLOW_S3_ENDPOINT_URL
+        value: http://minio.ai-platform-zone.svc.cluster.local:9000
+      # adapters/mlflow_adapter.py's register_model() calls
+      # mlflow.register_model(), which lists the run's S3 artifacts directly
+      # via boto3 — needs real credentials, not just MLFLOW_S3_ENDPOINT_URL.
+      # Missing entirely from the old docker-compose env (same latent gap,
+      # just never exercised there — this is the first time a real Golden
+      # Path #1 run reached this call end-to-end). Same MinIO dev creds used
+      # everywhere else in this repo, not a new secret.
+      - key: AWS_ACCESS_KEY_ID
+        value: minioadmin
+      - key: AWS_SECRET_ACCESS_KEY
+        value: minioadmin
+      - key: FEAST_SERVING_URL
+        value: http://feast-serve.ai-platform-zone.svc.cluster.local:6566
+      # Backstage (separate frontend repo) still runs on the host machine —
+      # out of scope for this redesign (CLAUDE.md: Portal frontend changes
+      # happen in that repo). host.docker.internal resolves from inside a
+      # k3d node's pods the same way it does for a docker-compose container.
+      - key: BACKSTAGE_BASE_URL
+        value: http://host.docker.internal:7007
+      # Our identity when calling the golden-paths MCP servers — register by hand
+      # in Thunder first.
+      - key: MCP_CLIENT_ID
+        value: orchestration-api-agent
+      - key: MCP_CLIENT_SECRET
+        value: orchestration-api-agent-dev-secret
+      - key: OPENCHOREO_API_URL
+        value: http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080/api/v1
+      # Delivery Insights mock observer data source: "mock" (synthetic,
+      # default) or "captured" (real runs from
+      # scripts/capture-delivery-insights-runs.sh). See routers/mock_observer.py.
+      - key: MOCK_OBSERVER_DATA_SOURCE
+        value: mock
   endpoints:
     http:
       type: HTTP

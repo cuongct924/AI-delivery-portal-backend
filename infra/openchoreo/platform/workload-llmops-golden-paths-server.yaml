@@ -1,0 +1,41 @@
+# Was docker-compose.yml's `llmops-golden-paths-server` service. THUNDER_URL
+# is now the real in-cluster Thunder Service (no more
+# thunder.openchoreo.localhost host-gateway hack — this pod runs inside the
+# same cluster as Thunder now). MCP_SERVER_URL keeps the short in-namespace
+# Service name, same as its old compose network alias.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: llmops-golden-paths-server-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: platform
+    openchoreo.dev/component: llmops-golden-paths-server
+spec:
+  owner:
+    projectName: platform
+    componentName: llmops-golden-paths-server
+  container:
+    image: llmops-golden-paths-server:openchoreo-local
+    env:
+      - key: ORCHESTRATION_API_URL
+        value: http://orchestration-api:8000
+      - key: THUNDER_URL
+        value: http://thunder-service.thunder.svc.cluster.local:8090
+      - key: THUNDER_CLIENT_ID
+        value: llmops-golden-paths-agent
+      - key: THUNDER_CLIENT_SECRET
+        value: llmops-golden-paths-agent-dev-secret
+      # This resource server's own identifier (AuthSettings.resource_server_url).
+      - key: MCP_SERVER_URL
+        value: http://llmops-golden-paths-server:9002/mcp
+      # Allowlist of client ids allowed to call this MCP endpoint — Thunder's
+      # tokens carry aud == the caller's own client_id, not one fixed audience.
+      - key: THUNDER_MCP_ALLOWED_CLIENTS
+        value: orchestration-api-agent
+  endpoints:
+    http:
+      type: HTTP
+      port: 9002
+      visibility:
+        - external

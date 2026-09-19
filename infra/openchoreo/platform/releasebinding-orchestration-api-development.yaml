@@ -1,0 +1,44 @@
+# Component.spec.parameters (component-orchestration-api.yaml) is a
+# documentation-only "profile" that never reaches the CEL environmentConfigs
+# used to render the actual Deployment — confirmed empirically:
+# `kubectl get renderedreleases orchestration-api-development -o yaml`
+# rendered nodeSelector:{}/tolerations:[]/100m CPU (the ClusterComponentType
+# schema's own defaults) even with parameters set on the Component. The real
+# override point is ReleaseBinding.spec.componentTypeEnvironmentConfigs
+# ("These values override the defaults defined in the Component for this
+# specific environment" — `kubectl explain releasebinding.spec` says so
+# directly). autoDeploy already creates this ReleaseBinding on its own
+# (same auto-creation as projectreleasebinding-development.yaml's Project
+# case) but without this field — apply this to add it. `releaseName` is
+# left unset: the controller manages it under autoDeploy, same as
+# ProjectReleaseBinding's projectRelease field.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ReleaseBinding
+metadata:
+  name: orchestration-api-development
+  namespace: default
+spec:
+  environment: development
+  owner:
+    componentName: orchestration-api
+    projectName: platform
+  componentTypeEnvironmentConfigs:
+    resources:
+      requests: {cpu: 500m, memory: 256Mi}
+      limits: {cpu: "1", memory: 512Mi}
+    nodeSelector:
+      plane.viettel.vn: data-plane-portal
+    tolerations:
+      - key: dedicated.viettel.vn
+        operator: Equal
+        value: data-plane-portal
+        effect: NoSchedule
+    extraVolumes:
+      - name: dataset
+        hostPath: {path: /mnt/data, type: Directory}
+      - name: docs
+        hostPath: {path: /mnt/docs, type: Directory}
+    extraVolumeMounts:
+      - {name: dataset, mountPath: /app/data, readOnly: true}
+      - {name: dataset, mountPath: /mnt/data, readOnly: true}
+      - {name: docs, mountPath: /app/docs, readOnly: true}

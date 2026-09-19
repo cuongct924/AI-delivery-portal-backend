@@ -22,11 +22,32 @@ make check      # lint + format-check + typecheck + test (what CI runs)
 make run-orchestration-api / run-observability-mcp / run-golden-paths-mcp
 ```
 
-Local infra:
+`make test`/`make check` need a real MLflow reachable at `MLFLOW_TRACKING_URI`
+(default `http://localhost:5000`) — `routers/prompts.py` seeds its default
+personas via a live Prompt Registry at *import* time, before any test can
+mock it. CI starts a throwaway container for this (`.github/workflows/ci.yml`);
+do the same locally before running tests (the 3-node cluster's MLflow, on
+worker2, isn't reachable at `localhost:5000`):
 ```bash
-docker compose up -d   # mlflow, prometheus, grafana, qdrant, minio, litellm, orchestration-api, 3 MCP servers
-bash scripts/run-mcp-local.sh observability|golden-paths   # run one MCP server without Docker
+docker run -d --name mlflow-test -p 5000:5000 ghcr.io/mlflow/mlflow:v3.15.1 \
+  mlflow server --host 0.0.0.0 --port 5000
 ```
+
+Local infra runs on a 3-node k3d cluster (`k3d-openchoreo-quick-start`), not
+docker-compose (retired):
+```bash
+bash scripts/setup-3node-infra.sh   # idempotent — adds/labels/taints worker1+worker2, builds+imports images, applies manifests
+bash scripts/run-mcp-local.sh observability|golden-paths   # run one MCP server without the cluster
+```
+Node layout — **master** (`k3d-openchoreo-quick-start-server-0`): OpenChoreo
+control plane (API, controllers, Thunder); **worker1**
+(`k3d-worker1-0`, `plane.viettel.vn=data-plane-portal`): `orchestration-api`
++ adapter layer + the MCP servers, as OpenChoreo Components
+(`infra/openchoreo/platform/`); **worker2** (`k3d-worker2-0`,
+`plane.viettel.vn=ai-platform-workflow`): the training/fine-tune workflow
+plane (Argo) **and** the AI Platform zone — MLflow/Qdrant/MinIO/LiteLLM/Feast,
+plain k8s manifests outside OpenChoreo (`infra/k8s/ai-platform-zone/`),
+representing Viettel's own AI Platform SPDV.
 
 Run `make check` before committing — CI (`.github/workflows/ci.yml`) runs the
 exact same commands, nothing else.

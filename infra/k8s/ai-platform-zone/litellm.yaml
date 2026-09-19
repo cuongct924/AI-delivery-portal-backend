@@ -1,0 +1,61 @@
+# Was docker-compose.yml's `litellm` service. Config comes from a ConfigMap
+# (created by scripts/setup-3node-infra.sh from
+# infra/llm-gateways/litellm-config.yaml, same file the old compose service
+# mounted) — API keys from a Secret created out of band, never committed:
+#   kubectl create secret generic litellm-secrets -n ai-platform-zone \
+#     --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY" \
+#     --from-literal=voyage-api-key="${VOYAGE_API_KEY:-}" \
+#     --from-literal=litellm-master-key="${LITELLM_MASTER_KEY:-sk-local-dev}"
+# (scripts/setup-3node-infra.sh does this from .env automatically.)
+#
+# 1.99.1, not main-v1.66.0-stable: that pin dropped `tool_calls` for
+# ollama_chat/ (litellm#19742), fixed in #40611. Pin, don't use :latest —
+# same reasoning as the old compose file.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ai-platform-zone
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: litellm}
+  template:
+    metadata:
+      labels: {app: litellm}
+    spec:
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
+      containers:
+        - name: litellm
+          image: ghcr.io/berriai/litellm:1.99.1
+          args: ["--config", "/app/config.yaml", "--port", "4000"]
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: anthropic-api-key}}
+            - name: VOYAGE_API_KEY
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: voyage-api-key}}
+            - name: LITELLM_MASTER_KEY
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: litellm-master-key}}
+          ports:
+            - {containerPort: 4000}
+          volumeMounts:
+            - {name: config, mountPath: /app/config.yaml, subPath: config.yaml, readOnly: true}
+      volumes:
+        - name: config
+          configMap: {name: litellm-config}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: ai-platform-zone
+spec:
+  selector: {app: litellm}
+  ports:
+    - {port: 4000, targetPort: 4000}

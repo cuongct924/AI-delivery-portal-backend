@@ -27,8 +27,13 @@ spec:
     runAsNonRoot: true
     runAsUser: 1000
   volumes:
-    # hostPath into the k3d server node's filesystem (docker cp'd there —
-    # see top-level README.md) — avoids S3/DVC-pull logic here.
+    # hostPath into worker2's (k3d-worker2-0) filesystem — `docker cp`'d
+    # there by scripts/setup-3node-infra.sh, same trick as
+    # infra/k8s/ai-platform-zone/minio.yaml's dataset mount — avoids
+    # S3/DVC-pull logic here. Every pod using this template must carry the
+    # nodeSelector/tolerations pinning it to worker2 (see train-step and
+    # register-step below), or scheduling elsewhere would silently mount a
+    # path that doesn't exist there.
     - name: dataset
       hostPath:
         path: /mnt/data
@@ -217,6 +222,16 @@ spec:
           - name: dataset-digest
             valueFrom:
               path: /tmp/dataset-digest
+      # Pinned onto worker2 ("workflow plane" — see
+      # scripts/setup-3node-infra.sh) — same node the /mnt/data hostPath
+      # below resolves on.
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
       container:
         # Built from infra/argo-workflows/training-image/, deps baked in at
         # build time. Loaded into the local cluster's container runtime
@@ -287,16 +302,16 @@ spec:
           - name: BASE_MODEL_NAME
             value: '{{inputs.parameters.base-model-name}}'
           - name: MLFLOW_TRACKING_URI
-            value: http://host.docker.internal:5000
+            value: http://mlflow.ai-platform-zone.svc.cluster.local:5000
           # mlflow-artifacts is now backed by real MinIO storage
           # (--no-serve-artifacts), so the training pod writes s3:// URIs
-          # directly — see docker-compose.yml's mlflow service.
+          # directly — see infra/k8s/ai-platform-zone/mlflow.yaml.
           - name: AWS_ACCESS_KEY_ID
             value: minioadmin
           - name: AWS_SECRET_ACCESS_KEY
             value: minioadmin
           - name: MLFLOW_S3_ENDPOINT_URL
-            value: http://host.docker.internal:9000
+            value: http://minio.ai-platform-zone.svc.cluster.local:9000
         volumeMounts:
           - name: dataset
             mountPath: /mnt/data
@@ -309,6 +324,14 @@ spec:
           - name: task-type
           - name: artifact-uri
           - name: dataset-digest
+      # Same reason as train-step: it also mounts the /mnt/data hostPath below.
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
       container:
         image: python:3.12-slim
         command: [sh, -c]
@@ -339,8 +362,12 @@ spec:
             dataset_digest = os.environ.get("DATASET_DIGEST") or None
 
             # Business logic stays in orchestration-api, not here — CLAUDE.md convention.
+            # Cross-namespace (this runs in workflows-default; orchestration-api
+            # lives in dp-default-platform-development-8260e221) — needs the
+            # full Service DNS, not the short name MCP servers in the same
+            # namespace can use.
             response = httpx.post(
-                "http://host.docker.internal:8000/models/register",
+                "http://orchestration-api.dp-default-platform-development-8260e221.svc.cluster.local:8000/models/register",
                 json={
                     "name": model_name,
                     "artifact_uri": artifact_uri,

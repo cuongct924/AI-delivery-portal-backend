@@ -1,0 +1,9 @@
+# Plain k8s, not an OpenChoreo dp-* namespace: these represent Viettel's own
+# AI Platform SPDV (MLflow/Qdrant/MinIO/Feast/LiteLLM) — services outside
+# OpenChoreo per the 3-node architecture diagram, not Components OpenChoreo
+# manages. Scheduled onto worker2 (k3d-worker2-0) only — see
+# scripts/setup-3node-infra.sh for the node label/taint.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ai-platform-zone

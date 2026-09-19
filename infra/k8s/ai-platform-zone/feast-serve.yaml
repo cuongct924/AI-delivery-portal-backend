@@ -1,0 +1,42 @@
+# Online feature serving — built from infra/feature-store/Dockerfile.
+# adapters/feature_store_adapter.py's FeastAdapter calls this over HTTP when
+# FEAST_SERVING_URL is set (orchestration-api's workload env); offline
+# features still use the in-process SDK against its own frozen copy of this
+# repo (unchanged). hostPath, seeded the same way as minio.yaml — see
+# scripts/setup-3node-infra.sh.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: feast-serve
+  namespace: ai-platform-zone
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: feast-serve}
+  template:
+    metadata:
+      labels: {app: feast-serve}
+    spec:
+      nodeSelector:
+        plane.viettel.vn: ai-platform-workflow
+      tolerations:
+        - key: dedicated.viettel.vn
+          operator: Equal
+          value: ai-platform-workflow
+          effect: NoSchedule
+      containers:
+        - name: feast-serve
+          image: feast-serve:openchoreo-local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - {containerPort: 6566}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: feast-serve
+  namespace: ai-platform-zone
+spec:
+  selector: {app: feast-serve}
+  ports:
+    - {port: 6566, targetPort: 6566}

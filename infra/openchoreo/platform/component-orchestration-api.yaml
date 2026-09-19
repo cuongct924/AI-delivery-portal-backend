@@ -1,5 +1,14 @@
-# orchestration-api as a real OpenChoreo Component, deployed alongside the
-# existing local dev process and docker-compose service (neither touched).
+# orchestration-api as a real OpenChoreo Component, pinned onto worker1
+# ("data plane portal" — see scripts/setup-3node-infra.sh) — the docker-compose
+# service this replaced is retired (docker-compose.yml deleted; see CLAUDE.md).
+#
+# The actual nodeSelector/tolerations/resources/extraVolumes pin lives on
+# releasebinding-orchestration-api-development.yaml's
+# componentTypeEnvironmentConfigs, not here — Component.spec.parameters looks
+# like the right place (and is documented as "the merged schema of
+# parameters + environmentConfigs from the ComponentType") but is never
+# actually read when rendering the Deployment; see that file's comment for
+# how this was confirmed.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
@@ -10,17 +19,9 @@ metadata:
 spec:
   owner:
     projectName: platform
+  # "service" has no nodeSelector/tolerations — see
+  # clustercomponenttype-pinned-service.yaml.
   componentType:
     kind: ClusterComponentType
-    name: deployment/service
+    name: deployment/pinned-service
   autoDeploy: true
-  # Default 100m CPU starved the pod during its synchronous import of
-  # mlflow+pandas+scipy+feast+kubernetes-client at startup.
-  parameters:
-    resources:
-      requests:
-        cpu: 500m
-        memory: 256Mi
-      limits:
-        cpu: "1"
-        memory: 512Mi
