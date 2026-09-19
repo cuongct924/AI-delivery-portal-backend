@@ -1,5 +1,3 @@
-# Replaces infra/kargo/*'s Warehouse/Stage/PromotionTask promotion role —
-# dev -> staging -> prod, same shape as Kargo's promotion chain.
 apiVersion: openchoreo.dev/v1alpha1
 kind: DeploymentPipeline
 metadata:

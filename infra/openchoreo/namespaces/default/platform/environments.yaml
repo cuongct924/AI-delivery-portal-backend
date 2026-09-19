@@ -1,7 +1,3 @@
-# Replaces infra/argocd/appproject-{dev,staging,prod}-*.yaml's per-environment
-# boundary — one ClusterDataPlane (the local k3d cluster itself; see
-# `kubectl get clusterdataplanes`) backs all 3, same single-cluster setup
-# infra/k8s-local-cluster/ used for kind.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Environment
 metadata:

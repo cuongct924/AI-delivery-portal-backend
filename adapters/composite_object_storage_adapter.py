@@ -1,9 +1,3 @@
-"""Merges dataset listings from every configured IObjectStorageAdapter
-source (local filesystem + S3/MinIO) into the one list the Dataset URI
-picker renders — Composite layered on the Adapter pattern so the picker
-never needs to know how many storage backends exist.
-"""
-
 import logging
 
 from adapters.interfaces import DatasetInfo, IObjectStorageAdapter
