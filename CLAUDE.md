@@ -43,11 +43,21 @@ Node layout — **master** (`k3d-openchoreo-quick-start-server-0`): OpenChoreo
 control plane (API, controllers, Thunder); **worker1**
 (`k3d-worker1-0`, `plane.viettel.vn=data-plane-portal`): `orchestration-api`
 + adapter layer + the MCP servers, as OpenChoreo Components
-(`infra/openchoreo/platform/`); **worker2** (`k3d-worker2-0`,
-`plane.viettel.vn=ai-platform-workflow`): the training/fine-tune workflow
-plane (Argo) **and** the AI Platform zone — MLflow/Qdrant/MinIO/LiteLLM/Feast,
-plain k8s manifests outside OpenChoreo (`infra/k8s/ai-platform-zone/`),
-representing Viettel's own AI Platform SPDV.
+(`infra/openchoreo/namespaces/default/projects/platform/`); **worker2**
+(`k3d-worker2-0`, `plane.viettel.vn=ai-platform-workflow`): the
+training/fine-tune workflow plane (Argo) **and** the AI Platform zone —
+MLflow/Qdrant/MinIO/LiteLLM/Feast, plain k8s manifests outside OpenChoreo
+(`infra/ai-platform-zone/`), representing Viettel's own AI Platform SPDV.
+
+`infra/openchoreo/` is split by scope: `platform-shared/` holds
+cluster-scoped resources (ClusterComponentType, ClusterResourceType,
+ClusterAuthzRole(Binding), ClusterWorkflow, plus the cluster-scoped Argo
+`ClusterWorkflowTemplate`); `namespaces/default/` holds namespace-scoped
+Environment/DeploymentPipeline (`platform/`) and per-project
+Project/Component/Workload/ReleaseBinding/Resource
+(`projects/<name>/`, each component under its own `components/<name>/`).
+Kubernetes `ClusterRole`/`ClusterRoleBinding` (not OpenChoreo resources)
+live in `infra/bootstrap/`.
 
 Run `make check` before committing — CI (`.github/workflows/ci.yml`) runs the
 exact same commands, nothing else.

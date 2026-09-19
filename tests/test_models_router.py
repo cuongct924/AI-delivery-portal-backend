@@ -747,7 +747,10 @@ def test_prepare_deploy_manifest_openchoreo_backend_renders_workload_manifest() 
     ):
         response = prepare_deploy_manifest(request)
 
-    assert response.file_name == "infra/openchoreo/telco-fraud-detection/workload-serving.yaml"
+    assert response.file_name == (
+        "infra/openchoreo/namespaces/default/projects/telco-fraud-detection/"
+        "components/serving/workload-serving.yaml"
+    )
     assert "kind: Workload" in response.content
     assert "name: serving-workload" in response.content
     assert "image: models:/fraud-detection-demo/3" in response.content

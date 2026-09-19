@@ -8,8 +8,8 @@
 # -o yaml`) predates KServe and has no rule for serving.kserve.io at all.
 #
 # Real, reproduced failure this fixes: applying
-# infra/openchoreo/fraud-detection/component-serving.yaml (ClusterComponentType
-# proxy/inference-service) left its ReleaseBinding stuck —
+# infra/openchoreo/namespaces/default/projects/telco-fraud-detection/components/serving/component-serving.yaml
+# (ClusterComponentType proxy/inference-service) left its ReleaseBinding stuck —
 # `kubectl get releasebinding fraud-detection-serving-development -n default
 # -o yaml` showed "inferenceservices.serving.kserve.io ... is forbidden:
 # User system:serviceaccount:openchoreo-data-plane:cluster-agent-dataplane

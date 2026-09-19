@@ -1,6 +1,6 @@
 # Was docker-compose.yml's `litellm` service. Config comes from a ConfigMap
 # (created by scripts/setup-3node-infra.sh from
-# infra/llm-gateways/litellm-config.yaml, same file the old compose service
+# infra/ai-platform-zone/litellm-config.yaml, same file the old compose service
 # mounted) — API keys from a Secret created out of band, never committed:
 #   kubectl create secret generic litellm-secrets -n ai-platform-zone \
 #     --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY" \

@@ -2,13 +2,14 @@
 ProjectReleaseBinding-based promotion, replacing observability-server's mocked
 get_promotion_status. Same `CustomObjectsApi` convention as
 adapters/openchoreo_inference_adapter.py, against the ProjectReleaseBinding CRD
-(see infra/openchoreo/deployment-pipeline.yaml).
+(see infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml).
 
 The promotion path (development -> staging -> production) is hardcoded rather
 than read from the live DeploymentPipeline object — it mirrors
-infra/openchoreo/deployment-pipeline.yaml's spec.promotionPaths exactly, and
-parsing an arbitrary DAG for one fixed 2-hop chain isn't worth it. Update both
-places together if promotionPaths ever changes.
+infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml's
+spec.promotionPaths exactly, and parsing an arbitrary DAG for one fixed
+2-hop chain isn't worth it. Update both places together if promotionPaths
+ever changes.
 
 **Why `promote()` alone counts as "manual approval"**: the only path reaching
 it is a Dev running the "Evaluate & Deploy Model" Golden Path with action=promote
@@ -37,7 +38,8 @@ GROUP: Final[str] = "openchoreo.dev"
 VERSION: Final[str] = "v1alpha1"
 PLURAL: Final[str] = "projectreleasebindings"
 
-# Mirrors infra/openchoreo/deployment-pipeline.yaml's spec.promotionPaths.
+# Mirrors infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml's
+# spec.promotionPaths.
 _SOURCE_ENVIRONMENT: Final[dict[str, str]] = {
     "staging": "development",
     "production": "staging",
@@ -57,8 +59,9 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
 
     def __init__(self, namespace: str = "default", project: str = "telco-fraud-detection"):
         # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/platform/workload-orchestration-api.yaml);
-        # ConfigException means it's not running in a pod (local dev via
+        # infra/openchoreo/namespaces/default/projects/platform/components/
+        # orchestration-api/workload-orchestration-api.yaml); ConfigException
+        # means it's not running in a pod (local dev via
         # `make run-orchestration-api`), so fall back to ~/.kube/config.
         try:
             config.load_incluster_config()
@@ -86,7 +89,8 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
             raise ValueError(
                 f"'{target_environment}' isn't a valid promotion target — "
                 f"only {sorted(_SOURCE_ENVIRONMENT)} are, per "
-                "infra/openchoreo/deployment-pipeline.yaml's promotionPaths"
+                "infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml's "
+                "promotionPaths"
             )
         release = self._bound_release(source_environment)
         if release is None:

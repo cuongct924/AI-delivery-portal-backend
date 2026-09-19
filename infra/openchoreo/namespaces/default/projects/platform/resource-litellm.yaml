@@ -1,5 +1,5 @@
 # Registers the LiteLLM gateway running in ai-platform-zone on worker2
-# (infra/k8s/ai-platform-zone/litellm.yaml, port 4000) as OpenChoreo
+# (infra/ai-platform-zone/litellm.yaml, port 4000) as OpenChoreo
 # Catalog metadata — does not change adapters/llm_gateway_adapter.py,
 # does not change the port, does not deploy a second LiteLLM. Same
 # in-cluster Service DNS already used by workload-orchestration-api.yaml's

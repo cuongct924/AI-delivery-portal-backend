@@ -1,5 +1,5 @@
 """LLM model names API — lists the `model_name` entries configured in
-infra/llm-gateways/litellm-config.yaml via the LiteLLM Gateway's own
+infra/ai-platform-zone/litellm-config.yaml via the LiteLLM Gateway's own
 OpenAI-compatible `/models` endpoint. Backs the Portal's llmModelPicker
 (routers/prompts.py's EvaluatePromptRequest.model / routers/rag.py's
 RagEvaluateRequest.model both take one of these names) so a user picks

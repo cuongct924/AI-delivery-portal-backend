@@ -2,7 +2,7 @@
 # CLAUDE.md). hostPath, not a PVC: /mnt/ai-platform-data is the repo's own
 # ./data (dataset folders) `docker cp`'d onto k3d-worker2-0 by
 # scripts/setup-3node-infra.sh — same trick already used for the training
-# workflow's dataset mount (infra/argo-workflows/train-register-cluster-template.yaml's
+# workflow's dataset mount (infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml's
 # /mnt/data) — so every top-level folder under ./data shows up as a bucket,
 # reusing the files as-is instead of re-uploading them.
 apiVersion: apps/v1

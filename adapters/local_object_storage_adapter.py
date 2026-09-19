@@ -21,7 +21,8 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
         # Where the k3d training pod sees these files (hostPath mount, synced
         # via `docker cp`) — not this process's filesystem, so uris are always
         # built from mount_path, never root_path (see the hostPath comment in
-        # infra/argo-workflows/train-register-cluster-template.yaml).
+        # infra/openchoreo/platform-shared/cluster-workflow-templates/argo/
+        # train-register-cluster-template.yaml).
         self.mount_path = mount_path
 
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:

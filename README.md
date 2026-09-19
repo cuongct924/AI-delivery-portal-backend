@@ -91,7 +91,7 @@ docker compose --profile llmops up -d litellm   # http://localhost:4000
 ```
 
 Models and routing are defined in
-[`infra/llm-gateways/litellm-config.yaml`](infra/llm-gateways/litellm-config.yaml)
+[`infra/ai-platform-zone/litellm-config.yaml`](infra/ai-platform-zone/litellm-config.yaml)
 (e.g. `claude-sonnet-5`, `voyage-3`, `llama3.1-local`); set
 `ANTHROPIC_API_KEY`/`VOYAGE_API_KEY` in `.env` as needed.
 
@@ -155,8 +155,8 @@ EOF
 
 # OpenChoreo workflow resources: ClusterWorkflow + its cluster-scoped
 # execution template, for Golden Path #1
-kubectl apply -f infra/argo-workflows/train-register-cluster-template.yaml
-kubectl apply -f infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml
+kubectl apply -f infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml
+kubectl apply -f infra/openchoreo/platform-shared/workflows/clusterworkflow-training.yaml
 
 # training-image isn't pushed to a registry — build it, then import into
 # the cluster's containerd. Re-run after any change under

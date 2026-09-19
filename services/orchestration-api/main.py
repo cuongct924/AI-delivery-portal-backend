@@ -1,6 +1,6 @@
 """FastAPI BFF — acts as an MCP Client, routing requests from the Portal UI
 to the AI LLM (Claude, or any model registered in
-infra/llm-gateways/litellm-config.yaml)."""
+infra/ai-platform-zone/litellm-config.yaml)."""
 
 import asyncio
 import contextlib

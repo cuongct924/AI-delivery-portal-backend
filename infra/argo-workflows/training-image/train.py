@@ -1,5 +1,6 @@
 """Golden Path #1 training entrypoint — reads job config from env vars (set
-by the `train-step` container in infra/argo-workflows/train-register-cluster-template.yaml),
+by the `train-step` container in
+infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml),
 trains (or fine-tunes) the selected algorithm, logs everything to MLflow,
 and hands the resulting artifact URI + dataset digest to `register-step` via
 /tmp files (Argo reads them back through `outputs.parameters`).

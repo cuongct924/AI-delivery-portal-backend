@@ -2,7 +2,7 @@
 OpenChoreo `Workload` instead of an `InferenceService` directly; OpenChoreo's
 controller-manager renders the real serving.kserve.io/v1beta1 InferenceService
 via ClusterComponentType "proxy/inference-service"
-(infra/openchoreo/platform/clustercomponenttype-inference-service.yaml). Same
+(infra/openchoreo/platform-shared/component-types/clustercomponenttype-inference-service.yaml). Same
 `CustomObjectsApi` convention as adapters/kserve_adapter.py, different CRD.
 Verified for real against the k3d cluster; the bugs it surfaced (an RBAC fix in
 clusterrole-dataplane-kserve.yaml, plus two more) are in the class docstring.
@@ -61,8 +61,9 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         environment: str = "development",
     ):
         # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/platform/workload-orchestration-api.yaml);
-        # ConfigException means it's not running in a pod (local dev via
+        # infra/openchoreo/namespaces/default/projects/platform/components/
+        # orchestration-api/workload-orchestration-api.yaml); ConfigException
+        # means it's not running in a pod (local dev via
         # `make run-orchestration-api`), so fall back to ~/.kube/config.
         try:
             config.load_incluster_config()

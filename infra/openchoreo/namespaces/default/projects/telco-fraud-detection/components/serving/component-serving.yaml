@@ -1,6 +1,6 @@
 # Real KServe wiring (Phase 4 of docs/openchoreo-migration-next-steps.md):
 # ClusterComponentType "proxy/inference-service"
-# (infra/openchoreo/platform/clustercomponenttype-inference-service.yaml)
+# (infra/openchoreo/platform-shared/component-types/clustercomponenttype-inference-service.yaml)
 # renders a real serving.kserve.io/v1beta1 InferenceService, not a plain
 # Deployment/Service — replaces
 # infra/environments/*/inference-services/<tenant>/<model>.yaml's role.

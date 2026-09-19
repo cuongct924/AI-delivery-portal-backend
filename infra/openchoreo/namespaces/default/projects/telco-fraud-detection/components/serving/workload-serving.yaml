@@ -1,6 +1,6 @@
 # `container.image` is repurposed as the model's MLflow storageUri, not a
 # real container image — see
-# infra/openchoreo/platform/clustercomponenttype-inference-service.yaml's
+# infra/openchoreo/platform-shared/component-types/clustercomponenttype-inference-service.yaml's
 # header for why. "fraud-detection-demo" (an MLflow model name, out of
 # scope for the telco-fraud-detection Project/Component rename — MLflow
 # model names weren't touched) because that's the model actually

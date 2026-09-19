@@ -4,7 +4,7 @@
 # mechanism runs every WorkflowRun in an auto-created
 # `workflows-<namespaceName>` execution namespace, never `default` — so only a
 # ClusterWorkflowTemplate can be referenced from there. Used by
-# infra/openchoreo/telco-fraud-detection/clusterworkflow-training.yaml
+# infra/openchoreo/platform-shared/workflows/clusterworkflow-training.yaml
 # ("openchoreo" backend mode). The legacy namespace-scoped
 # train-register-template.yaml was removed once this path was validated — see
 # docs/openchoreo-workflow-migration-plan.md.
@@ -29,7 +29,7 @@ spec:
   volumes:
     # hostPath into worker2's (k3d-worker2-0) filesystem — `docker cp`'d
     # there by scripts/setup-3node-infra.sh, same trick as
-    # infra/k8s/ai-platform-zone/minio.yaml's dataset mount — avoids
+    # infra/ai-platform-zone/minio.yaml's dataset mount — avoids
     # S3/DVC-pull logic here. Every pod using this template must carry the
     # nodeSelector/tolerations pinning it to worker2 (see train-step and
     # register-step below), or scheduling elsewhere would silently mount a
@@ -305,7 +305,7 @@ spec:
             value: http://mlflow.ai-platform-zone.svc.cluster.local:5000
           # mlflow-artifacts is now backed by real MinIO storage
           # (--no-serve-artifacts), so the training pod writes s3:// URIs
-          # directly — see infra/k8s/ai-platform-zone/mlflow.yaml.
+          # directly — see infra/ai-platform-zone/mlflow.yaml.
           - name: AWS_ACCESS_KEY_ID
             value: minioadmin
           - name: AWS_SECRET_ACCESS_KEY

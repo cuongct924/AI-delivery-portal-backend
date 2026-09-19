@@ -1,5 +1,5 @@
 # Workaround for the same controller-manager bug documented in
-# infra/openchoreo/platform/projectreleasebinding-development.yaml: a
+# infra/openchoreo/namespaces/default/projects/platform/projectreleasebinding-development.yaml: a
 # brand-new Project's DeploymentPipeline reconciler never fires, so this
 # never gets created on its own (verified again here — applying
 # project.yaml alone left `kubectl get projectreleasebindings` with no

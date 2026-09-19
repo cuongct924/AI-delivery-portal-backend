@@ -1,5 +1,5 @@
 # Real image, not a placeholder. MLflow/Qdrant/LiteLLM/Feast now run
-# in-cluster on worker2 (infra/k8s/ai-platform-zone/, "AI Platform zone" —
+# in-cluster on worker2 (infra/ai-platform-zone/, "AI Platform zone" —
 # outside OpenChoreo), reached over normal in-cluster Service DNS instead of
 # host.docker.internal (docker-compose retired — see CLAUDE.md). Thunder and
 # the OpenChoreo API are likewise reached via their real in-cluster Service

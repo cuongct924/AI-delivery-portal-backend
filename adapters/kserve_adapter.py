@@ -21,8 +21,9 @@ PLURAL: Final[str] = "inferenceservices"
 class KServeAdapter(IInferenceAdapter):
     def __init__(self, namespace: str = "default"):
         # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/platform/workload-orchestration-api.yaml);
-        # ConfigException means it's not running in a pod (local dev via
+        # infra/openchoreo/namespaces/default/projects/platform/components/
+        # orchestration-api/workload-orchestration-api.yaml); ConfigException
+        # means it's not running in a pod (local dev via
         # `make run-orchestration-api`), so fall back to ~/.kube/config.
         try:
             config.load_incluster_config()

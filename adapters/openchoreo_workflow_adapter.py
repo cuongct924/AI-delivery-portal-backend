@@ -31,7 +31,7 @@ THUNDER_URL: Final[str] = os.getenv("THUNDER_URL", "http://thunder.openchoreo.lo
 # thunder-bootstrap's 55-system-app.sh) — Thunder's /applications admin API
 # 401s for every credential in dev, so registering a new client isn't
 # possible without real Thunder admin access. Swap once a dedicated client
-# exists; see infra/openchoreo/platform/authzrolebinding-workflow-trigger.yaml.
+# exists; see infra/openchoreo/platform-shared/authz/authzrolebinding-workflow-trigger.yaml.
 THUNDER_CLIENT_ID: Final[str] = os.getenv("OPENCHOREO_CLIENT_ID", "openchoreo-system-app")
 THUNDER_CLIENT_SECRET: Final[str] = os.getenv(
     "OPENCHOREO_CLIENT_SECRET", "openchoreo-system-app-secret"
@@ -183,7 +183,8 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
         """Not implemented — openchoreo-api has no CronWorkflow-equivalent;
         the intended replacement is a per-model `Component`
         (ClusterComponentType "cronjob/scheduled-task", see
-        infra/openchoreo/telco-fraud-detection/component-training.yaml), not a
+        infra/openchoreo/namespaces/default/projects/telco-fraud-detection/
+        components/training/component-training.yaml), not a
         workflow trigger. The `telco-fraud-detection-training` Component/
         Workload is only applied for CI wiring, never exercised end to end.
 

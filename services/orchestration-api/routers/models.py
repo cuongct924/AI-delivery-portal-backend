@@ -723,7 +723,10 @@ def prepare_deploy_manifest(
             namespace="default",
             storage_uri=storage_uri,
         )
-        file_name = f"infra/openchoreo/{_OPENCHOREO_PROJECT}/workload-{_OPENCHOREO_COMPONENT}.yaml"
+        file_name = (
+            f"infra/openchoreo/namespaces/default/projects/{_OPENCHOREO_PROJECT}/"
+            f"components/{_OPENCHOREO_COMPONENT}/workload-{_OPENCHOREO_COMPONENT}.yaml"
+        )
     else:
         template = _JINJA_ENV.get_template("inference_service.yaml.j2")
         content = template.render(
