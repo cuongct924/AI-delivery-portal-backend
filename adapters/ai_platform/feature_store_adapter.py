@@ -51,9 +51,7 @@ class FeastAdapter(IFeatureStoreAdapter):
     def _get_online_features_remote(
         self, entity_id: str, feature_names: list[str]
     ) -> dict[str, object]:
-        # feast-serve's /get-online-features response shape: parallel
-        # "results" entries (one per requested feature, in request order),
-        # each with a single-element "values" list (one entity requested).
+        # Parallel results per feature, in request order, each a single-value list.
         response = httpx.post(
             f"{self.serving_url}/get-online-features",
             json={"features": feature_names, "entities": {"entity_id": [entity_id]}},

@@ -120,10 +120,7 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
         granularity: DoraGranularity,
         metrics: list[str] | None,
     ) -> DeliveryMetricsResult:
-        # dora_metrics.py's counters carry track/subject_type/subject_id, not
-        # namespace/project/component/environment — scope filtering isn't
-        # possible against today's label set, so this returns portal-wide
-        # figures regardless of `scope` (echoed back for contract shape only).
+        # No project/component/env labels in dora_metrics.py — figures are portal-wide, not scoped.
         window_days = max(1, (end - start).days)
         buckets = _bucket_starts(start, end, granularity)
         step_seconds = _DAYS_PER_BUCKET[granularity] * 86_400

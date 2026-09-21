@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Captures real Golden Path workflow runs from the local k3d cluster into
 # services/orchestration-api/mock_data/delivery_insights_runs.json, which
-# routers/mock_observer.py serves to the Portal's Delivery Insights page.
+# routers/delivery_insights.py serves to the Portal's Delivery Insights page.
 #
 # Re-run after triggering Golden Paths (train-track-register / register-deploy
 # / setup-model-monitoring) so the dashboard reflects the latest real runs.

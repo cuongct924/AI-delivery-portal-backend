@@ -42,8 +42,7 @@ from adapters.delivery.interfaces import (
     SemanticFailureType,
 )
 
-# MLOps Golden Path templates (frontend repo `templates/`) — the components a
-# deployment row can name when the query scope does not pin one.
+# MLOps Golden Path templates — fallback component names when scope doesn't pin one.
 _MLOPS_TEMPLATES: Final[tuple[str, ...]] = (
     "train-track-register",
     "register-deploy",

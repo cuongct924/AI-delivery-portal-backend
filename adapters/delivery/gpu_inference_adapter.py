@@ -114,8 +114,7 @@ class GpuKServeInferenceAdapter(IGpuInferenceAdapter):
 
         metadata = cast(dict[str, object], status.get("metadata", {}))
         labels = cast(dict[str, object], metadata.get("labels") or {})
-        # deploy_llm_model sets this label itself — the only version that
-        # survives on the InferenceService (storageUri is an hf:// reference).
+        # deploy_llm_model sets this label — the only version info that survives.
         live_version = cast(str | None, labels.get("version"))
 
         conditions = cast(

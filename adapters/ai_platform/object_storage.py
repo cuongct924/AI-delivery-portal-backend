@@ -31,11 +31,7 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
 
     def __init__(self, root_path: str | None = None, mount_path: str = "/mnt/data"):
         self.root_path = Path(root_path or os.getenv("LOCAL_DATASETS_PATH") or _REPO_ROOT / "data")
-        # Where the k3d training pod sees these files (hostPath mount, synced
-        # via `docker cp`) — not this process's filesystem, so uris are always
-        # built from mount_path, never root_path (see the hostPath comment in
-        # infra/openchoreo/platform-shared/cluster-workflow-templates/argo/
-        # train-register-cluster-template.yaml).
+        # k3d training pod sees these via hostPath mount, not this process's filesystem.
         self.mount_path = mount_path
 
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
@@ -43,8 +39,7 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
             return []
         datasets: list[DatasetInfo] = []
         for path in sorted(self.root_path.rglob(f"{prefix}*")):
-            # A ".dvc" pointer file next to it marks a *tracked dataset*, as
-            # opposed to any other file living under data/.
+            # A `.dvc` pointer file next to it marks it as tracked.
             if not path.is_file() or not Path(f"{path}.dvc").exists():
                 continue
             relative_path = path.relative_to(self.root_path)
@@ -115,10 +110,7 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
         hash_to_path = self._dvc_hash_to_relative_path()
         datasets: list[DatasetInfo] = []
         for obj in response.get("Contents", []):
-            # Parse the content-addressed key: ".../files/md5/<hash[:2]>/<hash[2:]>".
-            # Anything else (stray object, or no matching checked-out .dvc
-            # pointer) has no recoverable filename/mount path — skip rather
-            # than surface a picker entry that 404s.
+            # Skip keys with no matching .dvc pointer — avoids a 404'ing picker entry.
             key_parts = obj["Key"].rsplit("/", 2)
             if len(key_parts) != 3 or key_parts[0].rsplit("/", 1)[-1] != "md5":
                 continue
@@ -128,9 +120,7 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
             datasets.append(
                 DatasetInfo(
                     name=relative_path,
-                    # Same mount-path convention as LocalFileObjectStorageAdapter —
-                    # the training pod's hostPath mount, keyed off the dataset's
-                    # real relative path, not the S3 key.
+                    # Same mount-path convention as LocalFileObjectStorageAdapter's hostPath mount.
                     uri=f"file://{self.mount_path}/{relative_path}",
                     size_bytes=obj["Size"],
                     source="s3",
@@ -149,7 +139,6 @@ class CompositeObjectStorageAdapter(IObjectStorageAdapter):
             try:
                 datasets.extend(adapter.list_datasets(prefix))
             except Exception:
-                # One source being unreachable (e.g. MinIO down) shouldn't
-                # hide datasets the other source(s) can still list.
+                # One source down (e.g. MinIO) shouldn't hide datasets others can list.
                 logger.warning("%s failed to list datasets", type(adapter).__name__, exc_info=True)
         return datasets

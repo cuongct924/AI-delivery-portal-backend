@@ -78,8 +78,7 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
         return self._get_details(name, version)
 
     def get_latest_version(self, name: str) -> str:
-        # Convenience method, not part of IModelRegistryAdapter — mirrors
-        # MlflowAdapter so factory.py can hand either one to routers/models.py.
+        # Convenience method, outside IModelRegistryAdapter — mirrors MlflowAdapter for factory.py.
         versions = self._versions.get(name)
         if not versions:
             raise ValueError(f"Model {name} has no registered versions")
@@ -90,9 +89,7 @@ class MockModelRegistryAdapter(IModelRegistryAdapter):
         return sorted(self._versions.get(name, {}), key=int, reverse=True)
 
     def get_model_artifact_uri(self, name: str, version: str) -> str:
-        # Mirrors MlflowAdapter.get_model_artifact_uri() — no real artifact
-        # store behind this mock, so this is just the canonical MLflow
-        # shorthand; MockInferenceAdapter never actually fetches it.
+        # Mirrors MlflowAdapter — no real store, just the canonical shorthand string.
         self._get_details(name, version)  # raises if not registered
         return f"models:/{name}/{version}"
 

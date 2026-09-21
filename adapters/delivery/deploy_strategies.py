@@ -61,11 +61,7 @@ class InstantStrategy(IReleaseStrategy):
 
     def release(self, model_name: str, model_version: str, manifest_content: str) -> ReleaseResult:
         del manifest_content  # unused — the inference adapter renders its own body
-        # Resolves the "models:/<name>/<version>" shorthand to a real artifact
-        # location (e.g. "s3://...") when a registry adapter is given — KServe's
-        # storage-initializer can't read the shorthand (see its module docstring
-        # in openchoreo_inference_adapter.py). Falls back to the shorthand when
-        # none is given, matching pre-resolution behavior.
+        # Resolves the models:/ shorthand to a real URI; keeps it as-is with no registry.
         storage_uri = (
             self.model_registry_adapter.get_model_artifact_uri(model_name, model_version)
             if self.model_registry_adapter is not None

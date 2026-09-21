@@ -15,12 +15,9 @@ from typing import Literal, TypedDict
 class PromotionStatus(TypedDict):
     project: str
     component: str
-    # env name ("development"/"staging"/"production") -> the projectRelease
-    # currently bound there, or None if this project has never been
-    # promoted to that environment yet.
+    # env name -> currently bound projectRelease, None if never promoted here.
     environments: dict[str, str | None]
-    # True when staging is bound to a release production isn't — i.e.
-    # there's something a human could promote right now.
+    # True when staging has a release production doesn't — promotable now.
     prod_pending_approval: bool
 
 
@@ -177,10 +174,7 @@ class WorkflowStatus(TypedDict):
     name: str
     phase: str | None
     message: str | None
-    # Populated once the workflow starts — backs RQ1's Lead Time /
-    # step-duration Prometheus metrics (services/orchestration-api's
-    # observability/dora_metrics.py), computed from data this call already
-    # fetches, no extra backend request needed.
+    # Populated once workflow starts — backs Lead Time metrics in dora_metrics.py.
     started_at: str | None
     finished_at: str | None
     steps: list[WorkflowStepTiming]

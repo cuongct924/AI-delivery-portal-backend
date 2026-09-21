@@ -1,7 +1,8 @@
 """Adapter for the LLM Gateway (LiteLLM Proxy) — routes requests and manages
 API keys & rate limits when calling multiple different LLMs, instead of
-calling each vendor's SDK directly. Spun up via docker-compose.yml (the
-`litellm` service), config at infra/ai-platform-zone/litellm-config.yaml.
+calling each vendor's SDK directly. Deployed via
+infra/ai-platform-zone/litellm.yaml, config at
+infra/ai-platform-zone/litellm-config.yaml.
 """
 
 import os

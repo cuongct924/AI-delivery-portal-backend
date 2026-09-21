@@ -146,8 +146,7 @@ def get_prediction_log_adapter() -> IPredictionLogAdapter:
 
 @lru_cache
 def get_promotion_adapter() -> IPromotionAdapter:
-    # No "legacy" branch — the Kargo-based pipeline this would have replaced
-    # was removed before ever being wired up.
+    # No "legacy" branch — the Kargo pipeline was removed before ever wiring up.
     if _use_mock("USE_MOCK_PROMOTION"):
         return MockPromotionAdapter()
     return OpenChoreoPromotionAdapter()
@@ -162,13 +161,10 @@ def get_model_registry_adapter() -> MlflowAdapter | MockModelRegistryAdapter:
 
 @lru_cache
 def get_workflow_adapter() -> MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
-    # Golden Paths #1/#3 are fully cut over — OpenChoreo is the only
-    # production backend; the Argo Server adapter was removed.
+    # Golden Paths #1/#3 fully cut over — OpenChoreo is the only backend now.
     match _backend_mode("USE_MOCK_WORKFLOW", real_default="openchoreo"):
         case "mock":
-            # Only wired to the registry when that's also mocked — a real
-            # registry gets its models registered by whatever actually
-            # trained them (the ClusterWorkflow's register-step).
+            # Only wired when the registry is also mocked — real training registers itself.
             model_registry = get_model_registry_adapter()
             return MockWorkflowAdapter(
                 model_registry=model_registry

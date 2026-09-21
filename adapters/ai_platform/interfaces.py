@@ -194,8 +194,7 @@ class ChatCompletionResponse(TypedDict):
     model: str
     choices: list[ChatCompletionChoice]
     usage: NotRequired[ChatCompletionUsage]
-    # Injected by LiteLLMGatewayAdapter from a response header — None when
-    # the model has no cost entry configured in litellm-config.yaml.
+    # From LiteLLMGatewayAdapter's response header; None if no cost entry configured.
     response_cost_usd: NotRequired[float | None]
 
 

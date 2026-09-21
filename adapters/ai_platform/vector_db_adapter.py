@@ -1,6 +1,6 @@
 """Adapter for the Vector DB (Qdrant) — powers the RAG architecture (semantic
-search over internal docs/techdocs/runbooks). Spun up via docker-compose.yml
-(the `qdrant` service).
+search over internal docs/techdocs/runbooks). Deployed via
+infra/ai-platform-zone/qdrant.yaml.
 
 Note: this only accepts pre-computed vectors — the embedding step (Voyage AI
 or self-hosted) happens at the layer calling this adapter, see
@@ -50,6 +50,5 @@ class QdrantAdapter(IVectorStoreAdapter):
         hits = self.client.query_points(
             collection_name=collection or self.collection, query=query_vector, limit=top_k
         ).points
-        # str(): upsert() takes ids: list[str] — IDs are strings throughout this
-        # interface, even though qdrant-client also supports int/UUID.
+        # IDs are strings throughout this interface, though qdrant-client also allows int/UUID.
         return [SearchHit(id=str(h.id), score=h.score, payload=h.payload or {}) for h in hits]

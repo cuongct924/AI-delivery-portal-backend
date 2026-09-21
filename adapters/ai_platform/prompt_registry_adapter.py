@@ -41,8 +41,7 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
 
     def get_version(self, kind: str, name: str, version: str) -> dict[str, object]:
         self._check_kind(kind)
-        # get_prompt_version returns None (not an exception) for a missing
-        # version — e.g. for a typo'd version string.
+        # get_prompt_version returns None (not an exception) for a missing version.
         prompt_version = self.client.get_prompt_version(name=name, version=version)
         if prompt_version is None:
             raise ValueError(f"{kind}/{name} has no version {version!r}")
@@ -53,15 +52,12 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
 
     def list_versions(self, kind: str, name: str) -> dict[str, dict[str, object]]:
         self._check_kind(kind)
-        # mlflow.genai has no bulk "list all versions of a prompt" call as of
-        # 3.15.1 — walk version numbers until get_prompt_version returns None.
+        # mlflow.genai (3.15.1) has no bulk list call — walk versions until None.
         versions: dict[str, dict[str, object]] = {}
         version = 1
         while True:
             try:
-                # None means a missing *version* of an existing name, while an
-                # MlflowException (RESOURCE_DOES_NOT_EXIST) means `name` itself
-                # was never registered — either way it's not found.
+                # None = missing version; MlflowException = name never registered — both not found.
                 pv = self.client.get_prompt_version(name=name, version=str(version))
             except MlflowException:
                 break

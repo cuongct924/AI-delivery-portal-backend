@@ -153,8 +153,7 @@ class OpenChoreoWorkflowAdapter(IWorkflowAdapter):
         }
 
     def list_workflows(self) -> list[WorkflowSummary]:
-        # Convenience method, not part of IWorkflowAdapter — same
-        # list-of-summaries shape the routers expect from the real backend.
+        # Convenience method, outside IWorkflowAdapter — matches the shape routers expect.
         response = httpx.get(
             f"{self.base_url}/namespaces/{self.namespace}/workflowruns",
             params={"limit": 100},

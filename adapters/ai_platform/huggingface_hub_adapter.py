@@ -35,8 +35,7 @@ class HuggingFaceHubAdapter(IHuggingFaceHubAdapter):
             if response.status_code == 404:
                 return self._not_found(model_id)
             if response.status_code in (401, 403):
-                # No token, or token lacks access to this gated repo — still a
-                # real model, just can't read its detail.
+                # No token, or lacks gated-repo access — real model, detail unreadable.
                 return self._gated_without_access(model_id)
             response.raise_for_status()
             metadata = response.json()
@@ -45,8 +44,7 @@ class HuggingFaceHubAdapter(IHuggingFaceHubAdapter):
             param_count = metadata.get("safetensors", {}).get("total")
             license_name = metadata.get("cardData", {}).get("license") or metadata.get("license")
 
-            # Skip the config.json call when it would 401 (gated + no token) —
-            # saves a round trip for the common case.
+            # Skip config.json fetch when it'd 401 — gated with no token.
             can_read_config = not is_gated or bool(headers)
             architecture = self._get_architecture(client, model_id) if can_read_config else None
 
@@ -72,8 +70,7 @@ class HuggingFaceHubAdapter(IHuggingFaceHubAdapter):
     def _get_architecture(self, client: httpx.Client, model_id: str) -> dict[str, object] | None:
         response = client.get(f"{_HUB_API_BASE}/{model_id}/resolve/main/config.json")
         if response.status_code != 200:
-            # Gated with an insufficient token, or a non-standard layout
-            # (e.g. GGUF-only) — caller falls back to manual GPU sizing.
+            # Gated/no-token or non-standard layout — caller falls back to manual sizing.
             return None
         return response.json()
 

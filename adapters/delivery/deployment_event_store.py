@@ -46,9 +46,7 @@ class DeploymentEventRecord(TypedDict):
     outcome: Literal["success", "failed", "in_progress"]
     startedAt: str
     finishedAt: str
-    # WorkflowStepTiming reused as-is (not a narrower local type) so
-    # WorkflowStatus["steps"] can be passed straight through from
-    # routers/models.py without repackaging.
+    # WorkflowStepTiming reused as-is so routers/models.py can pass steps through unrepackaged.
     steps: list[WorkflowStepTiming] | None
 
 

@@ -149,9 +149,8 @@ async def send_message(
 
             tool_result = await registry.call_tool(tool_name, tool_args)
             tools_used.append(tool_name)
-            # cast: message is a TypedDict (ChatCompletionMessage), not
-            # assignable to dict[str, object] by static invariance rules,
-            # even though it's a plain dict at runtime.
+            # cast: TypedDict isn't statically assignable to dict[str, object],
+            # though it's a plain dict at runtime.
             messages.append(cast(dict[str, object], message))
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": tool_result})
             response = llm_gateway_adapter.chat_completion(

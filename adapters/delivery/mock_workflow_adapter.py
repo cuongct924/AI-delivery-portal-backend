@@ -30,8 +30,7 @@ class MockWorkflowAdapter(IWorkflowAdapter):
     def __init__(self, model_registry: MockModelRegistryAdapter | None = None) -> None:
         self._workflows: dict[str, _WorkflowRecord] = {}
         self._cron_workflows: dict[str, dict[str, object]] = {}
-        # Only wired by factory.py when the model registry is ALSO mocked —
-        # see _maybe_register_model()'s docstring.
+        # Only wired by factory.py when the model registry is also mocked.
         self._model_registry = model_registry
 
     def trigger_workflow(self, template_name: str, parameters: dict[str, str]) -> dict[str, object]:

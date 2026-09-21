@@ -53,8 +53,7 @@ class MlflowAdapter(IModelRegistryAdapter):
         return dict(run.data.metrics)
 
     def get_dataset_lineage(self, name: str, version: str) -> list[DatasetLineageEntry]:
-        # Reads lineage logged at training time (mlflow.log_input), not a
-        # tag set here — a run can log more than one dataset.
+        # From mlflow.log_input at training time — a run may log several datasets.
         mv = self.client.get_model_version(name=name, version=version)
         if mv.run_id is None:
             raise ValueError(f"Model version {name}:{version} has no associated run_id")
@@ -68,9 +67,7 @@ class MlflowAdapter(IModelRegistryAdapter):
         self.client.set_model_version_tag(name, version, key, value)
 
     def get_model_version_details(self, name: str, version: str) -> ModelVersionDetails:
-        # Translate RestException -> ValueError so callers need no mlflow
-        # import — an unknown or misspelled version is routine input, not
-        # a server fault.
+        # RestException -> ValueError: unknown version is routine input, not a server fault.
         try:
             mv = self.client.get_model_version(name=name, version=version)
         except RestException as e:
@@ -89,8 +86,8 @@ class MlflowAdapter(IModelRegistryAdapter):
         }
 
     def get_latest_version(self, name: str) -> str:
-        # Convenience method, not part of IModelRegistryAdapter — same precedent
-        # as QdrantAdapter.ensure_collection() in vector_db_adapter.py.
+        # Convenience method, outside IModelRegistryAdapter — same precedent as
+        # QdrantAdapter's ensure_collection().
         versions = self.client.search_model_versions(f"name='{name}'")
         if not versions:
             raise ValueError(f"Model {name} has no registered versions")
@@ -106,9 +103,8 @@ class MlflowAdapter(IModelRegistryAdapter):
         return self.client.get_model_version_download_uri(name, version)
 
     def list_model_versions(self, name: str) -> list[str]:
-        # Convenience method, not part of IModelRegistryAdapter — powers the
-        # Evaluate & Deploy template's version dropdown with only versions that
-        # actually exist, removing the free-text typo class.
+        # Convenience method — powers Evaluate & Deploy's version dropdown,
+        # avoiding free-text typos.
         versions = self.client.search_model_versions(f"name='{name}'")
         return sorted((mv.version for mv in versions), key=int, reverse=True)
 

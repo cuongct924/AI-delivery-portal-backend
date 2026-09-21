@@ -20,8 +20,7 @@ REAL_RUNS_PATH: Final[Path] = (
     / "delivery_insights_runs.json"
 )
 
-# The capture script only ever pulls MLOps Golden Path WorkflowRuns today —
-# every captured row is a model change until RAG/prompt runs are captured too.
+# Capture script only pulls MLOps runs — rows are always model changes for now.
 _CAPTURED_CHANGE_TYPE: Final = "model"
 
 

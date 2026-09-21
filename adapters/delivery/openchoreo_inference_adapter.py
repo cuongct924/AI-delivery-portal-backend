@@ -12,12 +12,13 @@ in the class docstring.
 
 **Known, real, unresolved gap**: KServe's storage-initializer can't load this
 repo's `models:/<name>/<version>` storage_uri convention (only gs://, s3://,
-file://, http(s)://, hf:// are supported), and docker-compose.yml's mlflow
-service serves artifacts behind its own mlflow-artifacts:/ proxy — so deployed
-InferenceServices never actually load a model. Pre-existing in every models:/
-callsite (routers/models.py, adapters/delivery/deploy_strategies.py); fixing needs a
-real decision (MLflow artifact store on MinIO, or resolve model_uri first) out
-of this adapter's scope.
+file://, http(s)://, hf:// are supported), and the in-cluster MLflow service
+(infra/ai-platform-zone/mlflow.yaml) serves artifacts behind its own
+mlflow-artifacts:/ proxy — so deployed InferenceServices never actually load
+a model. Pre-existing in every models:/ callsite (routers/models.py,
+adapters/delivery/deploy_strategies.py); fixing needs a real decision (MLflow
+artifact store on MinIO, or resolve model_uri first) out of this adapter's
+scope.
 """
 
 from collections.abc import Mapping
@@ -78,15 +79,12 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         model_uri: str,
         traffic_fields: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
+        """Patches the Workload's image; raises for any traffic split other
+        than a 100% cutover — the ClusterComponentType has no canary slot,
+        so only InstantStrategy's rollback-path 100% split
+        (TrafficSplitStrategy(100)) is actually renderable."""
         del name, version  # this Workload serves whichever model_uri it's patched to
         if traffic_fields and traffic_fields.get("canaryTrafficPercent") != 100:
-            # ClusterComponentType "proxy/inference-service" has no canary
-            # slot in environmentConfigs — this Workload has one
-            # `container.image` field, no revision-split concept, so a
-            # genuine PARTIAL split has no honest way to render. A 100%
-            # split is exactly what deploy_strategies.py's rollback path
-            # always sends (InstantStrategy via TrafficSplitStrategy(100)),
-            # so treating it as a plain deploy is what makes rollback work.
             raise NotImplementedError(
                 "OpenChoreoInferenceAdapter.deploy_model: a PARTIAL traffic split "
                 f"({traffic_fields!r}) isn't wired into the InferenceService "
@@ -100,11 +98,11 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         return cast(dict[str, object], result)
 
     def get_inference_status(self, name: str) -> dict[str, object]:
+        """The real InferenceService lives in an auto-generated dataplane
+        namespace that can't be derived from self.project/self.component —
+        only discovered by listing across all namespaces, filtered by the
+        labels the release-controller actually sets."""
         del name  # same single-Workload scoping as deploy_model
-        # The real InferenceService lives in an auto-generated dataplane
-        # namespace that can't be derived from `self.project`/`self.component`
-        # — only discovered by listing across all namespaces, filtered by the
-        # labels renderedrelease-controller actually sets.
         items = cast(
             dict[str, object],
             self.api.list_cluster_custom_object(
@@ -142,11 +140,7 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         predictor = cast(dict[str, object], spec.get("predictor", {}))
         traffic_percent = cast(int | None, predictor.get("canaryTrafficPercent"))
 
-        # No per-deploy version label exists here (unlike GpuKServeInferenceAdapter) —
-        # the ClusterComponentType passes through whatever labels are on the
-        # Workload, it doesn't set one per deploy. Parse the version instead
-        # out of the "models:/<name>/<version>" storageUri deploy_model()
-        # patched in — None if it isn't that shorthand.
+        # No per-deploy label here — parse version from the models:/ storageUri shorthand instead.
         model_spec = cast(dict[str, object], predictor.get("model", {}))
         storage_uri = cast(str | None, model_spec.get("storageUri"))
         live_version = None

@@ -144,8 +144,7 @@ class MockHuggingFaceHubAdapter(IHuggingFaceHubAdapter):
         known = _KNOWN_HUGGINGFACE_MODELS.get(model_id)
         if known is not None:
             return known
-        # Anything else: treat as a real, ungated 7B-class model — good enough to
-        # exercise the wizard/estimator end-to-end without a real Hub lookup.
+        # Anything else: treat as a real, ungated 7B-class model for testing.
         return HuggingFaceModelInfo(
             model_id=model_id,
             exists=True,

@@ -15,8 +15,7 @@ class MockPromotionAdapter(IPromotionAdapter):
     def __init__(self, project: str = "telco-fraud-detection") -> None:
         self.project = project
         self._bindings: dict[str, str] = {"development": "1"}
-        # Same one-level-deep undo contract as OpenChoreoPromotionAdapter's
-        # annotation — just a plain dict here since there's no CR to annotate.
+        # Same one-level-deep undo contract as OpenChoreoPromotionAdapter — plain dict, no CR.
         self._previous: dict[str, str] = {}
 
     def get_promotion_status(self) -> PromotionStatus:
