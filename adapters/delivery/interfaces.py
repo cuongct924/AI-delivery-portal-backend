@@ -8,7 +8,8 @@ already depends on the interface.
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TypedDict
+from datetime import datetime
+from typing import Literal, TypedDict
 
 
 class PromotionStatus(TypedDict):
@@ -25,14 +26,16 @@ class PromotionStatus(TypedDict):
 
 class IPromotionAdapter(ABC):
     """OpenChoreo DeploymentPipeline/ProjectReleaseBinding-based staging/prod
-    promotion — replaces the abandoned Kargo-based pipeline (see
-    agents/mcp-servers/observability-server/server.py's get_promotion_status).
+    promotion — replaces the abandoned Kargo-based pipeline. The read-only
+    promotion-status MCP tool now lives in OpenChoreo's own Control Plane MCP
+    server (`get_release_binding`/`list_deployment_pipelines`), not in
+    agents/mcp-servers/.
 
     `promote()` is always a human-initiated action, never an agent/MCP tool —
-    get_promotion_status stays a read-only MCP tool; promote() is only
-    reachable via a Scaffolder Golden Path the Dev runs. There is no separate
-    "approve" step beyond that human action — see OpenChoreoPromotionAdapter's
-    docstring for why a second approval gate wasn't built.
+    promote() is only reachable via a Scaffolder Golden Path the Dev runs.
+    There is no separate "approve" step beyond that human action — see
+    OpenChoreoPromotionAdapter's docstring for why a second approval gate
+    wasn't built.
     """
 
     @abstractmethod
@@ -195,3 +198,182 @@ class IWorkflowAdapter(ABC):
 
     @abstractmethod
     def get_workflow_status(self, workflow_name: str) -> WorkflowStatus: ...
+
+
+type DoraGranularity = Literal["daily", "weekly", "monthly"]
+type ChangeType = Literal["infra", "model", "rag_index", "prompt"]
+type LifecyclePhase = Literal["data_prep", "train", "eval", "deploy"]
+type FailureClass = Literal["infra", "semantic"]
+type SemanticFailureType = Literal[
+    "accuracy_drop", "drift", "hallucination", "guardrail", "prompt_injection"
+]
+type RecoveryStrategy = Literal["rollback", "fallback", "guardrail", "retrain"]
+
+
+class DeliveryScope(TypedDict):
+    namespace: str
+    project: str | None
+    component: str | None
+    environment: str | None
+
+
+class DeliveryDeployment(TypedDict):
+    """Twin of routers/delivery_insights.py's `DoraDeployment` Pydantic
+    model — the ML/LLM fields are all optional-valued so an infra-only row
+    keeps today's shape."""
+
+    deployedAt: str
+    projectName: str
+    componentName: str
+    environmentName: str
+    componentRelease: str
+    commit: str
+    outcome: Literal["success", "failed", "in_progress"]
+    failedBy: str
+    failureReason: str
+    incidentId: str
+    leadTimeMs: int | None
+    changeType: ChangeType | None
+    driftTriggered: bool
+    evalCoverage: float | None
+    leadTimeBreakdown: dict[LifecyclePhase, int] | None
+    evalBottleneck: LifecyclePhase | None
+    failureClass: FailureClass | None
+    semanticType: SemanticFailureType | None
+    evalScore: float | None
+    baselineScore: float | None
+    driftScore: float | None
+    recoveryStrategy: RecoveryStrategy | None
+    modelVersion: str | None
+    promptVersion: str | None
+    ragIndexVersion: str | None
+
+
+class DeliveryFrequencySummary(TypedDict):
+    total: int
+    perDay: float
+    classification: str
+    deltaPct: float | None
+
+
+class DeliveryLeadTimeSummary(TypedDict):
+    p50Ms: int | None
+    p95Ms: int | None
+    coverage: float
+    classification: str
+    deltaPct: float | None
+
+
+class DeliveryChangeFailureRateSummary(TypedDict):
+    rate: float
+    failed: int
+    total: int
+    classification: str
+    deltaPct: float | None
+    infraCfr: float | None
+    semanticCfr: float | None
+
+
+class DeliveryMttrSummary(TypedDict):
+    meanMs: int | None
+    p50Ms: int | None
+    recoveries: int
+    classification: str
+    deltaPct: float | None
+
+
+class DeliverySummary(TypedDict):
+    deploymentFrequency: DeliveryFrequencySummary | None
+    leadTime: DeliveryLeadTimeSummary | None
+    changeFailureRate: DeliveryChangeFailureRateSummary | None
+    mttr: DeliveryMttrSummary | None
+
+
+class DeliveryFrequencyPoint(TypedDict):
+    bucketStart: str
+    count: int
+
+
+class DeliveryLeadTimePoint(TypedDict):
+    bucketStart: str
+    p50Ms: int
+    p75Ms: int
+    p95Ms: int
+
+
+class DeliveryChangeFailureRatePoint(TypedDict):
+    bucketStart: str
+    rate: float
+    failed: int
+    total: int
+
+
+class DeliveryMttrPoint(TypedDict):
+    bucketStart: str
+    meanMs: int
+    p50Ms: int
+    count: int
+
+
+class DeliverySeries(TypedDict):
+    deploymentFrequency: list[DeliveryFrequencyPoint] | None
+    leadTime: list[DeliveryLeadTimePoint] | None
+    changeFailureRate: list[DeliveryChangeFailureRatePoint] | None
+    mttr: list[DeliveryMttrPoint] | None
+
+
+class DeliveryAvailability(TypedDict):
+    collecting: bool
+    deliveryEvents: bool
+    evalPipeline: bool
+    driftMonitor: bool
+    guardrails: bool
+
+
+class DeliveryWindow(TypedDict):
+    startTime: str
+    endTime: str
+    generatedAt: str
+
+
+class DeliveryMetricsResult(TypedDict):
+    dataAvailability: DeliveryAvailability
+    scope: DeliveryScope
+    granularity: DoraGranularity
+    window: DeliveryWindow
+    summary: DeliverySummary
+    series: DeliverySeries
+
+
+class DeliveryDeploymentsResult(TypedDict):
+    deployments: list[DeliveryDeployment]
+    totalCount: int
+    tookMs: int
+
+
+class IDeliveryObserverAdapter(ABC):
+    """Delivery Insights (DORA) observer for the Portal dashboard — mirrors
+    the shape OpenChoreo's real Observer API returns, so
+    routers/delivery_insights.py stays a thin pass-through regardless of
+    which class backs it (synthetic/captured-JSON mock data vs. real
+    Prometheus + MLflow)."""
+
+    @abstractmethod
+    def query_metrics(
+        self,
+        scope: DeliveryScope,
+        start: datetime,
+        end: datetime,
+        granularity: DoraGranularity,
+        metrics: list[str] | None,
+    ) -> DeliveryMetricsResult: ...
+
+    @abstractmethod
+    def query_deployments(
+        self,
+        scope: DeliveryScope,
+        start: datetime,
+        end: datetime,
+        limit: int,
+        sort_order: Literal["asc", "desc"],
+    ) -> DeliveryDeploymentsResult: ...

@@ -1,5 +1,7 @@
-"""services/orchestration-api/routers/mock_observer.py — calls the route
-functions directly, same pattern as the other router tests."""
+"""services/orchestration-api/routers/delivery_insights.py — calls the route
+functions directly, same pattern as the other router tests. The adapter
+singleton is swapped per test via monkeypatch rather than env vars, so tests
+don't depend on import order."""
 
 import sys
 from datetime import UTC, datetime, timedelta
@@ -10,7 +12,8 @@ import pytest
 sys.modules.setdefault("mlflow", MagicMock())
 sys.modules.setdefault("mlflow.tracking", MagicMock())
 
-from routers.mock_observer import (  # noqa: E402
+from routers import delivery_insights  # noqa: E402
+from routers.delivery_insights import (  # noqa: E402
     DoraDeploymentsQueryRequest,
     DoraQueryRequest,
     DoraSearchScope,
@@ -18,8 +21,19 @@ from routers.mock_observer import (  # noqa: E402
     query_dora_metrics,
 )
 
+from adapters.delivery.mock_delivery_observer_adapter import (  # noqa: E402
+    MockDeliveryObserverAdapter,
+)
+
 _START = datetime(2026, 8, 1, tzinfo=UTC)
 _END = _START + timedelta(days=30)
+
+
+@pytest.fixture(autouse=True)
+def _mock_source_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        delivery_insights, "delivery_observer_adapter", MockDeliveryObserverAdapter("mock")
+    )
 
 
 def _request(**scope: str) -> DoraQueryRequest:
@@ -62,6 +76,14 @@ def test_data_availability_reports_collecting() -> None:
     assert response.dataAvailability.deliveryEvents is True
 
 
+def test_change_failure_rate_summary_splits_infra_and_semantic() -> None:
+    response = query_dora_metrics(_request(project="fraud-detection"))
+
+    assert response.summary.changeFailureRate is not None
+    assert response.summary.changeFailureRate.infraCfr is not None
+    assert response.summary.changeFailureRate.semanticCfr is not None
+
+
 def test_metric_filter_drops_unrequested_metrics() -> None:
     request = _request()
     request.metrics = ["deploymentFrequency"]
@@ -88,6 +110,9 @@ def test_deployments_use_mlops_template_names_and_respect_limit() -> None:
     assert response.totalCount <= 5
     assert all(d.componentName for d in response.deployments)
     assert all(d.environmentName in {"dev", "staging", "prod"} for d in response.deployments)
+    assert all(
+        d.changeType in {"infra", "model", "rag_index", "prompt"} for d in response.deployments
+    )
 
 
 def test_deployments_sort_order() -> None:
@@ -117,12 +142,14 @@ def test_invalid_granularity_is_rejected() -> None:
 def test_real_captured_runs_are_served_when_window_overlaps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from routers import mock_observer
+    from adapters.delivery._captured_runs import load_captured_runs
 
-    if not mock_observer._load_real_runs():
+    if not load_captured_runs():
         pytest.skip("no captured runs file")
 
-    monkeypatch.setattr(mock_observer, "_USE_CAPTURED_RUNS", True)
+    monkeypatch.setattr(
+        delivery_insights, "delivery_observer_adapter", MockDeliveryObserverAdapter("captured")
+    )
     request = DoraQueryRequest(
         searchScope=DoraSearchScope(namespace="default", project="telco-fraud-detection"),
         startTime="2026-09-17T00:00:00Z",
@@ -138,10 +165,7 @@ def test_real_captured_runs_are_served_when_window_overlaps(
     assert 0 < response.summary.changeFailureRate.rate < 1
 
 
-def test_mock_source_ignores_captured_runs(monkeypatch: pytest.MonkeyPatch) -> None:
-    from routers import mock_observer
-
-    monkeypatch.setattr(mock_observer, "_USE_CAPTURED_RUNS", False)
+def test_mock_source_ignores_captured_runs() -> None:
     request = DoraQueryRequest(
         searchScope=DoraSearchScope(namespace="default", project="telco-fraud-detection"),
         startTime="2026-09-17T00:00:00Z",

@@ -17,10 +17,10 @@ from observability.dora_metrics import LLM_SPEND_USD
 from prometheus_fastapi_instrumentator import Instrumentator
 from routers import (
     chat,
+    delivery_insights,
     golden_paths,
     llm_models,
     llm_serving,
-    mock_observer,
     models,
     monitoring,
     portal_assistant,
@@ -97,14 +97,15 @@ app.include_router(rag.router)
 app.include_router(portal_assistant.router)
 app.include_router(golden_paths.router)
 app.include_router(llm_models.router)
-app.include_router(mock_observer.router)
+app.include_router(delivery_insights.router)
 
 # feast (via adapters.factory) sets PROMETHEUS_MULTIPROC_DIR at import time,
 # which makes Instrumentator's /metrics read empty multiprocess .db files
 # this app never writes — pop it so /metrics stays in-process.
 os.environ.pop("PROMETHEUS_MULTIPROC_DIR", None)
 
-# Expose /metrics — scraped by Prometheus (infra/monitoring/prometheus.yml)
+# Expose /metrics — scraped by Prometheus (OpenChoreo's in-cluster
+# observability plane; the old compose-era infra/monitoring/ config is gone).
 Instrumentator().instrument(app).expose(app)
 
 

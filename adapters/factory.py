@@ -50,13 +50,20 @@ from adapters.ai_platform.prompt_registry_adapter import MlflowPromptRegistryAda
 from adapters.ai_platform.vector_db_adapter import QdrantAdapter
 from adapters.ai_platform.version_registry_adapter import JsonFileVersionRegistryAdapter
 from adapters.delivery.gpu_inference_adapter import GpuKServeInferenceAdapter
-from adapters.delivery.interfaces import IGpuInferenceAdapter, IInferenceAdapter, IPromotionAdapter
+from adapters.delivery.interfaces import (
+    IDeliveryObserverAdapter,
+    IGpuInferenceAdapter,
+    IInferenceAdapter,
+    IPromotionAdapter,
+)
+from adapters.delivery.mock_delivery_observer_adapter import MockDeliveryObserverAdapter
 from adapters.delivery.mock_inference_adapter import MockInferenceAdapter
 from adapters.delivery.mock_promotion_adapter import MockPromotionAdapter
 from adapters.delivery.mock_workflow_adapter import MockWorkflowAdapter
 from adapters.delivery.openchoreo_inference_adapter import OpenChoreoInferenceAdapter
 from adapters.delivery.openchoreo_promotion_adapter import OpenChoreoPromotionAdapter
 from adapters.delivery.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter
+from adapters.delivery.prometheus_delivery_observer_adapter import PrometheusDeliveryObserverAdapter
 
 
 def _use_mock(specific_env_var: str) -> bool:
@@ -204,6 +211,13 @@ def get_eval_result_adapter() -> IEvalResultAdapter:
     if _use_mock("USE_MOCK_EVAL_RESULT"):
         return MockEvalResultAdapter()
     return MlflowEvalResultAdapter()
+
+
+@lru_cache
+def get_delivery_observer_adapter() -> IDeliveryObserverAdapter:
+    if _use_mock("USE_MOCK_DELIVERY_OBSERVER"):
+        return MockDeliveryObserverAdapter()
+    return PrometheusDeliveryObserverAdapter(model_registry_adapter=get_model_registry_adapter())
 
 
 _mock_inference_adapters: dict[str, MockInferenceAdapter] = {}
