@@ -1,7 +1,7 @@
-"""Tests adapters/mlflow_adapter.py.
+"""Tests adapters/ai_platform/mlflow_adapter.py.
 
 Stubs the "mlflow" package at the sys.modules level before importing (same
-pattern as tests/test_evaluate_drift.py — adapters/mlflow_adapter.py has
+pattern as tests/test_evaluate_drift.py — adapters/ai_platform/mlflow_adapter.py has
 `import mlflow` at module level, and the real mlflow package is heavier than
 a unit test needs), then patches `mlflow` and `MlflowClient` for the
 duration of each test so assertions are made against plain `MagicMock`
@@ -19,7 +19,7 @@ import pytest
 sys.modules.setdefault("mlflow", MagicMock())
 sys.modules.setdefault("mlflow.tracking", MagicMock())
 
-from adapters.mlflow_adapter import MlflowAdapter  # noqa: E402
+from adapters.ai_platform.mlflow_adapter import MlflowAdapter  # noqa: E402
 
 
 @pytest.fixture
@@ -29,13 +29,13 @@ def mock_client() -> MagicMock:
 
 @pytest.fixture
 def mock_mlflow() -> Iterator[MagicMock]:
-    with patch("adapters.mlflow_adapter.mlflow") as mocked:
+    with patch("adapters.ai_platform.mlflow_adapter.mlflow") as mocked:
         yield mocked
 
 
 @pytest.fixture
 def adapter(mock_client: MagicMock, mock_mlflow: MagicMock) -> MlflowAdapter:
-    with patch("adapters.mlflow_adapter.MlflowClient", return_value=mock_client):
+    with patch("adapters.ai_platform.mlflow_adapter.MlflowClient", return_value=mock_client):
         return MlflowAdapter(tracking_uri="http://mlflow.test")
 
 

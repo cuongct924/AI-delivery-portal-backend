@@ -1,5 +1,5 @@
 # Online feature serving — built from infra/feature-store/Dockerfile.
-# adapters/feature_store_adapter.py's FeastAdapter calls this over HTTP when
+# adapters/ai_platform/feature_store_adapter.py's FeastAdapter calls this over HTTP when
 # FEAST_SERVING_URL is set (orchestration-api's workload env); offline
 # features still use the in-process SDK against its own frozen copy of this
 # repo (unchanged). hostPath, seeded the same way as minio.yaml — see

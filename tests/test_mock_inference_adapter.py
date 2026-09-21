@@ -1,4 +1,4 @@
-"""Tests adapters/mock_inference_adapter.py.
+"""Tests adapters/delivery/mock_inference_adapter.py.
 
 Return values are typed `dict[str, object]` (they pass through the
 KServe/Kubernetes API shape, per IInferenceAdapter's docstring) — cast to
@@ -11,7 +11,7 @@ from typing import Any, cast
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from adapters.mock_inference_adapter import MockInferenceAdapter
+from adapters.delivery.mock_inference_adapter import MockInferenceAdapter
 
 
 @pytest.fixture
@@ -71,3 +71,43 @@ def test_predict_echoes_payload_when_deployed(adapter: MockInferenceAdapter) -> 
     result = adapter.predict("fraud-detection", {"input": [1, 2, 3]})
 
     assert result["echo"] == {"input": [1, 2, 3]}
+
+
+def test_get_deploy_status_returns_not_deployed_when_never_deployed(
+    adapter: MockInferenceAdapter,
+) -> None:
+    status = adapter.get_deploy_status("fraud-detection")
+
+    assert status == {
+        "deployed": False,
+        "ready": False,
+        "live_version": None,
+        "traffic_percent": None,
+    }
+
+
+def test_get_deploy_status_reports_live_version_and_traffic(adapter: MockInferenceAdapter) -> None:
+    adapter.deploy_model(
+        "fraud-detection",
+        "4",
+        "models:/fraud-detection/4",
+        traffic_fields={"canaryTrafficPercent": 10},
+    )
+
+    status = adapter.get_deploy_status("fraud-detection")
+
+    assert status == {
+        "deployed": True,
+        "ready": True,
+        "live_version": "4",
+        "traffic_percent": 10,
+    }
+
+
+def test_get_deploy_status_works_for_a_deployed_llm(adapter: MockInferenceAdapter) -> None:
+    adapter.deploy_llm_model("llama-3", "1", "meta-llama/Llama-3-8B", "vllm-runtime", 1, None, 4096)
+
+    status = adapter.get_deploy_status("llama-3")
+
+    assert status["deployed"] is True
+    assert status["live_version"] == "1"

@@ -11,9 +11,9 @@ import httpx
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 
-from adapters.interfaces import ModelSummary
-from adapters.llm_gateway_adapter import LiteLLMGatewayAdapter
-from adapters.mlflow_adapter import MlflowAdapter
+from adapters.ai_platform.interfaces import ModelSummary
+from adapters.ai_platform.llm_gateway_adapter import LiteLLMGatewayAdapter
+from adapters.ai_platform.mlflow_adapter import MlflowAdapter
 
 mcp = MCPServer("observability-server")
 adapter = MlflowAdapter()
@@ -139,7 +139,7 @@ def get_promotion_status(model_name: str, tenant: str) -> PromotionStatus:
     orchestration-api directly" pattern as get_active_prompt_version/
     get_active_rag_version above; `model_name`/`tenant` aren't forwarded,
     same single-Project/Component scoping as
-    adapters/openchoreo_promotion_adapter.py's own docstring explains).
+    adapters/delivery/openchoreo_promotion_adapter.py's own docstring explains).
     Read-only by design — actually promoting stays a human action via a
     Scaffolder Golden Path template, never something this tool (or any
     agent) can trigger; see that adapter's docstring for why no separate

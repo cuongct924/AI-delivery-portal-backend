@@ -1,9 +1,15 @@
-"""Tests for adapters/mock_eval_result_adapter.py — in-memory adapter for
-LLM-as-a-judge evaluation results."""
+"""Tests adapters/mock_misc_adapters.py — MockEvalResultAdapter,
+MockNotebookAdapter, MockHuggingFaceHubAdapter."""
 
 from datetime import datetime
 
-from adapters.mock_eval_result_adapter import MockEvalResultAdapter
+import pytest
+
+from adapters.ai_platform.mock_misc_adapters import (
+    MockEvalResultAdapter,
+    MockHuggingFaceHubAdapter,
+    MockNotebookAdapter,
+)
 
 
 def test_log_judge_result_and_get_last_failure() -> None:
@@ -88,3 +94,64 @@ def test_get_last_failure_at_different_kind_and_name() -> None:
     assert adapter.get_last_failure_at("rag-index", "collection-x") is not None
     assert adapter.get_last_failure_at("prompt", "prompt-b") is None
     assert adapter.get_last_failure_at("rag-index", "collection-y") is None
+
+
+@pytest.fixture
+def notebook_adapter() -> MockNotebookAdapter:
+    return MockNotebookAdapter()
+
+
+def test_create_notebook_returns_an_active_notebook(notebook_adapter: MockNotebookAdapter) -> None:
+    status = notebook_adapter.create_notebook("pytorch", ram_gb=8, gpu_type="t4")
+
+    assert status["active"] is True
+    assert status["url"] is not None
+
+
+def test_get_notebook_status_returns_what_was_created(
+    notebook_adapter: MockNotebookAdapter,
+) -> None:
+    created = notebook_adapter.create_notebook("pytorch", ram_gb=8)
+
+    fetched = notebook_adapter.get_notebook_status(created["notebook_id"])
+
+    assert fetched == created
+
+
+def test_get_notebook_status_raises_for_unknown_id(notebook_adapter: MockNotebookAdapter) -> None:
+    with pytest.raises(ValueError, match="does not exist"):
+        notebook_adapter.get_notebook_status("nb-unknown")
+
+
+def test_delete_notebook_removes_it(notebook_adapter: MockNotebookAdapter) -> None:
+    created = notebook_adapter.create_notebook("pytorch", ram_gb=8)
+
+    result = notebook_adapter.delete_notebook(created["notebook_id"])
+
+    assert result == {"notebook_id": created["notebook_id"], "deleted": True}
+    with pytest.raises(ValueError, match="does not exist"):
+        notebook_adapter.get_notebook_status(created["notebook_id"])
+
+
+def test_delete_notebook_raises_for_unknown_id(notebook_adapter: MockNotebookAdapter) -> None:
+    with pytest.raises(ValueError, match="does not exist"):
+        notebook_adapter.delete_notebook("nb-unknown")
+
+
+def test_known_gated_model_returns_real_architecture() -> None:
+    info = MockHuggingFaceHubAdapter().get_model_info("meta-llama/Llama-3.1-8B-Instruct")
+    assert info["exists"] is True
+    assert info["is_gated"] is True
+    assert info["num_layers"] == 32
+
+
+def test_known_not_found_model_returns_exists_false() -> None:
+    info = MockHuggingFaceHubAdapter().get_model_info("does-not-exist/not-a-real-model")
+    assert info["exists"] is False
+
+
+def test_unknown_model_id_returns_synthetic_ungated_info() -> None:
+    info = MockHuggingFaceHubAdapter().get_model_info("some-org/some-model")
+    assert info["exists"] is True
+    assert info["is_gated"] is False
+    assert info["param_count_billion"] == 7.0

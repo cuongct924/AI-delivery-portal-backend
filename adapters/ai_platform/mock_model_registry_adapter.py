@@ -7,7 +7,7 @@ import uuid
 
 import pandas as pd
 
-from adapters.interfaces import (
+from adapters.ai_platform.interfaces import (
     DatasetLineageEntry,
     IModelRegistryAdapter,
     ModelRegistration,

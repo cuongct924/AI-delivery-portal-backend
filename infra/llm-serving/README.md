@@ -4,15 +4,15 @@ Self-hosted LLM serving (vLLM on KServe) powering the "Serving LLM" Golden
 Path (`templates/deploy-llm/template.yaml` in the frontend repo,
 `cuongct924/AI-delivery-portal-frontend`). **Does not work
 locally** — the k3d `openchoreo-quick-start` cluster used by every other
-Golden Path in this repo (see `docs/openchoreo-migration-next-steps.md`
-for its current state) has no GPU node, no NVIDIA device plugin, and no
+Golden Path in this repo has no GPU node, no NVIDIA device plugin, and no
 `huggingface`/vLLM `ServingRuntime` — only the `mlflow` runtime KServe
-ships by default. KServe itself also isn't installed anywhere yet (0 CRD,
-confirmed in `docs/openchoreo-migration-next-steps.md` — no
-ClusterComponentType wraps it), a separate prerequisite from the GPU gap
-below.
+ships by default. There is also no OpenChoreo `ClusterComponentType` for
+GPU/vLLM serving — `adapters/delivery/gpu_inference_adapter.py`'s `GpuKServeInferenceAdapter`
+talks to KServe's InferenceService CRD directly, deliberately kept scoped to
+this one golden path while standard model serving (`routers/models.py`) is
+fully on OpenChoreo (`adapters/delivery/openchoreo_inference_adapter.py`).
 
-`adapters/kserve_adapter.py`'s `deploy_llm_model()` and
+`adapters/delivery/gpu_inference_adapter.py`'s `deploy_llm_model()` and
 `services/orchestration-api/routers/llm_serving.py`'s
 `/llm-deploy/prepare` render a correct `InferenceService` manifest and are
 covered by real (non-GPU) unit tests — what's genuinely not implemented
@@ -45,7 +45,7 @@ here is the cluster-side prerequisite below.
    ```
    Not applied by any script in this repo — apply it by hand on a real
    GPU cluster once KServe itself is wrapped in an OpenChoreo
-   `ClusterComponentType` (Phase 2, sub-step 2.3).
+   `ClusterComponentType` for GPU/vLLM serving (doesn't exist yet).
 3. **Roadmap runtimes** — the dropdown also lists `tensorrt-llm` and `triton`
    (mapped to `tensorrt-llm-runtime` / `triton-runtime` ClusterServingRuntimes
    respectively) but these raise friendly errors at prepare time in the current

@@ -1,6 +1,6 @@
 # Registers the MLflow instance running in ai-platform-zone on worker2
 # (infra/ai-platform-zone/mlflow.yaml, port 5000) as OpenChoreo Catalog
-# metadata — does not change adapters/mlflow_adapter.py, does not change
+# metadata — does not change adapters/ai_platform/mlflow_adapter.py, does not change
 # the port, does not deploy a second MLflow. Same in-cluster Service DNS
 # already used by workload-orchestration-api.yaml's MLFLOW_TRACKING_URI.
 apiVersion: openchoreo.dev/v1alpha1

@@ -1,4 +1,4 @@
-"""Feast feature repo definitions — `adapters/feature_store_adapter.py`'s
+"""Feast feature repo definitions — `adapters/ai_platform/feature_store_adapter.py`'s
 `FeastAdapter` connects here by default (`FEAST_REPO_PATH=infra/feature-store`).
 
 `join_keys=["entity_id"]` is not a naming choice — it matches the column

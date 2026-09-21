@@ -3,20 +3,18 @@ evaluation results as MLflow runs, following the same "monitoring run" pattern
 as infra/argo-workflows/training-image/monitor_drift.py (lines 98-107).
 """
 
-import os
 from datetime import datetime
 
 import mlflow
 import pandas as pd
 
-from adapters.interfaces import IEvalResultAdapter
+from adapters.ai_platform._mlflow import get_mlflow_tracking_uri
+from adapters.ai_platform.interfaces import IEvalResultAdapter
 
 
 class MlflowEvalResultAdapter(IEvalResultAdapter):
     def __init__(self) -> None:
-        mlflow.set_tracking_uri(
-            os.environ.get("MLFLOW_TRACKING_URI", "http://host.docker.internal:5000")
-        )
+        mlflow.set_tracking_uri(get_mlflow_tracking_uri())
 
     def log_judge_result(
         self,

@@ -1,8 +1,8 @@
-"""Tests adapters/openchoreo_inference_adapter.py.
+"""Tests adapters/delivery/openchoreo_inference_adapter.py.
 
 Same kubeconfig-mocking convention as tests/test_kserve_adapter.py —
-OpenChoreoInferenceAdapter.__init__ also calls
-kubernetes.config.load_kube_config() eagerly.
+OpenChoreoInferenceAdapter.__init__ also calls load_kube_config_once()
+eagerly.
 """
 
 from collections.abc import Iterator
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from adapters.openchoreo_inference_adapter import (
+from adapters.delivery.openchoreo_inference_adapter import (
     GROUP,
     INFERENCESERVICE_PLURAL,
     KSERVE_GROUP,
@@ -30,9 +30,10 @@ def mock_api() -> MagicMock:
 @pytest.fixture
 def adapter(mock_api: MagicMock) -> Iterator[OpenChoreoInferenceAdapter]:
     with (
-        patch("adapters.openchoreo_inference_adapter.config.load_kube_config"),
+        patch("adapters.delivery.openchoreo_inference_adapter.load_kube_config_once"),
         patch(
-            "adapters.openchoreo_inference_adapter.client.CustomObjectsApi", return_value=mock_api
+            "adapters.delivery.openchoreo_inference_adapter.client.CustomObjectsApi",
+            return_value=mock_api,
         ),
     ):
         yield OpenChoreoInferenceAdapter()
@@ -87,7 +88,7 @@ def test_deploy_model_raises_for_a_0_percent_staged_dark_split(
 def test_deploy_model_treats_a_100_percent_cutover_as_a_plain_deploy(
     adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
 ) -> None:
-    # Rollback (adapters/deploy_strategies.py) always sends exactly this —
+    # Rollback (adapters/delivery/deploy_strategies.py) always sends exactly this —
     # it must not raise, or rollback would be unusable under this backend.
     adapter.deploy_model(
         "fraud-detection-demo",
@@ -140,3 +141,63 @@ def test_get_inference_status_raises_404_when_reconciler_has_not_run_yet(
 def test_predict_is_not_implemented(adapter: OpenChoreoInferenceAdapter) -> None:
     with pytest.raises(NotImplementedError):
         adapter.predict("fraud-detection-demo", {})
+
+
+def test_get_deploy_status_returns_not_deployed_when_reconciler_has_not_run_yet(
+    adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.list_cluster_custom_object.return_value = {"items": []}
+
+    status = adapter.get_deploy_status("fraud-detection-demo")
+
+    assert status == {
+        "deployed": False,
+        "ready": False,
+        "live_version": None,
+        "traffic_percent": None,
+    }
+
+
+def test_get_deploy_status_parses_version_out_of_the_models_uri_shorthand(
+    adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.list_cluster_custom_object.return_value = {
+        "items": [
+            {
+                "spec": {
+                    "predictor": {
+                        "canaryTrafficPercent": 100,
+                        "model": {"storageUri": "models:/fraud-detection-demo/7"},
+                    }
+                },
+                "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+            }
+        ]
+    }
+
+    status = adapter.get_deploy_status("fraud-detection-demo")
+
+    assert status == {
+        "deployed": True,
+        "ready": True,
+        "live_version": "7",
+        "traffic_percent": 100,
+    }
+
+
+def test_get_deploy_status_leaves_live_version_none_for_a_non_models_uri(
+    adapter: OpenChoreoInferenceAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.list_cluster_custom_object.return_value = {
+        "items": [
+            {
+                "spec": {"predictor": {"model": {"storageUri": "s3://bucket/fraud-detection/7"}}},
+                "status": {"conditions": []},
+            }
+        ]
+    }
+
+    status = adapter.get_deploy_status("fraud-detection-demo")
+
+    assert status["live_version"] is None
+    assert status["ready"] is False

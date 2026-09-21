@@ -1,5 +1,5 @@
 # orchestration-api's own pod now calls the k8s API directly in-cluster
-# (adapters/kserve_adapter.py, openchoreo_inference_adapter.py,
+# (adapters/delivery/gpu_inference_adapter.py, openchoreo_inference_adapter.py,
 # openchoreo_promotion_adapter.py — see their load_incluster_config() calls)
 # instead of an externally-mounted kubeconfig, once it runs as a Deployment
 # on worker1 (workload-orchestration-api.yaml) rather than a docker-compose

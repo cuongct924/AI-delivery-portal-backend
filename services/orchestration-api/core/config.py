@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Server-side only — never accepted from a Scaffolder form field (see
     # routers/llm_serving.py's PrepareLlmDeployRequest.hf_token_secret_ref
-    # docstring). Used by adapters/huggingface_hub_adapter.py to read
+    # docstring). Used by adapters/ai_platform/huggingface_hub_adapter.py to read
     # gated models' config.json for the VRAM estimator; unset means gated
     # models fall back to manual GPU sizing input.
     huggingface_hub_token: str = ""

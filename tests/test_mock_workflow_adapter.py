@@ -1,4 +1,4 @@
-"""Tests adapters/mock_workflow_adapter.py.
+"""Tests adapters/delivery/mock_workflow_adapter.py.
 
 Return values are typed `dict[str, object]` (they pass through the Argo
 Server API shape, per IWorkflowAdapter's docstring) — cast to
@@ -10,8 +10,8 @@ from typing import Any, cast
 
 import pytest
 
-from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
-from adapters.mock_workflow_adapter import MockWorkflowAdapter
+from adapters.ai_platform.mock_model_registry_adapter import MockModelRegistryAdapter
+from adapters.delivery.mock_workflow_adapter import MockWorkflowAdapter
 
 
 @pytest.fixture

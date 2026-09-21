@@ -1,20 +1,70 @@
-"""Adapter for the versioned dataset object store — MinIO locally (see
-docker-compose.yml's `minio` service and `.dvc/config`'s remote "storage"),
-any S3-compatible bucket in general.
+"""Adapters for the dataset picker's two object-storage sources, plus the
+fan-out wrapper `factory.get_object_storage_adapter()` composes them with.
+Merged into one file — all three are small and tightly coupled (Composite
+wraps the other two directly), not a case of duplicated logic.
 """
 
+import logging
 import os
 from pathlib import Path
 
 import boto3
 import yaml
 
-from adapters.interfaces import DatasetInfo, IObjectStorageAdapter
+from adapters.ai_platform.interfaces import DatasetInfo, IObjectStorageAdapter
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
+# 3 parents: adapters/ai_platform/object_storage.py -> ai_platform -> adapters -> repo root.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+logger = logging.getLogger(__name__)
+
+
+class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
+    """Datasets already checked out on the local filesystem — DVC's
+    working-tree copy under `data/` (see .dvc/config's remote "storage").
+    Works both for a dev machine running the orchestration API directly (no
+    MinIO needed) and for the orchestration-api pod, which bind-mounts
+    `./data` read-only via a hostPath volume — anywhere else `data/` doesn't
+    exist on disk, so `list_datasets` just returns `[]`, the same fail-open
+    contract `CompositeObjectStorageAdapter` relies on.
+    """
+
+    def __init__(self, root_path: str | None = None, mount_path: str = "/mnt/data"):
+        self.root_path = Path(root_path or os.getenv("LOCAL_DATASETS_PATH") or _REPO_ROOT / "data")
+        # Where the k3d training pod sees these files (hostPath mount, synced
+        # via `docker cp`) — not this process's filesystem, so uris are always
+        # built from mount_path, never root_path (see the hostPath comment in
+        # infra/openchoreo/platform-shared/cluster-workflow-templates/argo/
+        # train-register-cluster-template.yaml).
+        self.mount_path = mount_path
+
+    def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
+        if not self.root_path.is_dir():
+            return []
+        datasets: list[DatasetInfo] = []
+        for path in sorted(self.root_path.rglob(f"{prefix}*")):
+            # A ".dvc" pointer file next to it marks a *tracked dataset*, as
+            # opposed to any other file living under data/.
+            if not path.is_file() or not Path(f"{path}.dvc").exists():
+                continue
+            relative_path = path.relative_to(self.root_path)
+            datasets.append(
+                DatasetInfo(
+                    name=str(relative_path),
+                    uri=f"file://{self.mount_path}/{relative_path.as_posix()}",
+                    size_bytes=path.stat().st_size,
+                    source="local",
+                )
+            )
+        return datasets
 
 
 class MinioObjectStorageAdapter(IObjectStorageAdapter):
+    """The versioned dataset object store — MinIO in the AI Platform zone
+    (infra/ai-platform-zone/minio.yaml and `.dvc/config`'s remote "storage"),
+    any S3-compatible bucket in general.
+    """
+
     def __init__(
         self,
         endpoint_url: str | None = None,
@@ -86,4 +136,20 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
                     source="s3",
                 )
             )
+        return datasets
+
+
+class CompositeObjectStorageAdapter(IObjectStorageAdapter):
+    def __init__(self, adapters: list[IObjectStorageAdapter]):
+        self.adapters = adapters
+
+    def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
+        datasets: list[DatasetInfo] = []
+        for adapter in self.adapters:
+            try:
+                datasets.extend(adapter.list_datasets(prefix))
+            except Exception:
+                # One source being unreachable (e.g. MinIO down) shouldn't
+                # hide datasets the other source(s) can still list.
+                logger.warning("%s failed to list datasets", type(adapter).__name__, exc_info=True)
         return datasets

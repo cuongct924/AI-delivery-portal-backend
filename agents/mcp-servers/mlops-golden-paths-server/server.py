@@ -216,9 +216,9 @@ def prepare_deploy(
     model_name: str,
     model_version: str,
     confirm: bool = False,
-    # "direct" | "canary" | "ab" | "blue-green".
+    # "direct" | "blue-green" — no partial traffic split is supported
+    # (OpenChoreo's ClusterComponentType has no canary slot).
     traffic_strategy: str = "direct",
-    traffic_percent: int | None = None,
     # "pr-gated" | "instant" — "instant" deploys for real immediately.
     release_strategy: str = "pr-gated",
 ) -> dict | list[dict]:
@@ -235,7 +235,6 @@ def prepare_deploy(
             "model_name": model_name,
             "model_version": model_version,
             "traffic_strategy": traffic_strategy,
-            "traffic_percent": traffic_percent,
             "release_strategy": release_strategy,
         },
     )
@@ -251,8 +250,8 @@ def prepare_llm_deploy(
     gpu_count: int = 1,
     quantization: str = "none",
     max_context_length: int = 4096,
+    # "direct" | "blue-green" — no partial traffic split is supported.
     traffic_strategy: str = "direct",
-    traffic_percent: int | None = None,
     release_strategy: str = "pr-gated",
 ) -> dict | list[dict]:
     """Prepare (and, if release_strategy="instant", immediately apply) a
@@ -274,7 +273,6 @@ def prepare_llm_deploy(
             "quantization": quantization,
             "max_context_length": max_context_length,
             "traffic_strategy": traffic_strategy,
-            "traffic_percent": traffic_percent,
             "release_strategy": release_strategy,
         },
     )

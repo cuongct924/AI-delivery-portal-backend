@@ -1,4 +1,8 @@
-"""Mock adapter for IInferenceAdapter — in-memory stand-in for KServe.
+"""Mock adapter for both IInferenceAdapter (standard serving) and
+IGpuInferenceAdapter (LLM self-hosted serving) — in-memory stand-in for
+OpenChoreo/KServe. One class implements both: both real backends need an
+equivalent mock, and they already share the exact same in-memory shape/
+_render_status helper, so a shared mock avoids duplicating it.
 
 Raises `ApiException(status=404)` from `get_inference_status()` for an
 unknown model, same as the real KServe client, so callers need no changes.
@@ -8,10 +12,10 @@ from collections.abc import Mapping
 
 from kubernetes.client.exceptions import ApiException
 
-from adapters.interfaces import IInferenceAdapter
+from adapters.delivery.interfaces import DeployStatus, IGpuInferenceAdapter, IInferenceAdapter
 
 
-class MockInferenceAdapter(IInferenceAdapter):
+class MockInferenceAdapter(IInferenceAdapter, IGpuInferenceAdapter):
     def __init__(self, namespace: str = "default") -> None:
         self.namespace = namespace
         self._deployed: dict[str, dict[str, object]] = {}
@@ -39,9 +43,8 @@ class MockInferenceAdapter(IInferenceAdapter):
         traffic_fields: Mapping[str, object] | None = None,
         hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
-        """Convenience method, not part of IInferenceAdapter — mirrors
-        KServeAdapter.deploy_llm_model() so factory.py can hand either one
-        to routers/llm_serving.py without it noticing."""
+        """Mirrors GpuKServeInferenceAdapter.deploy_llm_model() so factory.py
+        can hand either one to routers/llm_serving.py without it noticing."""
         del serving_runtime_name, gpu_count, vllm_quantization, max_context_length
         del hf_token_secret_ref
         status = self._render_status(name, version, f"hf://{huggingface_model_id}", traffic_fields)
@@ -53,6 +56,34 @@ class MockInferenceAdapter(IInferenceAdapter):
         if status is None:
             raise ApiException(status=404, reason=f"InferenceService {name} not found")
         return status
+
+    def get_deploy_status(self, name: str) -> DeployStatus:
+        try:
+            status = self.get_inference_status(name)
+        except ApiException as exc:
+            if exc.status == 404:
+                return DeployStatus(
+                    deployed=False, ready=False, live_version=None, traffic_percent=None
+                )
+            raise
+
+        spec = status["spec"] if isinstance(status["spec"], dict) else {}
+        predictor = spec["predictor"] if isinstance(spec.get("predictor"), dict) else {}
+        traffic_percent = predictor.get("canaryTrafficPercent")
+
+        metadata = status["metadata"] if isinstance(status["metadata"], dict) else {}
+        labels = metadata["labels"] if isinstance(metadata.get("labels"), dict) else {}
+        live_version = labels.get("version")
+
+        status_block = status["status"] if isinstance(status["status"], dict) else {}
+        conditions = (
+            status_block["conditions"] if isinstance(status_block.get("conditions"), list) else []
+        )
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+        return DeployStatus(
+            deployed=True, ready=ready, live_version=live_version, traffic_percent=traffic_percent
+        )
 
     def predict(self, name: str, payload: dict[str, object]) -> dict[str, object]:
         if name not in self._deployed:

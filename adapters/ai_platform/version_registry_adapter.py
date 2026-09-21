@@ -1,6 +1,14 @@
 """File-backed IVersionRegistryAdapter for LLMOps prompt/RAG-index version
 tracking — not MlflowAdapter, since a prompt isn't an MLflow model artifact.
 See docs/llmops-lifecycle-plan.md mục 8 Q2.
+
+In production only ever called with kind="rag-index" (routers/rag.py) —
+kind="prompt" moved to MlflowPromptRegistryAdapter (see factory.py's
+get_prompt_registry_adapter). Stays genuinely generic over `kind` rather than
+guarding it to one value: it was designed and is still tested as a
+multi-kind store (tests/test_version_registry_adapter.py exercises kind
+independence directly), so a single-kind guard would fight its own design
+for a call site that already only ever passes "rag-index" by convention.
 """
 
 import json
@@ -10,7 +18,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TypedDict
 
-from adapters.interfaces import IVersionRegistryAdapter
+from adapters.ai_platform.interfaces import IVersionRegistryAdapter
 
 
 class _NameEntry(TypedDict):

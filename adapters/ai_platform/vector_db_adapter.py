@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
-from adapters.interfaces import IVectorStoreAdapter, SearchHit, UpsertResult
+from adapters.ai_platform.interfaces import IVectorStoreAdapter, SearchHit, UpsertResult
 
 
 class QdrantAdapter(IVectorStoreAdapter):

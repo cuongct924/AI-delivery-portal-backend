@@ -1,7 +1,7 @@
 # The OpenChoreo entry point for Golden Path #1 — wraps
 # infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml,
 # referenced by
-# adapters/openchoreo_workflow_adapter.py's trigger_workflow() via
+# adapters/delivery/openchoreo_workflow_adapter.py's trigger_workflow() via
 # routers/models.py's TRAIN_REGISTER_TEMPLATE constant
 # ("train-register-golden-path"), so this ClusterWorkflow's `name` must
 # match that constant exactly.
@@ -13,7 +13,7 @@
 # dockerfile-builder's buildArgs/buildEnv, is camelCase). This adapter's
 # trigger_workflow() translates the hyphenated keys routers/models.py
 # already builds into these camelCase names before POSTing — callers
-# never see this detail (adapters/interfaces.py's IWorkflowAdapter
+# never see this detail (adapters/delivery/interfaces.py's IWorkflowAdapter
 # contract is unchanged).
 apiVersion: openchoreo.dev/v1alpha1
 kind: ClusterWorkflow

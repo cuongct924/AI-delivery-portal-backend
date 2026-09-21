@@ -66,5 +66,5 @@ git add data/<directory>/<file>.dvc data/<directory>/.gitignore
 `dvc add` prints an md5 hash into the resulting `data/.../<file>.dvc` — the
 training step embeds that hash in a `mlflow.data` `Dataset`'s digest/name and
 calls `mlflow.log_input()` on it, so `IModelRegistryAdapter.get_dataset_lineage()`
-(`adapters/mlflow_adapter.py`) can trace a model version back to the exact
+(`adapters/ai_platform/mlflow_adapter.py`) can trace a model version back to the exact
 dataset file(s) that trained it — a run can log more than one.

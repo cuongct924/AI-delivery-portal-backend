@@ -5,7 +5,7 @@ used to be 3 separate servers (`mlops-server`, `k8s-server`, `metrics-server`).
 
 Tools — MLOps side:
 - `list_experiments`, `get_model_metrics` — reads MLflow
-  (`adapters/mlflow_adapter.py`), set up via `docker compose up mlflow`.
+  (`adapters/ai_platform/mlflow_adapter.py`), set up via `docker compose up mlflow`.
 - `check_pod_status`, `get_logs` — currently **mock** (not wired to a real
   K8s cluster). Integrate the `kubernetes` Python client when a real cluster
   is available, and add RBAC/OPA policy in `infra/opa-policies/` before
@@ -18,7 +18,7 @@ Tools — MLOps side:
 - `get_promotion_status` — real, reads OpenChoreo's
   `DeploymentPipeline`/`ProjectReleaseBinding`-based promotion state via
   orchestration-api's `GET /models/{name}/promotion-status`
-  (`adapters/openchoreo_promotion_adapter.py`) — replaces the
+  (`adapters/delivery/openchoreo_promotion_adapter.py`) — replaces the
   originally-planned Kargo-based pipeline, which was removed early on and
   never actually installed. Read-only by design: promoting is a separate,
   human-triggered action (`POST /models/{name}/promote`, reached only via
@@ -27,7 +27,7 @@ Tools — MLOps side:
 
 Tools — LLMOps side:
 - `get_llm_spend` — real, reads LiteLLM's own spend ledger (`GET
-  /global/spend/report` via `adapters/llm_gateway_adapter.py`'s
+  /global/spend/report` via `adapters/ai_platform/llm_gateway_adapter.py`'s
   `get_spend_report`), set up via `docker compose up litellm`.
 - `get_active_prompt_version`, `get_active_rag_version` — real, call
   orchestration-api's `GET /prompts` / `GET /rag/{collection}` (not a

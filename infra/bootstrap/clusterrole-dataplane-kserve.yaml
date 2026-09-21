@@ -1,8 +1,7 @@
 # Grants OpenChoreo's dataplane reconciler agent (ServiceAccount
 # cluster-agent-dataplane, namespace openchoreo-data-plane) permission on
-# KServe's InferenceService CRD — missing because KServe (Phase 3 of
-# docs/openchoreo-migration-next-steps.md) was installed after this
-# cluster's OpenChoreo control-plane, so the Helm-managed
+# KServe's InferenceService CRD — missing because KServe was installed
+# after this cluster's OpenChoreo control-plane, so the Helm-managed
 # cluster-agent-dataplane-openchoreo-data-plane ClusterRole
 # (`kubectl get clusterrole cluster-agent-dataplane-openchoreo-data-plane
 # -o yaml`) predates KServe and has no rule for serving.kserve.io at all.

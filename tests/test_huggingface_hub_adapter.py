@@ -1,11 +1,11 @@
-"""adapters/huggingface_hub_adapter.py — patches `httpx.Client` so no real
+"""adapters/ai_platform/huggingface_hub_adapter.py — patches `httpx.Client` so no real
 network call is made, same patch-at-the-boundary style as
 tests/test_auth_thunder.py's `_jwks`/`jwt.decode` patches.
 """
 
 from unittest.mock import MagicMock, patch
 
-from adapters.huggingface_hub_adapter import HuggingFaceHubAdapter
+from adapters.ai_platform.huggingface_hub_adapter import HuggingFaceHubAdapter
 
 
 def _response(status_code: int, json_body: dict | None = None) -> MagicMock:
@@ -34,7 +34,7 @@ def _mock_client(responses: dict[str, MagicMock]) -> MagicMock:
 
 def test_get_model_info_not_found_returns_exists_false() -> None:
     client = _mock_client({"/api/models/nonexistent/model": _response(404)})
-    with patch("adapters.huggingface_hub_adapter.httpx.Client", return_value=client):
+    with patch("adapters.ai_platform.huggingface_hub_adapter.httpx.Client", return_value=client):
         info = HuggingFaceHubAdapter().get_model_info("nonexistent/model")
 
     assert info["exists"] is False
@@ -44,7 +44,7 @@ def test_get_model_info_not_found_returns_exists_false() -> None:
 
 def test_get_model_info_gated_without_access_returns_is_gated_true() -> None:
     client = _mock_client({"/api/models/meta-llama/Llama-3.1-8B-Instruct": _response(401)})
-    with patch("adapters.huggingface_hub_adapter.httpx.Client", return_value=client):
+    with patch("adapters.ai_platform.huggingface_hub_adapter.httpx.Client", return_value=client):
         info = HuggingFaceHubAdapter().get_model_info("meta-llama/Llama-3.1-8B-Instruct")
 
     assert info["exists"] is True
@@ -77,7 +77,7 @@ def test_get_model_info_public_model_returns_full_architecture() -> None:
             "/mistralai/Mistral-7B-Instruct-v0.3/resolve/main/config.json": config_response,
         }
     )
-    with patch("adapters.huggingface_hub_adapter.httpx.Client", return_value=client):
+    with patch("adapters.ai_platform.huggingface_hub_adapter.httpx.Client", return_value=client):
         info = HuggingFaceHubAdapter().get_model_info("mistralai/Mistral-7B-Instruct-v0.3")
 
     assert info["exists"] is True
@@ -107,8 +107,8 @@ def test_get_model_info_gated_with_token_reads_config() -> None:
         }
     )
     with (
-        patch("adapters.huggingface_hub_adapter.httpx.Client", return_value=client),
-        patch("adapters.huggingface_hub_adapter.settings") as mock_settings,
+        patch("adapters.ai_platform.huggingface_hub_adapter.httpx.Client", return_value=client),
+        patch("adapters.ai_platform.huggingface_hub_adapter.settings") as mock_settings,
     ):
         mock_settings.huggingface_hub_token = "hf_faketoken"
         info = HuggingFaceHubAdapter().get_model_info("meta-llama/Llama-3.1-8B-Instruct")

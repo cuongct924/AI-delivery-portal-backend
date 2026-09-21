@@ -25,7 +25,7 @@ description: Python OOP and modern typing standards for this repo (adapters/, ag
 ## 2. Design Principles
 *   **Composition over inheritance:** prefer "has-a" relationships over deep inheritance trees.
 *   **Encapsulation:** `@property` instead of Java-style getters/setters; distinguish public from private (`_prefix`).
-*   **Abstract base classes:** declare abstract methods with `@abstractmethod` (see `adapters/interfaces.py` for the pattern used throughout this repo).
+*   **Abstract base classes:** declare abstract methods with `@abstractmethod` (see `adapters/delivery/interfaces.py` or `adapters/ai_platform/interfaces.py` for the pattern used throughout this repo).
 *   **SOLID:**
     *   **S**ingle responsibility.
     *   **O**pen for extension, closed for modification.

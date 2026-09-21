@@ -4,10 +4,7 @@
 # with a single KServe InferenceService. `workload.container.image` is
 # repurposed as the model's storageUri (an MLflow "models:/<name>/<version>"
 # reference, not a container image — same string field, different
-# meaning) so Workload's existing schema needs no change; this is what
-# docs/openchoreo-migration-next-steps.md's Phase 4 literally asks for
-# ("component-serving.yaml/workload-serving.yaml: đổi placeholder
-# nginxdemos/hello thành storageUri: models:/fraud-detection/<version>").
+# meaning) so Workload's existing schema needs no change.
 apiVersion: openchoreo.dev/v1alpha1
 kind: ClusterComponentType
 metadata:
@@ -16,7 +13,7 @@ metadata:
     openchoreo.dev/description: >-
       A KServe InferenceService serving an MLflow-registered model
       (modelFormat "mlflow" always — matches
-      adapters/kserve_adapter.py/openchoreo_inference_adapter.py's fixed
+      adapters/delivery/gpu_inference_adapter.py/openchoreo_inference_adapter.py's fixed
       convention, not a per-Component choice).
 spec:
   environmentConfigs:

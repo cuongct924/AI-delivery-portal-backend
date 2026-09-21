@@ -1,13 +1,13 @@
-"""Real adapter using the MLflow SDK — connects to the mlflow service in docker-compose.yml."""
-
-import os
+"""Real adapter using the MLflow SDK — connects to the MLflow Tracking Server
+in the AI Platform zone (infra/ai-platform-zone/)."""
 
 import mlflow
 import pandas as pd
 from mlflow.exceptions import RestException
 from mlflow.tracking import MlflowClient
 
-from adapters.interfaces import (
+from adapters.ai_platform._mlflow import get_mlflow_tracking_uri
+from adapters.ai_platform.interfaces import (
     DatasetLineageEntry,
     IModelRegistryAdapter,
     ModelRegistration,
@@ -26,9 +26,7 @@ def _to_dataframe(result: list | pd.DataFrame) -> pd.DataFrame:
 # Custom Scaffolder Action (Golden Path #1) to call.
 class MlflowAdapter(IModelRegistryAdapter):
     def __init__(self, tracking_uri: str | None = None):
-        self.tracking_uri = tracking_uri or os.getenv(
-            "MLFLOW_TRACKING_URI", "http://localhost:5000"
-        )
+        self.tracking_uri = tracking_uri or get_mlflow_tracking_uri()
         mlflow.set_tracking_uri(self.tracking_uri)
         self.client = MlflowClient(tracking_uri=self.tracking_uri)
 

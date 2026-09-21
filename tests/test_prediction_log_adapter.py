@@ -1,8 +1,8 @@
-"""adapters/prediction_log_adapter.py — exercises SqlitePredictionLogAdapter
+"""adapters/ai_platform/prediction_log_adapter.py — exercises SqlitePredictionLogAdapter
 against a real sqlite file on tmp_path (no SDK to mock — same convention as
 tests/test_version_registry_adapter.py's JsonFileVersionRegistryAdapter)."""
 
-from adapters.prediction_log_adapter import SqlitePredictionLogAdapter
+from adapters.ai_platform.prediction_log_adapter import SqlitePredictionLogAdapter
 
 
 def _adapter(tmp_path) -> SqlitePredictionLogAdapter:

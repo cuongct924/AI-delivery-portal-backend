@@ -1,74 +1,32 @@
-"""Adapter for KServe — deploys/queries models as InferenceService on K8s.
-
-Uses the Kubernetes Python client to operate on the `InferenceService`
-custom resource (serving.kserve.io/v1beta1). Requires a kubeconfig pointing
-at a real cluster.
+"""Adapter for KServe, scoped exclusively to the LLM self-hosted-serving
+golden path (routers/llm_serving.py). Not used by, and must never be
+reintroduced into, the standard model-serving golden path
+(routers/models.py), which is fully on OpenChoreoInferenceAdapter — there is
+no OpenChoreo ClusterComponentType for GPU/vLLM serving yet, so this is the
+one place a real backend still talks to KServe's `InferenceService` custom
+resource (serving.kserve.io/v1beta1) directly via the Kubernetes API.
+Requires a kubeconfig pointing at a real cluster.
 """
 
 from collections.abc import Mapping
 from typing import Final, cast
 
-from kubernetes import client, config
+from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
-from adapters.interfaces import IInferenceAdapter
+from adapters.delivery._kube_client import load_kube_config_once
+from adapters.delivery.interfaces import DeployStatus, IGpuInferenceAdapter
 
 GROUP: Final[str] = "serving.kserve.io"
 VERSION: Final[str] = "v1beta1"
 PLURAL: Final[str] = "inferenceservices"
 
 
-class KServeAdapter(IInferenceAdapter):
+class GpuKServeInferenceAdapter(IGpuInferenceAdapter):
     def __init__(self, namespace: str = "default"):
-        # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/namespaces/default/projects/platform/components/
-        # orchestration-api/workload-orchestration-api.yaml); ConfigException
-        # means it's not running in a pod (local dev via
-        # `make run-orchestration-api`), so fall back to ~/.kube/config.
-        try:
-            config.load_incluster_config()
-        except config.ConfigException:
-            config.load_kube_config()
+        load_kube_config_once()
         self.namespace = namespace
         self.api = client.CustomObjectsApi()
-
-    def deploy_model(
-        self,
-        name: str,
-        version: str,
-        model_uri: str,
-        traffic_fields: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
-        """Creates the InferenceService, or patches it if a version was
-        already deployed under this name (patch first — the common case
-        for adapters/deploy_strategies.py's TrafficSplitStrategy, which by
-        definition requires a prior deploy to exist)."""
-        body = {
-            "apiVersion": f"{GROUP}/{VERSION}",
-            "kind": "InferenceService",
-            "metadata": {"name": name, "labels": {"version": version}},
-            "spec": {
-                "predictor": {
-                    **(traffic_fields or {}),
-                    "model": {
-                        "modelFormat": {"name": "mlflow"},
-                        "storageUri": model_uri,
-                    },
-                }
-            },
-        }
-        try:
-            result = self.api.patch_namespaced_custom_object(
-                GROUP, VERSION, self.namespace, PLURAL, name, body
-            )
-        except ApiException as exc:
-            if exc.status != 404:
-                raise
-            result = self.api.create_namespaced_custom_object(
-                GROUP, VERSION, self.namespace, PLURAL, body
-            )
-        # cast: only non-dict when async_req=True, which we never pass.
-        return cast(dict[str, object], result)
 
     def deploy_llm_model(
         self,
@@ -82,11 +40,9 @@ class KServeAdapter(IInferenceAdapter):
         traffic_fields: Mapping[str, object] | None = None,
         hf_token_secret_ref: str | None = None,
     ) -> dict[str, object]:
-        """Same patch-first/create-on-404 shape as deploy_model(), for a
-        self-hosted LLM — modelFormat "huggingface" (KServe's own vLLM-backed
-        runtime), storageUri as an "hf://" reference. Not part of
-        IInferenceAdapter — its deploy_model() has no room for
-        GPU/quantization/context-length; same precedent as get_latest_version().
+        """Patch-first/create-on-404 for a self-hosted LLM — modelFormat
+        "huggingface" (KServe's own vLLM-backed runtime), storageUri as an
+        "hf://" reference.
 
         vllm_quantization is vLLM's own --quantization value (translated from
         the Dev-facing label by llm_serving.registry.VLLM_QUANTIZATION_ARGS —
@@ -140,6 +96,36 @@ class KServeAdapter(IInferenceAdapter):
             self.api.get_namespaced_custom_object_status(
                 GROUP, VERSION, self.namespace, PLURAL, name
             ),
+        )
+
+    def get_deploy_status(self, name: str) -> DeployStatus:
+        try:
+            status = self.get_inference_status(name)
+        except ApiException as exc:
+            if exc.status == 404:
+                return DeployStatus(
+                    deployed=False, ready=False, live_version=None, traffic_percent=None
+                )
+            raise
+
+        spec = cast(dict[str, object], status.get("spec", {}))
+        predictor = cast(dict[str, object], spec.get("predictor", {}))
+        traffic_percent = cast(int | None, predictor.get("canaryTrafficPercent"))
+
+        metadata = cast(dict[str, object], status.get("metadata", {}))
+        labels = cast(dict[str, object], metadata.get("labels") or {})
+        # deploy_llm_model sets this label itself — the only version that
+        # survives on the InferenceService (storageUri is an hf:// reference).
+        live_version = cast(str | None, labels.get("version"))
+
+        conditions = cast(
+            list[dict[str, object]],
+            cast(dict[str, object], status.get("status", {})).get("conditions", []),
+        )
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+        return DeployStatus(
+            deployed=True, ready=ready, live_version=live_version, traffic_percent=traffic_percent
         )
 
     def predict(self, name: str, payload: dict[str, object]) -> dict[str, object]:

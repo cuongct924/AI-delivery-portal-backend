@@ -6,7 +6,6 @@ routers/rag.py's "rag-index" kind keeps JsonFileVersionRegistryAdapter, since
 a RAG index pointer has no MLflow Prompt Registry equivalent.
 """
 
-import os
 from collections.abc import Mapping
 
 import mlflow
@@ -14,7 +13,8 @@ import mlflow.genai
 from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
-from adapters.interfaces import IVersionRegistryAdapter
+from adapters.ai_platform._mlflow import get_mlflow_tracking_uri
+from adapters.ai_platform.interfaces import IVersionRegistryAdapter
 
 _ACTIVE_ALIAS = "active"
 _SUPPORTED_KIND = "prompt"
@@ -22,9 +22,7 @@ _SUPPORTED_KIND = "prompt"
 
 class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
     def __init__(self, tracking_uri: str | None = None):
-        self.tracking_uri = tracking_uri or os.getenv(
-            "MLFLOW_TRACKING_URI", "http://localhost:5000"
-        )
+        self.tracking_uri = tracking_uri or get_mlflow_tracking_uri()
         mlflow.set_tracking_uri(self.tracking_uri)
         self.client = MlflowClient(tracking_uri=self.tracking_uri)
 

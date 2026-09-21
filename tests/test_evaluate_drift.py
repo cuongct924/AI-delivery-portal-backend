@@ -1,7 +1,7 @@
 """Tests the delta_pct calculation logic in agents/skills/evaluate_drift.py.
 
 Stubs the "mlflow" package at the sys.modules level before importing —
-adapters/mlflow_adapter.py has `import mlflow` at module level, and the real
+adapters/ai_platform/mlflow_adapter.py has `import mlflow` at module level, and the real
 mlflow package is fairly heavy, which isn't necessary for a pure calculation
 unit test like this one.
 """

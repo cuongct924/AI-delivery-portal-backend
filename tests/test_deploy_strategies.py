@@ -1,12 +1,12 @@
-"""Tests adapters/deploy_strategies.py."""
+"""Tests adapters/delivery/deploy_strategies.py."""
 
 from unittest.mock import MagicMock
 
-from adapters.deploy_strategies import (
+from adapters.delivery.deploy_strategies import (
+    BlueGreenStrategy,
     DirectStrategy,
     InstantStrategy,
     PRGatedStrategy,
-    TrafficSplitStrategy,
 )
 
 
@@ -14,8 +14,8 @@ def test_direct_strategy_renders_no_extra_fields() -> None:
     assert DirectStrategy().render() == {}
 
 
-def test_traffic_split_strategy_renders_canary_traffic_percent() -> None:
-    assert TrafficSplitStrategy(percent=25).render() == {"canaryTrafficPercent": 25}
+def test_blue_green_strategy_renders_a_100_percent_cutover() -> None:
+    assert BlueGreenStrategy().render() == {"canaryTrafficPercent": 100}
 
 
 def test_pr_gated_strategy_is_a_no_op() -> None:

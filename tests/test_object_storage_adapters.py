@@ -1,14 +1,25 @@
-"""Tests adapters/local_object_storage_adapter.py,
-adapters/object_storage_adapter.py, and
-adapters/composite_object_storage_adapter.py."""
+"""Tests adapters/ai_platform/object_storage.py (LocalFileObjectStorageAdapter,
+MinioObjectStorageAdapter, CompositeObjectStorageAdapter)."""
 
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from adapters.composite_object_storage_adapter import CompositeObjectStorageAdapter
-from adapters.interfaces import DatasetInfo, IObjectStorageAdapter
-from adapters.local_object_storage_adapter import LocalFileObjectStorageAdapter
-from adapters.object_storage_adapter import MinioObjectStorageAdapter
+from adapters.ai_platform.interfaces import DatasetInfo, IObjectStorageAdapter
+from adapters.ai_platform.object_storage import (
+    _REPO_ROOT,
+    CompositeObjectStorageAdapter,
+    LocalFileObjectStorageAdapter,
+    MinioObjectStorageAdapter,
+)
+
+
+def test_repo_root_resolves_above_the_adapters_package() -> None:
+    # Regression: object_storage.py lives 2 directories under the repo root
+    # (adapters/ai_platform/) — _REPO_ROOT must walk up 3 parents, not 2, or
+    # every default (unset LOCAL_DATASETS_PATH) root/local_datasets_path
+    # silently resolves to adapters/data instead of <repo-root>/data.
+    assert (_REPO_ROOT / "data").is_dir()
+    assert (_REPO_ROOT / "adapters").is_dir()
 
 
 def test_local_adapter_lists_dvc_tracked_files_with_source_local(tmp_path: Path) -> None:

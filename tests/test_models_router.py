@@ -16,7 +16,6 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 from fastapi import HTTPException
-from kubernetes.client.exceptions import ApiException
 
 sys.modules.setdefault("mlflow", MagicMock())
 sys.modules.setdefault("mlflow.tracking", MagicMock())
@@ -765,89 +764,73 @@ def test_prepare_deploy_manifest_openchoreo_backend_allows_a_100_percent_cutover
         model_name="fraud-detection-demo",
         model_version="3",
         traffic_strategy="blue-green",
-        traffic_percent=100,
     )
 
     with (
         patch("routers.models.get_inference_backend_mode", return_value="openchoreo"),
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter"),
     ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": True,
+            "ready": True,
+            "live_version": "2",
+            "traffic_percent": 100,
+        }
         response = prepare_deploy_manifest(request)
 
     assert "kind: Workload" in response.content
 
 
-def test_prepare_deploy_manifest_openchoreo_backend_rejects_a_partial_traffic_split() -> None:
-    request = PrepareDeployRequest(
-        model_name="fraud-detection-demo",
-        model_version="3",
-        traffic_strategy="canary",
-        traffic_percent=10,
-    )
-
-    with (
-        patch("routers.models.get_inference_backend_mode", return_value="openchoreo"),
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
-        patch("routers.models.mlflow_adapter"),
-    ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
-        with pytest.raises(ValueError, match="PARTIAL traffic split"):
-            prepare_deploy_manifest(request)
-
-
-def test_prepare_deploy_manifest_direct_never_touches_kserve() -> None:
+def test_prepare_deploy_manifest_direct_never_touches_the_inference_adapter() -> None:
     # deployStrategy=direct + releaseStrategy=pr-gated (the defaults) never
-    # need a kubeconfig — get_kserve_adapter() must not even be called.
+    # need a kubeconfig — get_inference_adapter() must not even be called.
     request = PrepareDeployRequest(model_name="fraud-detection", model_version="3")
     with (
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter"),
     ):
         prepare_deploy_manifest(request)
-    mock_get_kserve.assert_not_called()
+    mock_get_inference.assert_not_called()
 
 
-def test_prepare_deploy_manifest_traffic_split_renders_canary_percent() -> None:
+def test_prepare_deploy_manifest_blue_green_renders_a_100_percent_cutover() -> None:
     request = PrepareDeployRequest(
         model_name="fraud-detection",
         model_version="4",
-        traffic_strategy="canary",
-        traffic_percent=10,
+        traffic_strategy="blue-green",
     )
     with (
         patch("routers.models.get_inference_backend_mode", return_value="legacy"),
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter"),
     ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": True,
+            "ready": True,
+            "live_version": "3",
+            "traffic_percent": 100,
+        }
         response = prepare_deploy_manifest(request)
 
-    assert "canaryTrafficPercent: 10" in response.content
+    assert "canaryTrafficPercent: 100" in response.content
     assert response.deployed is False
 
 
-def test_prepare_deploy_manifest_traffic_split_without_prior_deploy_raises() -> None:
+def test_prepare_deploy_manifest_blue_green_without_prior_deploy_raises() -> None:
     request = PrepareDeployRequest(
         model_name="never-deployed",
         model_version="1",
-        traffic_strategy="canary",
-        traffic_percent=10,
+        traffic_strategy="blue-green",
     )
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
-        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+    with patch("routers.models.get_inference_adapter") as mock_get_inference:
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": False,
+            "ready": False,
+            "live_version": None,
+            "traffic_percent": None,
+        }
         with pytest.raises(ValueError, match="no prior deploy"):
-            prepare_deploy_manifest(request)
-
-
-def test_prepare_deploy_manifest_traffic_split_requires_percent() -> None:
-    request = PrepareDeployRequest(
-        model_name="fraud-detection", model_version="4", traffic_strategy="canary"
-    )
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
-        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
-        with pytest.raises(ValueError, match="traffic_percent is required"):
             prepare_deploy_manifest(request)
 
 
@@ -856,14 +839,14 @@ def test_prepare_deploy_manifest_instant_deploys_without_a_pr() -> None:
         model_name="fraud-detection", model_version="5", release_strategy="instant"
     )
     with (
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
     ):
-        mock_adapter = mock_get_kserve.return_value
+        mock_adapter = mock_get_inference.return_value
         # InstantStrategy resolves "models:/<name>/<version>" to the real
         # underlying artifact location via this call before handing off to
         # the inference adapter — KServe's storage-initializer can't read
-        # the "models:/" shorthand at all (adapters/deploy_strategies.py's
+        # the "models:/" shorthand at all (adapters/delivery/deploy_strategies.py's
         # InstantStrategy.release() docstring has the full story).
         mock_mlflow.get_model_artifact_uri.return_value = (
             "s3://mlflow-artifacts/0/run123/artifacts/model"
@@ -882,11 +865,11 @@ def test_prepare_deploy_manifest_instant_deploys_without_a_pr() -> None:
 
 def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> None:
     # action="rollback" forces blue-green + 100% + instant regardless of
-    # what the request's own traffic_strategy/traffic_percent/
-    # release_strategy carry — the whole point is the Dev only picks
-    # *which version*, not the mechanism, under production-incident
-    # pressure. Deliberately sends the "wrong" values for those 3 fields
-    # to prove they get overridden, not just left at their defaults.
+    # what the request's own traffic_strategy/release_strategy carry — the
+    # whole point is the Dev only picks *which version*, not the mechanism,
+    # under production-incident pressure. Deliberately sends the "wrong"
+    # values for those 2 fields to prove they get overridden, not just left
+    # at their defaults.
     request = PrepareDeployRequest(
         model_name="fraud-detection",
         model_version="3",
@@ -896,17 +879,22 @@ def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> N
     )
     with (
         patch("routers.models.get_inference_backend_mode", return_value="legacy"),
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
     ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {"status": {}}
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": True,
+            "ready": True,
+            "live_version": "2",
+            "traffic_percent": 100,
+        }
         mock_mlflow.get_model_artifact_uri.return_value = (
             "s3://mlflow-artifacts/0/run456/artifacts/model"
         )
         response = prepare_deploy_manifest(request)
 
     assert "canaryTrafficPercent: 100" in response.content
-    mock_get_kserve.return_value.deploy_model.assert_called_once_with(
+    mock_get_inference.return_value.deploy_model.assert_called_once_with(
         "fraud-detection",
         "3",
         "s3://mlflow-artifacts/0/run456/artifacts/model",
@@ -919,15 +907,25 @@ def test_prepare_deploy_manifest_rollback_without_prior_deploy_raises() -> None:
     request = PrepareDeployRequest(
         model_name="never-deployed", model_version="1", action="rollback"
     )
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
-        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+    with patch("routers.models.get_inference_adapter") as mock_get_inference:
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": False,
+            "ready": False,
+            "live_version": None,
+            "traffic_percent": None,
+        }
         with pytest.raises(ValueError, match="nothing to roll back to"):
             prepare_deploy_manifest(request)
 
 
 def test_get_deploy_status_returns_not_deployed_on_404() -> None:
-    with patch("routers.models.get_kserve_adapter") as mock_get_kserve:
-        mock_get_kserve.return_value.get_inference_status.side_effect = ApiException(status=404)
+    with patch("routers.models.get_inference_adapter") as mock_get_inference:
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": False,
+            "ready": False,
+            "live_version": None,
+            "traffic_percent": None,
+        }
         response = get_deploy_status("never-deployed")
 
     assert response.deployed is False
@@ -937,13 +935,14 @@ def test_get_deploy_status_returns_not_deployed_on_404() -> None:
 
 def test_get_deploy_status_reports_live_version_traffic_and_pr() -> None:
     with (
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
     ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {
-            "metadata": {"labels": {"version": "4"}},
-            "spec": {"predictor": {"canaryTrafficPercent": 20}},
-            "status": {"conditions": [{"type": "Ready", "status": "True"}]},
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": True,
+            "ready": True,
+            "live_version": "4",
+            "traffic_percent": 20,
         }
         mock_mlflow.get_model_version_details.return_value = {
             "tags": {"deploy_pr_url": "https://github.com/org/repo/pull/9"}
@@ -960,13 +959,14 @@ def test_get_deploy_status_reports_live_version_traffic_and_pr() -> None:
 
 def test_get_deploy_status_tolerates_a_deleted_live_version() -> None:
     with (
-        patch("routers.models.get_kserve_adapter") as mock_get_kserve,
+        patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
     ):
-        mock_get_kserve.return_value.get_inference_status.return_value = {
-            "metadata": {"labels": {"version": "4"}},
-            "spec": {"predictor": {}},
-            "status": {"conditions": []},
+        mock_get_inference.return_value.get_deploy_status.return_value = {
+            "deployed": True,
+            "ready": False,
+            "live_version": "4",
+            "traffic_percent": None,
         }
         mock_mlflow.get_model_version_details.side_effect = ValueError("not registered")
         response = get_deploy_status("fraud-detection")

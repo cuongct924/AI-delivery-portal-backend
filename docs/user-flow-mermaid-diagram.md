@@ -3,7 +3,7 @@ sequenceDiagram
     actor Dev
     participant FeatureStore as Feature Store
     participant Notebook as AI Notebook
-    participant FineTuned as Fine-tuned
+    participant FineTuned as Model Fine-tuned
     participant Garden as Model Garden
     participant Inference as AI Inference
     actor EndUser as End user
@@ -40,6 +40,9 @@ sequenceDiagram
     Inference->>FeatureStore: Lấy feature real-time (online serving)
     FeatureStore-->>Inference: Trả feature
     Inference-->>EndUser: Trả kết quả prediction
+```
+
+
 # User Flow
 
 ## MLOps Lifecycle

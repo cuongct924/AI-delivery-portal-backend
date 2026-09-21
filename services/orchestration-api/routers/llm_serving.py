@@ -15,7 +15,6 @@ from typing import Final
 from auth.thunder import get_current_user, user_has_role
 from fastapi import APIRouter, Depends, HTTPException
 from jinja2 import Environment, FileSystemLoader
-from kubernetes.client.exceptions import ApiException
 from llm_serving.gpu_sizing import estimate_vram_gb, recommend_gpu
 from llm_serving.registry import (
     VLLM_QUANTIZATION_ARGS,
@@ -25,9 +24,9 @@ from llm_serving.registry import (
 )
 from pydantic import BaseModel
 
-from adapters.deploy_strategies import DirectStrategy, PRGatedStrategy, TrafficSplitStrategy
-from adapters.factory import get_huggingface_hub_adapter, get_kserve_adapter
-from adapters.interfaces import IDeployTrafficStrategy
+from adapters.delivery.deploy_strategies import BlueGreenStrategy, DirectStrategy, PRGatedStrategy
+from adapters.delivery.interfaces import IDeployTrafficStrategy
+from adapters.factory import get_gpu_inference_adapter, get_huggingface_hub_adapter
 
 router = APIRouter(tags=["llm-serving"])
 
@@ -51,9 +50,8 @@ class PrepareLlmDeployRequest(BaseModel):
     gpu_count: int = 1
     quantization: str = "none"
     max_context_length: int = 4096
-    # "direct" | "canary" | "ab" | "blue-green" (same shape as models.py).
+    # "direct" | "blue-green" (same shape as models.py).
     traffic_strategy: str = "direct"
-    traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
     # "dev" | "staging" | "prod" — only "dev" may pair with "instant",
@@ -175,19 +173,12 @@ def get_gpu_recommendation(
 def get_rollout_eligibility(
     model_name: str, user: dict = Depends(get_current_user)
 ) -> RolloutEligibilityResponse:
-    """Whether canary/ab/blue-green may be offered for `model_name` — the
-    Rollout & Release step queries this before enabling anything but
-    'direct', mirroring the exact same prior-deploy check
-    prepare_llm_deploy_manifest enforces server-side below (fail fast at
-    form-time, not at submit)."""
-    kserve_adapter = get_kserve_adapter("llmops-team")
-    try:
-        kserve_adapter.get_inference_status(model_name)
-        has_prior_deploy = True
-    except ApiException as exc:
-        if exc.status != 404:
-            raise
-        has_prior_deploy = False
+    """Whether blue-green may be offered for `model_name` — the Rollout &
+    Release step queries this before enabling anything but 'direct',
+    mirroring the exact same prior-deploy check prepare_llm_deploy_manifest
+    enforces server-side below (fail fast at form-time, not at submit)."""
+    gpu_inference_adapter = get_gpu_inference_adapter("llmops-team")
+    has_prior_deploy = gpu_inference_adapter.get_deploy_status(model_name)["deployed"]
     return RolloutEligibilityResponse(model_name=model_name, has_prior_deploy=has_prior_deploy)
 
 
@@ -199,15 +190,14 @@ def prepare_llm_deploy_manifest(
     InferenceService manifest.
 
     environment="dev" is the only value release_strategy="instant" may
-    pair with: get_kserve_adapter's "legacy" branch namespaces to
-    "ai-delivery-portal-dev-<tenant>" unconditionally (adapters/factory.py),
-    and OpenChoreoInferenceAdapter.deploy_llm_model raises
-    NotImplementedError outright — no backend this repo has today can
-    honor an instant deploy to staging/prod, so that combination is
-    rejected here rather than silently deploying to the wrong place (or
-    to nowhere). staging/prod therefore always render as a PR-gated
-    manifest for a human to apply through the normal promotion path,
-    regardless of what release_strategy was requested for them.
+    pair with: get_gpu_inference_adapter namespaces to
+    "ai-delivery-portal-dev-<tenant>" unconditionally (adapters/factory.py) —
+    no backend this repo has today can honor an instant deploy to
+    staging/prod, so that combination is rejected here rather than silently
+    deploying to the wrong place (or to nowhere). staging/prod therefore
+    always render as a PR-gated manifest for a human to apply through the
+    normal promotion path, regardless of what release_strategy was
+    requested for them.
     """
     if request.environment not in _ENVIRONMENTS:
         raise ValueError(
@@ -238,27 +228,25 @@ def prepare_llm_deploy_manifest(
     }
     validate_runtime_optimizations(request.runtime, optimizations)
 
-    # Lazy: KServeAdapter.__init__ eagerly calls load_kube_config().
-    needs_kserve = request.traffic_strategy != "direct" or request.release_strategy == "instant"
-    kserve_adapter = get_kserve_adapter("llmops-team") if needs_kserve else None
+    # Lazy: GpuKServeInferenceAdapter.__init__ eagerly calls load_kube_config().
+    needs_gpu_inference_adapter = (
+        request.traffic_strategy != "direct" or request.release_strategy == "instant"
+    )
+    gpu_inference_adapter = (
+        get_gpu_inference_adapter("llmops-team") if needs_gpu_inference_adapter else None
+    )
 
     traffic_strategy: IDeployTrafficStrategy
     if request.traffic_strategy == "direct":
         traffic_strategy = DirectStrategy()
     else:
-        assert kserve_adapter is not None
-        try:
-            kserve_adapter.get_inference_status(request.model_name)
-        except ApiException as exc:
-            if exc.status != 404:
-                raise
+        assert gpu_inference_adapter is not None
+        if not gpu_inference_adapter.get_deploy_status(request.model_name)["deployed"]:
             raise ValueError(
                 f"{request.model_name} has no prior deploy — "
                 "choose deployStrategy=direct for a model's first deploy"
-            ) from exc
-        if request.traffic_percent is None:
-            raise ValueError("traffic_percent is required when traffic_strategy is not 'direct'")
-        traffic_strategy = TrafficSplitStrategy(request.traffic_percent)
+            )
+        traffic_strategy = BlueGreenStrategy()
 
     traffic_fields = traffic_strategy.render()
     template = _JINJA_ENV.get_template("llm_inference_service.yaml.j2")
@@ -286,8 +274,8 @@ def prepare_llm_deploy_manifest(
     )
 
     if request.release_strategy == "instant":
-        assert kserve_adapter is not None
-        kserve_adapter.deploy_llm_model(
+        assert gpu_inference_adapter is not None
+        gpu_inference_adapter.deploy_llm_model(
             request.model_name,
             "1",
             request.huggingface_model_id,

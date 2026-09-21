@@ -3,7 +3,7 @@ OpenChoreo ProjectReleaseBinding promotion. Same "development" seed as a demo
 run would have after a real deploy (see MockWorkflowAdapter/
 MockInferenceAdapter's seeded-state precedent)."""
 
-from adapters.interfaces import IPromotionAdapter, PromotionStatus
+from adapters.delivery.interfaces import IPromotionAdapter, PromotionStatus
 
 _SOURCE_ENVIRONMENT: dict[str, str] = {
     "staging": "development",

@@ -9,8 +9,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TypedDict
 
-from adapters.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
-from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
+from adapters.ai_platform.mock_model_registry_adapter import MockModelRegistryAdapter
+from adapters.delivery.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
 
 
 class WorkflowSummary(TypedDict):

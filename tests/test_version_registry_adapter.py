@@ -1,10 +1,10 @@
-"""adapters/version_registry_adapter.py — exercises JsonFileVersionRegistryAdapter
+"""adapters/ai_platform/version_registry_adapter.py — exercises JsonFileVersionRegistryAdapter
 against a real file on tmp_path (no SDK to mock — same convention as other
 pure-I/O adapters with no existing mock precedent)."""
 
 import pytest
 
-from adapters.version_registry_adapter import JsonFileVersionRegistryAdapter
+from adapters.ai_platform.version_registry_adapter import JsonFileVersionRegistryAdapter
 
 
 def _adapter(tmp_path) -> JsonFileVersionRegistryAdapter:

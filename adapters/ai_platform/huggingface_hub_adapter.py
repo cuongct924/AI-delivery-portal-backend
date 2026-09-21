@@ -17,7 +17,7 @@ from typing import cast
 import httpx
 from core.config import settings
 
-from adapters.interfaces import HuggingFaceModelInfo, IHuggingFaceHubAdapter
+from adapters.ai_platform.interfaces import HuggingFaceModelInfo, IHuggingFaceHubAdapter
 
 _HUB_API_BASE = "https://huggingface.co"
 _TIMEOUT_SECONDS = 10.0

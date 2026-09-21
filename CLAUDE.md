@@ -67,9 +67,10 @@ exact same commands, nothing else.
 - Python: see `.claude/rules/python-standards.md` (ruff + pyright + pytest,
   Google-style docstrings, class layout order). Applies to `adapters/`,
   `agents/`, `services/orchestration-api/`.
-- Every Adapter implements a shared interface from `adapters/interfaces.py`
-  (Adapter Pattern) — switching Mock → real backend (MLflow/KServe/Argo/...)
-  means adding one new class, never touching callers.
+- Every Adapter implements a shared interface from `adapters/delivery/interfaces.py`
+  (deploy/promote/workflow) or `adapters/ai_platform/interfaces.py`
+  (registry/experiments/feature-store/vector-store/gateway) — switching Mock
+  → real backend means adding one new class, never touching callers.
 - **Business logic never lives in the Portal frontend.** A Custom Scaffolder
   Action (in the frontend repo) only makes an HTTP call to
   `services/orchestration-api`; the FastAPI service here owns

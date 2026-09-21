@@ -1,8 +1,8 @@
-"""Tests adapters/mock_model_registry_adapter.py."""
+"""Tests adapters/ai_platform/mock_model_registry_adapter.py."""
 
 import pytest
 
-from adapters.mock_model_registry_adapter import MockModelRegistryAdapter
+from adapters.ai_platform.mock_model_registry_adapter import MockModelRegistryAdapter
 
 
 @pytest.fixture

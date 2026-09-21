@@ -10,7 +10,7 @@ from typing import cast
 
 import httpx
 
-from adapters.interfaces import ChatCompletionResponse, ILLMGatewayAdapter
+from adapters.ai_platform.interfaces import ChatCompletionResponse, ILLMGatewayAdapter
 
 
 class LiteLLMGatewayAdapter(ILLMGatewayAdapter):

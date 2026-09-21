@@ -1,3 +1,11 @@
+{#
+  Mock/legacy-backend-mode-only rendering (routers/models.py's
+  prepare_deploy_manifest, else branch of `if backend_mode == "openchoreo"`).
+  Standard model-serving's real backend renders workload.yaml.j2 instead —
+  this file exists so mock mode (MockInferenceAdapter, which mimics this raw
+  KServe shape) still has a matching PR-gated manifest to render, not
+  because any real cluster path deploys from it.
+#}
 apiVersion: serving.kserve.io/v1beta1
 kind: InferenceService
 metadata:

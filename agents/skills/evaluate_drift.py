@@ -4,7 +4,7 @@ Reusable from both MCP tools (agents/mcp-servers/) and regular FastAPI routes
 (services/orchestration-api/) — the business logic is written once, here.
 """
 
-from adapters.mlflow_adapter import MlflowAdapter
+from adapters.ai_platform.mlflow_adapter import MlflowAdapter
 
 
 def evaluate_drift(model_name: str, current_version: str, baseline_version: str) -> dict:

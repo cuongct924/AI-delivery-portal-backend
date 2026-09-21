@@ -1,5 +1,5 @@
 # Grants the minimum action set OpenChoreoWorkflowAdapter needs against
-# openchoreo-api's REST API (adapters/openchoreo_workflow_adapter.py):
+# openchoreo-api's REST API (adapters/delivery/openchoreo_workflow_adapter.py):
 # discover which ClusterWorkflow to run, submit a run, poll its status.
 # Modeled directly on the pre-existing "rca-agent"/"workload-publisher"
 # ClusterAuthzRoles (`kubectl get clusterauthzrole rca-agent -o yaml`) —

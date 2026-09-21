@@ -1,18 +1,21 @@
-"""The "openchoreo" branch of factory.py's get_kserve_adapter(). Patches an
-OpenChoreo `Workload` instead of an `InferenceService` directly; OpenChoreo's
-controller-manager renders the real serving.kserve.io/v1beta1 InferenceService
-via ClusterComponentType "proxy/inference-service"
+"""The real (non-mock) branch of factory.py's get_inference_adapter() — the
+standard model-serving golden path's only backend now that Inference has
+fully migrated off KServe-direct. Patches an OpenChoreo `Workload` instead of
+an `InferenceService` directly; OpenChoreo's controller-manager renders the
+real serving.kserve.io/v1beta1 InferenceService via ClusterComponentType
+"proxy/inference-service"
 (infra/openchoreo/platform-shared/component-types/clustercomponenttype-inference-service.yaml). Same
-`CustomObjectsApi` convention as adapters/kserve_adapter.py, different CRD.
-Verified for real against the k3d cluster; the bugs it surfaced (an RBAC fix in
-clusterrole-dataplane-kserve.yaml, plus two more) are in the class docstring.
+`CustomObjectsApi` convention as adapters/delivery/gpu_inference_adapter.py (GPU-serving-only
+now), different CRD. Verified for real against the k3d cluster; the bugs it
+surfaced (an RBAC fix in clusterrole-dataplane-kserve.yaml, plus two more) are
+in the class docstring.
 
 **Known, real, unresolved gap**: KServe's storage-initializer can't load this
 repo's `models:/<name>/<version>` storage_uri convention (only gs://, s3://,
 file://, http(s)://, hf:// are supported), and docker-compose.yml's mlflow
 service serves artifacts behind its own mlflow-artifacts:/ proxy — so deployed
 InferenceServices never actually load a model. Pre-existing in every models:/
-callsite (routers/models.py, adapters/deploy_strategies.py); fixing needs a
+callsite (routers/models.py, adapters/delivery/deploy_strategies.py); fixing needs a
 real decision (MLflow artifact store on MinIO, or resolve model_uri first) out
 of this adapter's scope.
 """
@@ -20,10 +23,11 @@ of this adapter's scope.
 from collections.abc import Mapping
 from typing import Final, cast
 
-from kubernetes import client, config
+from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
-from adapters.interfaces import IInferenceAdapter
+from adapters.delivery._kube_client import load_kube_config_once
+from adapters.delivery.interfaces import DeployStatus, IInferenceAdapter
 
 GROUP: Final[str] = "openchoreo.dev"
 VERSION: Final[str] = "v1alpha1"
@@ -60,15 +64,7 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         component: str = "serving",
         environment: str = "development",
     ):
-        # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/namespaces/default/projects/platform/components/
-        # orchestration-api/workload-orchestration-api.yaml); ConfigException
-        # means it's not running in a pod (local dev via
-        # `make run-orchestration-api`), so fall back to ~/.kube/config.
-        try:
-            config.load_incluster_config()
-        except config.ConfigException:
-            config.load_kube_config()
+        load_kube_config_once()
         self.namespace = namespace
         self.project = project
         self.component = component
@@ -103,41 +99,6 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
         )
         return cast(dict[str, object], result)
 
-    def deploy_llm_model(
-        self,
-        name: str,
-        version: str,
-        huggingface_model_id: str,
-        serving_runtime_name: str,
-        gpu_count: int,
-        vllm_quantization: str | None,
-        max_context_length: int,
-        traffic_fields: Mapping[str, object] | None = None,
-        hf_token_secret_ref: str | None = None,
-    ) -> dict[str, object]:
-        """Convenience method, not part of IInferenceAdapter — mirrors
-        KServeAdapter/MockInferenceAdapter so factory.py can hand any of the
-        three to routers/llm_serving.py. Not implemented: GPU/vLLM serving is
-        out of this phase's real-verification scope (docs/
-        openchoreo-migration-next-steps.md Phase 4) and no ClusterComponentType
-        exists for it — the one real one, "proxy/inference-service", is
-        MLflow-CPU-only."""
-        del (
-            name,
-            version,
-            huggingface_model_id,
-            serving_runtime_name,
-            gpu_count,
-            vllm_quantization,
-            max_context_length,
-            traffic_fields,
-            hf_token_secret_ref,
-        )
-        raise NotImplementedError(
-            "OpenChoreoInferenceAdapter.deploy_llm_model: no ClusterComponentType "
-            "for GPU/vLLM serving exists yet — out of Phase 4's scope"
-        )
-
     def get_inference_status(self, name: str) -> dict[str, object]:
         del name  # same single-Workload scoping as deploy_model
         # The real InferenceService lives in an auto-generated dataplane
@@ -166,6 +127,43 @@ class OpenChoreoInferenceAdapter(IInferenceAdapter):
                 ),
             )
         return matches[0]
+
+    def get_deploy_status(self, name: str) -> DeployStatus:
+        try:
+            status = self.get_inference_status(name)
+        except ApiException as exc:
+            if exc.status == 404:
+                return DeployStatus(
+                    deployed=False, ready=False, live_version=None, traffic_percent=None
+                )
+            raise
+
+        spec = cast(dict[str, object], status.get("spec", {}))
+        predictor = cast(dict[str, object], spec.get("predictor", {}))
+        traffic_percent = cast(int | None, predictor.get("canaryTrafficPercent"))
+
+        # No per-deploy version label exists here (unlike GpuKServeInferenceAdapter) —
+        # the ClusterComponentType passes through whatever labels are on the
+        # Workload, it doesn't set one per deploy. Parse the version instead
+        # out of the "models:/<name>/<version>" storageUri deploy_model()
+        # patched in — None if it isn't that shorthand.
+        model_spec = cast(dict[str, object], predictor.get("model", {}))
+        storage_uri = cast(str | None, model_spec.get("storageUri"))
+        live_version = None
+        if storage_uri is not None and storage_uri.startswith("models:/"):
+            parts = storage_uri.removeprefix("models:/").rsplit("/", 1)
+            if len(parts) == 2:
+                live_version = parts[1]
+
+        conditions = cast(
+            list[dict[str, object]],
+            cast(dict[str, object], status.get("status", {})).get("conditions", []),
+        )
+        ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+        return DeployStatus(
+            deployed=True, ready=ready, live_version=live_version, traffic_percent=traffic_percent
+        )
 
     def predict(self, name: str, payload: dict[str, object]) -> dict[str, object]:
         del name, payload

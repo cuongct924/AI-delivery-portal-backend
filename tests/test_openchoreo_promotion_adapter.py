@@ -1,8 +1,8 @@
-"""Tests adapters/openchoreo_promotion_adapter.py.
+"""Tests adapters/delivery/openchoreo_promotion_adapter.py.
 
 Same kubeconfig-mocking convention as tests/test_openchoreo_inference_adapter.py
-— OpenChoreoPromotionAdapter.__init__ also calls
-kubernetes.config.load_kube_config() eagerly.
+— OpenChoreoPromotionAdapter.__init__ also calls load_kube_config_once()
+eagerly.
 """
 
 from collections.abc import Iterator
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from kubernetes.client.exceptions import ApiException
 
-from adapters.openchoreo_promotion_adapter import (
+from adapters.delivery.openchoreo_promotion_adapter import (
     _PREVIOUS_RELEASE_ANNOTATION,
     GROUP,
     PLURAL,
@@ -28,9 +28,9 @@ def mock_api() -> MagicMock:
 @pytest.fixture
 def adapter(mock_api: MagicMock) -> Iterator[OpenChoreoPromotionAdapter]:
     with (
-        patch("adapters.openchoreo_promotion_adapter.config.load_kube_config"),
+        patch("adapters.delivery.openchoreo_promotion_adapter.load_kube_config_once"),
         patch(
-            "adapters.openchoreo_promotion_adapter.client.CustomObjectsApi",
+            "adapters.delivery.openchoreo_promotion_adapter.client.CustomObjectsApi",
             return_value=mock_api,
         ),
     ):

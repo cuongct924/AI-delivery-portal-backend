@@ -1,8 +1,8 @@
-"""Tests adapters/mock_promotion_adapter.py."""
+"""Tests adapters/delivery/mock_promotion_adapter.py."""
 
 import pytest
 
-from adapters.mock_promotion_adapter import MockPromotionAdapter
+from adapters.delivery.mock_promotion_adapter import MockPromotionAdapter
 
 
 @pytest.fixture

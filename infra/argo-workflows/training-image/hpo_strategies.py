@@ -1,10 +1,10 @@
 """Hyperparameter Search Strategy — Grid/Random/Bayesian search over DL
 hyperparameters, on top of the existing single-value default.
 
-Lives inside training-image, not `adapters/interfaces.py` — this container
-only has the `*.py` files the Dockerfile copies in, no access to the
-top-level `adapters/` package (a different deployable). Same Strategy
-Pattern shape as `adapters/interfaces.py`'s
+Lives inside training-image, not `adapters/delivery/interfaces.py` — this
+container only has the `*.py` files the Dockerfile copies in, no access to
+the top-level `adapters/` package (a different deployable). Same Strategy
+Pattern shape as `adapters/delivery/interfaces.py`'s
 `IDeployTrafficStrategy`/`IReleaseStrategy` though, plus `trial_count()`
 (Grid needs to tell the caller how many trials the grid actually contains)
 and `report_result()` (Bayesian needs each trial's outcome fed back before

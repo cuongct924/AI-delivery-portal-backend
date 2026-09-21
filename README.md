@@ -76,11 +76,14 @@ the same service (plus its MCP neighbours) from `docker-compose.yml`.
 
 ### Adapters
 
-Every external integration (MLflow, KServe, Argo/OpenChoreo, Qdrant, LiteLLM,
+Every external integration (MLflow, KServe, OpenChoreo, Qdrant, LiteLLM,
 Feast, JupyterHub, ...) sits behind an interface in
-[`adapters/interfaces.py`](adapters/interfaces.py); [`adapters/factory.py`](adapters/factory.py)
-picks the concrete class from the `USE_MOCK_*` env vars (see `.env.example`), so
-switching Mock → real backend means adding a class, never touching callers.
+[`adapters/delivery/interfaces.py`](adapters/delivery/interfaces.py) (deploy/
+promote/workflow) or [`adapters/ai_platform/interfaces.py`](adapters/ai_platform/interfaces.py)
+(registry/experiments/feature-store/vector-store/gateway);
+[`adapters/factory.py`](adapters/factory.py) picks the concrete class from the
+`USE_MOCK_*` env vars (see `.env.example`), so switching Mock → real backend
+means adding a class, never touching callers.
 Business logic stays in `services/orchestration-api/`, not in workflow pods or
 the Portal frontend.
 
@@ -112,10 +115,9 @@ act pull_request -j python-checks                           # run a single job: 
 ## Local Kubernetes cluster
 
 Golden Path #1 runs on Argo Workflows inside the same k3d `openchoreo-quick-start`
-cluster used for OpenChoreo/Thunder (see `docs/openchoreo-migration-next-steps.md`
-for its current state — cluster creation itself isn't documented in this repo
-yet) — there is no separate local cluster for it anymore. Setup (one-time,
-after the cluster exists):
+cluster used for OpenChoreo/Thunder — there is no separate local cluster for
+it anymore (cluster creation itself isn't documented in this repo yet).
+Setup (one-time, after the cluster exists):
 
 ```bash
 kubectl config use-context k3d-openchoreo-quick-start

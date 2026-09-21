@@ -2,11 +2,11 @@
 # Golden Path #1 (now infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml)
 # — the actual training/register logic
 # is untouched, still owned by adapters/ + services/orchestration-api (see
-# workload-training.yaml and docs/openchoreo-migration-next-steps.md).
+# workload-training.yaml).
 #
 # NEITHER this Component NOR its Workload has ever actually been applied to
-# the real cluster (verified during Phase 2's work on
-# adapters/openchoreo_workflow_adapter.py: `kubectl get components.openchoreo.dev
+# the real cluster (verified during work on
+# adapters/delivery/openchoreo_workflow_adapter.py: `kubectl get components.openchoreo.dev
 # -A` / `kubectl get cronjobs -A` both come back empty) — this file's
 # `environmentConfigs.schedule` claim below predates that check and was
 # never actually true; corrected here from what verifying it revealed, not

@@ -5,7 +5,7 @@ online features for inference). Uses Feast — **works right away, locally**,
 no extra service in `docker-compose.yml` needed: registry and online store
 are both local SQLite files, offline store is a local Parquet file.
 
-`adapters/feature_store_adapter.py` (`FeastAdapter`) defaults to
+`adapters/ai_platform/feature_store_adapter.py` (`FeastAdapter`) defaults to
 `FEAST_REPO_PATH=infra/feature-store` — no env var needed for local dev.
 
 ## First time (build the registry + online store)

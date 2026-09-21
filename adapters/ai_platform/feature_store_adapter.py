@@ -22,7 +22,7 @@ import httpx
 import pandas as pd
 from feast import FeatureStore
 
-from adapters.interfaces import IFeatureStoreAdapter
+from adapters.ai_platform.interfaces import IFeatureStoreAdapter
 
 
 class FeastAdapter(IFeatureStoreAdapter):

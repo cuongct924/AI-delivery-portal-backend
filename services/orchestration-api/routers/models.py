@@ -19,7 +19,6 @@ from data_quality.registry import run_checks
 from evaluations.evaluate_gate import MetricsGateResult, evaluate_metrics_gate
 from fastapi import APIRouter, Depends, HTTPException, Query
 from jinja2 import Environment, FileSystemLoader
-from kubernetes.client.exceptions import ApiException
 from observability.dora_metrics import (
     DEPLOYMENT_EVENTS,
     GATE_EVALUATIONS,
@@ -28,24 +27,25 @@ from observability.dora_metrics import (
 )
 from pydantic import BaseModel
 
-from adapters.deploy_strategies import (
+from adapters.ai_platform.interfaces import DatasetInfo
+from adapters.delivery.deploy_strategies import (
+    BlueGreenStrategy,
     DirectStrategy,
     InstantStrategy,
     PRGatedStrategy,
-    TrafficSplitStrategy,
 )
+from adapters.delivery.interfaces import IDeployTrafficStrategy, IReleaseStrategy
 from adapters.factory import (
     get_eval_result_adapter,
     get_feature_store_adapter,
+    get_inference_adapter,
     get_inference_backend_mode,
-    get_kserve_adapter,
     get_model_registry_adapter,
     get_object_storage_adapter,
     get_prediction_log_adapter,
     get_promotion_adapter,
     get_workflow_adapter,
 )
-from adapters.interfaces import DatasetInfo, IDeployTrafficStrategy, IReleaseStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +244,8 @@ class PrepareDeployRequest(BaseModel):
     # so the rest of this request/the release strategies below don't need
     # to know "rollback" exists as a concept at all.
     model_version: str
-    # "direct" | "canary" | "ab" | "blue-green".
+    # "direct" | "blue-green".
     traffic_strategy: str = "direct"
-    traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
     # "deploy" | "rollback". Rollback is a production emergency — Dev picks
@@ -669,13 +668,14 @@ def prepare_deploy_manifest(
     # mutation, so PrepareDeployRequest.action's contract stays visible here.
     is_rollback = request.action == "rollback"
     traffic_strategy_value = "blue-green" if is_rollback else request.traffic_strategy
-    traffic_percent_value = 100 if is_rollback else request.traffic_percent
     release_strategy_value = "instant" if is_rollback else request.release_strategy
 
-    # Lazy: KServeAdapter.__init__ eagerly calls load_kube_config(), which
-    # would crash startup wherever no kubeconfig exists (CI, before `kind`).
-    needs_kserve = traffic_strategy_value != "direct" or release_strategy_value == "instant"
-    kserve_adapter = get_kserve_adapter("mlops-team") if needs_kserve else None
+    # Lazy: OpenChoreoInferenceAdapter.__init__ eagerly calls load_kube_config(),
+    # which would crash startup wherever no kubeconfig exists (CI, before `kind`).
+    needs_inference_adapter = (
+        traffic_strategy_value != "direct" or release_strategy_value == "instant"
+    )
+    inference_adapter = get_inference_adapter("mlops-team") if needs_inference_adapter else None
 
     traffic_strategy: IDeployTrafficStrategy
     if traffic_strategy_value == "direct":
@@ -683,33 +683,20 @@ def prepare_deploy_manifest(
     else:
         # Needs a prior deploy to compare/rollback against — the form can't
         # gate on live cluster state; this also rejects empty rollbacks.
-        assert kserve_adapter is not None
-        try:
-            kserve_adapter.get_inference_status(request.model_name)
-        except ApiException as exc:
-            if exc.status != 404:
-                raise
+        assert inference_adapter is not None
+        if not inference_adapter.get_deploy_status(request.model_name)["deployed"]:
             message = (
                 f"{request.model_name} has no prior deploy — nothing to roll back to"
                 if is_rollback
                 else f"{request.model_name} has no prior deploy — "
                 "choose deployStrategy=direct for a model's first deploy"
             )
-            raise ValueError(message) from exc
-        if traffic_percent_value is None:
-            raise ValueError("traffic_percent is required when traffic_strategy is not 'direct'")
-        traffic_strategy = TrafficSplitStrategy(traffic_percent_value)
+            raise ValueError(message)
+        traffic_strategy = BlueGreenStrategy()
 
     traffic_fields = traffic_strategy.render()
     canary_percent = traffic_fields.get("canaryTrafficPercent")
     backend_mode = get_inference_backend_mode()
-    if backend_mode == "openchoreo" and canary_percent not in (None, 100):
-        # Workload has no partial-traffic-split concept — reject here so a
-        # PR-gated request fails the same way an instant deploy would.
-        raise ValueError(
-            f"a PARTIAL traffic split ({traffic_fields!r}) isn't wired into the "
-            "OpenChoreo Workload template yet — only a 100% cutover is supported"
-        )
 
     if backend_mode == "openchoreo":
         # The one live Workload file is the git-tracked source of truth — a
@@ -744,8 +731,8 @@ def prepare_deploy_manifest(
 
     release_strategy: IReleaseStrategy
     if release_strategy_value == "instant":
-        assert kserve_adapter is not None
-        release_strategy = InstantStrategy(kserve_adapter, traffic_fields, mlflow_adapter)
+        assert inference_adapter is not None
+        release_strategy = InstantStrategy(inference_adapter, traffic_fields, mlflow_adapter)
     else:
         release_strategy = PRGatedStrategy()
     release_result = release_strategy.release(request.model_name, request.model_version, content)
@@ -790,38 +777,20 @@ def get_deploy_status(name: str, user: dict = Depends(get_current_user)) -> Depl
     prior-deploy check.
 
     Lazy adapter construction, same reason as prepare_deploy_manifest:
-    KServeAdapter.__init__ eagerly loads a kubeconfig, which would crash
-    every other route in an environment with none (CI, before `kind`).
+    OpenChoreoInferenceAdapter.__init__ eagerly loads a kubeconfig, which
+    would crash every other route in an environment with none (CI, before
+    `kind`).
     """
-    kserve_adapter = get_kserve_adapter("mlops-team")
-    try:
-        status = kserve_adapter.get_inference_status(name)
-    except ApiException as exc:
-        if exc.status == 404:
-            return DeployStatusResponse(deployed=False)
-        raise
-
-    spec = cast(dict[str, object], status.get("spec", {}))
-    predictor = cast(dict[str, object], spec.get("predictor", {}))
-    traffic_percent = cast(int | None, predictor.get("canaryTrafficPercent"))
-
-    metadata = cast(dict[str, object], status.get("metadata", {}))
-    labels = cast(dict[str, object], metadata.get("labels") or {})
-    # KServeAdapter sets this label at deploy time — the only version that
-    # survives on the InferenceService (storageUri is a real s3 path now,
-    # not "models:/<name>/<version>").
-    live_version = cast(str | None, labels.get("version"))
-
-    conditions = cast(
-        list[dict[str, object]],
-        cast(dict[str, object], status.get("status", {})).get("conditions", []),
-    )
-    ready = any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+    inference_adapter = get_inference_adapter("mlops-team")
+    status = inference_adapter.get_deploy_status(name)
+    if not status["deployed"]:
+        return DeployStatusResponse(deployed=False)
 
     pr_url = None
+    live_version = status["live_version"]
     if live_version is not None:
-        # ValueError: the version label survived on the InferenceService
-        # but that model version was since deleted from the registry.
+        # ValueError: the version survived on the deploy status but that
+        # model version was since deleted from the registry.
         with contextlib.suppress(ValueError):
             pr_url = mlflow_adapter.get_model_version_details(name, live_version)["tags"].get(
                 "deploy_pr_url"
@@ -829,9 +798,9 @@ def get_deploy_status(name: str, user: dict = Depends(get_current_user)) -> Depl
 
     return DeployStatusResponse(
         deployed=True,
-        ready=ready,
+        ready=status["ready"],
         live_version=live_version,
-        traffic_percent=traffic_percent,
+        traffic_percent=status["traffic_percent"],
         pr_url=pr_url,
     )
 
@@ -843,7 +812,7 @@ def log_prediction(
     """The actual data-collection entry point for Golden Path #4 (data
     drift monitoring), started now rather than waiting for that Golden
     Path to exist first. Not automatic: nothing in this codebase proxies
-    real predict traffic (adapters/kserve_adapter.py's own predict()
+    real predict traffic (adapters/delivery/gpu_inference_adapter.py's own predict()
     explicitly tells callers to hit the InferenceService directly,
     IPredictionLogAdapter's docstring has the full reasoning) — whoever
     calls the deployed model directly calls this too, alongside it, to
@@ -900,7 +869,7 @@ def promote_model(
 ) -> PromotionStatusResponse:
     """The manual-approval gate is that this endpoint is only ever called
     from a Dev explicitly running a Golden Path Scaffolder template
-    themselves — see adapters/openchoreo_promotion_adapter.py's module
+    themselves — see adapters/delivery/openchoreo_promotion_adapter.py's module
     docstring for why no separate approval step exists on top of that.
     Same `name` scope-check as get_promotion_status — see its docstring."""
     current = promotion_adapter.get_promotion_status()
@@ -956,7 +925,7 @@ def rollback_promotion(
     """staging/prod counterpart to the dev-side action=rollback — undoes
     the last promote()/rollback_promotion() call for one environment. Same
     manual-approval-via-template and `name` scope-check as promote_model —
-    see its docstring and adapters/openchoreo_promotion_adapter.py's."""
+    see its docstring and adapters/delivery/openchoreo_promotion_adapter.py's."""
     current = promotion_adapter.get_promotion_status()
     if name != current["project"]:
         raise HTTPException(

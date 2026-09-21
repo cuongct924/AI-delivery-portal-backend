@@ -1,12 +1,15 @@
-"""Tests adapters/openchoreo_workflow_adapter.py — mocks httpx so no real
+"""Tests adapters/delivery/openchoreo_workflow_adapter.py — mocks httpx so no real
 openchoreo-api/Thunder instance is required."""
 
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-import adapters.openchoreo_workflow_adapter as oc_adapter
-from adapters.openchoreo_workflow_adapter import OpenChoreoWorkflowAdapter, _hyphen_to_camel
+import adapters.delivery.openchoreo_workflow_adapter as oc_adapter
+from adapters.delivery.openchoreo_workflow_adapter import (
+    OpenChoreoWorkflowAdapter,
+    _hyphen_to_camel,
+)
 
 
 def _mock_response(json_data: dict, status_code: int = 200) -> MagicMock:
@@ -23,7 +26,9 @@ def _stub_access_token():
     which otherwise makes its own httpx.post to Thunder — stub it so tests
     only exercise this adapter's own openchoreo-api calls. Not autouse:
     test_get_access_token_caches_and_refreshes tests the real thing."""
-    with patch("adapters.openchoreo_workflow_adapter._get_access_token", return_value="test-token"):
+    with patch(
+        "adapters.delivery.openchoreo_workflow_adapter._get_access_token", return_value="test-token"
+    ):
         yield
 
 
@@ -40,7 +45,7 @@ def test_trigger_workflow_posts_camel_cased_parameters_and_headers(_stub_access_
     )
 
     with patch(
-        "adapters.openchoreo_workflow_adapter.httpx.post", return_value=response
+        "adapters.delivery.openchoreo_workflow_adapter.httpx.post", return_value=response
     ) as mock_post:
         result = adapter.trigger_workflow(
             "train-register-golden-path",
@@ -76,7 +81,7 @@ def test_get_workflow_status_maps_workflow_succeeded_condition(_stub_access_toke
         }
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("train-abc123")
 
     assert result == {
@@ -102,7 +107,7 @@ def test_get_workflow_status_maps_workflow_failed_condition(_stub_access_token) 
         }
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("train-abc123")
 
     assert result["phase"] == "Failed"
@@ -115,7 +120,7 @@ def test_get_workflow_status_maps_workflow_running_condition(_stub_access_token)
         {"status": {"conditions": [{"type": "WorkflowRunning", "status": "True"}]}}
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("train-abc123")
 
     assert result["phase"] == "Running"
@@ -125,7 +130,7 @@ def test_get_workflow_status_defaults_to_pending_with_no_conditions(_stub_access
     adapter = OpenChoreoWorkflowAdapter(base_url="http://oc.test/api/v1")
     response = _mock_response({"status": {}})
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("train-abc123")
 
     assert result["phase"] == "Pending"
@@ -151,7 +156,7 @@ def test_get_workflow_status_workload_updated_takes_priority_over_succeeded(
         }
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("build-abc123")
 
     assert result["phase"] == "Succeeded"
@@ -182,7 +187,7 @@ def test_get_workflow_status_extracts_step_timings_from_tasks(_stub_access_token
         }
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response):
+    with patch("adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response):
         result = adapter.get_workflow_status("train-abc123")
 
     assert result["steps"] == [
@@ -224,7 +229,9 @@ def test_list_workflows_derives_phase_per_item(_stub_access_token) -> None:
         }
     )
 
-    with patch("adapters.openchoreo_workflow_adapter.httpx.get", return_value=response) as mock_get:
+    with patch(
+        "adapters.delivery.openchoreo_workflow_adapter.httpx.get", return_value=response
+    ) as mock_get:
         result = adapter.list_workflows()
 
     assert mock_get.call_args.args[0] == "http://oc.test/api/v1/namespaces/default/workflowruns"
@@ -246,7 +253,7 @@ def test_get_access_token_caches_and_refreshes(monkeypatch: pytest.MonkeyPatch) 
     token_response = _mock_response({"access_token": "abc123", "expires_in": 3600})
 
     with patch(
-        "adapters.openchoreo_workflow_adapter.httpx.post", return_value=token_response
+        "adapters.delivery.openchoreo_workflow_adapter.httpx.post", return_value=token_response
     ) as mock_post:
         first = oc_adapter._get_access_token()
         second = oc_adapter._get_access_token()

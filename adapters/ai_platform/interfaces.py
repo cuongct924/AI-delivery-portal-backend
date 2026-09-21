@@ -1,4 +1,6 @@
-"""Shared contract for every Adapter — implemented via the Adapter Pattern.
+"""Shared contract for every ai_platform/ Adapter (model registry/
+experiments/feature store/vector store/gateway — Viettel AI Platform-facing)
+— implemented via the Adapter Pattern.
 
 Principle: switching from Mock/MLflow to a real self-hosted backend only
 requires adding one new class that implements this interface, without
@@ -57,7 +59,7 @@ class IModelRegistryAdapter(ABC):
     def get_model_artifact_uri(self, name: str, version: str) -> str:
         """Resolves to a URI KServe's storage-initializer can actually read
         (e.g. "s3://...") — the "models:/<name>/<version>" shorthand alone
-        isn't recognized by it. See adapters/deploy_strategies.py's
+        isn't recognized by it. See adapters/delivery/deploy_strategies.py's
         InstantStrategy for the caller."""
         ...
 
@@ -114,9 +116,9 @@ class IPredictionLogAdapter(ABC):
     """Logs predict-time (input, output) pairs — the data for Golden Path #4
     (data drift monitoring), started now rather than waiting (see docs/
     mlops-lifecycle-software-template.md). Not automatic: nothing here proxies
-    real predict traffic (kserve_adapter's predict() tells callers to hit the
-    InferenceService directly) — a caller that wants predictions logged calls
-    `log_prediction` itself, e.g. via routers/models.py's
+    real predict traffic (the inference adapters' predict() tells callers to
+    hit the InferenceService directly) — a caller that wants predictions
+    logged calls `log_prediction` itself, e.g. via routers/models.py's
     POST /models/{name}/predictions/log.
     """
 
@@ -131,142 +133,6 @@ class IPredictionLogAdapter(ABC):
 
     @abstractmethod
     def list_predictions(self, model_name: str, limit: int = 50) -> list[PredictionLogEntry]: ...
-
-
-class PromotionStatus(TypedDict):
-    project: str
-    component: str
-    # env name ("development"/"staging"/"production") -> the projectRelease
-    # currently bound there, or None if this project has never been
-    # promoted to that environment yet.
-    environments: dict[str, str | None]
-    # True when staging is bound to a release production isn't — i.e.
-    # there's something a human could promote right now.
-    prod_pending_approval: bool
-
-
-class IPromotionAdapter(ABC):
-    """OpenChoreo DeploymentPipeline/ProjectReleaseBinding-based staging/prod
-    promotion — replaces the abandoned Kargo-based pipeline (see
-    agents/mcp-servers/observability-server/server.py's get_promotion_status).
-
-    `promote()` is always a human-initiated action, never an agent/MCP tool —
-    get_promotion_status stays a read-only MCP tool; promote() is only
-    reachable via a Scaffolder Golden Path the Dev runs. There is no separate
-    "approve" step beyond that human action — see OpenChoreoPromotionAdapter's
-    docstring for why a second approval gate wasn't built.
-    """
-
-    @abstractmethod
-    def get_promotion_status(self) -> PromotionStatus: ...
-
-    @abstractmethod
-    def promote(self, target_environment: str) -> PromotionStatus:
-        """Copies whatever release is currently bound in the pipeline's
-        source environment for `target_environment` into a binding there.
-        Raises ValueError if `target_environment` isn't a valid promotion
-        target for wherever the project currently is (e.g. promoting to
-        "production" before anything has reached "staging")."""
-        ...
-
-    @abstractmethod
-    def rollback_promotion(self, environment: str) -> PromotionStatus:
-        """Undoes the last `promote()`/`rollback_promotion()` call for
-        `environment` — swaps it back to whatever was bound there
-        immediately before that call. Raises ValueError when there's
-        nothing bound in `environment` yet, or nothing recorded to roll
-        back to (its current binding was never promoted over)."""
-        ...
-
-
-class IInferenceAdapter(ABC):
-    """`deploy_model`/`get_inference_status` return `dict[str, object]`, not
-    a TypedDict — they pass through the Kubernetes/KServe API's raw
-    InferenceService resource, whose shape is large and versioned by
-    Kubernetes itself, not by this codebase."""
-
-    @abstractmethod
-    def deploy_model(
-        self,
-        name: str,
-        version: str,
-        model_uri: str,
-        traffic_fields: Mapping[str, object] | None = None,
-    ) -> dict[str, object]: ...
-
-    @abstractmethod
-    def get_inference_status(self, name: str) -> dict[str, object]: ...
-
-    @abstractmethod
-    def predict(self, name: str, payload: dict[str, object]) -> dict[str, object]: ...
-
-
-class TrafficFields(TypedDict, total=False):
-    canaryTrafficPercent: int
-
-
-class IDeployTrafficStrategy(ABC):
-    """How traffic moves to the new model version — Golden Path #2.
-
-    Direct and TrafficSplit (Canary/A-B/Blue-Green) are the only 2
-    concrete strategies: KServe's `canaryTrafficPercent` field is one
-    mechanism that Canary/A-B/Blue-Green only differ in *intent* over —
-    not 3 separate classes.
-    """
-
-    @abstractmethod
-    def render(self) -> TrafficFields:
-        """Fields to merge into the InferenceService's spec.predictor
-        block — {} for Direct, {"canaryTrafficPercent": N} for TrafficSplit."""
-
-
-class ReleaseResult(TypedDict):
-    deployed: bool
-
-
-class IReleaseStrategy(ABC):
-    """How a deploy gets approved — PR-gated (default, unchanged) vs
-    Instant (calls the inference adapter directly, no Git/PR)."""
-
-    @abstractmethod
-    def release(self, model_name: str, model_version: str, manifest_content: str) -> ReleaseResult:
-        """Performs the release action. PRGatedStrategy is a no-op — the
-        caller still publishes manifest_content as a PR itself. Instant
-        actually deploys and returns {"deployed": True}."""
-
-
-class WorkflowStepTiming(TypedDict):
-    name: str
-    phase: str | None
-    started_at: str | None
-    finished_at: str | None
-
-
-class WorkflowStatus(TypedDict):
-    name: str
-    phase: str | None
-    message: str | None
-    # Populated once the workflow starts — backs RQ1's Lead Time /
-    # step-duration Prometheus metrics (services/orchestration-api's
-    # observability/dora_metrics.py), computed from data this call already
-    # fetches, no extra backend request needed.
-    started_at: str | None
-    finished_at: str | None
-    steps: list[WorkflowStepTiming]
-
-
-class IWorkflowAdapter(ABC):
-    """`trigger_workflow` returns `dict[str, object]`, not a TypedDict — it
-    passes through the backend's raw workflow resource (an OpenChoreo
-    WorkflowRun, or a mock equivalent)."""
-
-    @abstractmethod
-    def trigger_workflow(
-        self, template_name: str, parameters: dict[str, str]
-    ) -> dict[str, object]: ...
-
-    @abstractmethod
-    def get_workflow_status(self, workflow_name: str) -> WorkflowStatus: ...
 
 
 class UpsertResult(TypedDict):

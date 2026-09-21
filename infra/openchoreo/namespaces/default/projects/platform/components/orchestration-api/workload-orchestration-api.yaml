@@ -38,7 +38,7 @@ spec:
         value: http://minio.ai-platform-zone.svc.cluster.local:9000
       - key: MLFLOW_S3_ENDPOINT_URL
         value: http://minio.ai-platform-zone.svc.cluster.local:9000
-      # adapters/mlflow_adapter.py's register_model() calls
+      # adapters/ai_platform/mlflow_adapter.py's register_model() calls
       # mlflow.register_model(), which lists the run's S3 artifacts directly
       # via boto3 — needs real credentials, not just MLFLOW_S3_ENDPOINT_URL.
       # Missing entirely from the old docker-compose env (same latent gap,

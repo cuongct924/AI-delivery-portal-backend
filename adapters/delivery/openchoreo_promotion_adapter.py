@@ -1,7 +1,7 @@
 """Real IPromotionAdapter for OpenChoreo's DeploymentPipeline/
 ProjectReleaseBinding-based promotion, replacing observability-server's mocked
 get_promotion_status. Same `CustomObjectsApi` convention as
-adapters/openchoreo_inference_adapter.py, against the ProjectReleaseBinding CRD
+adapters/delivery/openchoreo_inference_adapter.py, against the ProjectReleaseBinding CRD
 (see infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml).
 
 The promotion path (development -> staging -> production) is hardcoded rather
@@ -29,10 +29,11 @@ pointer, so this is strictly additive.
 
 from typing import Final, cast
 
-from kubernetes import client, config
+from kubernetes import client
 from kubernetes.client.exceptions import ApiException
 
-from adapters.interfaces import IPromotionAdapter, PromotionStatus
+from adapters.delivery._kube_client import load_kube_config_once
+from adapters.delivery.interfaces import IPromotionAdapter, PromotionStatus
 
 GROUP: Final[str] = "openchoreo.dev"
 VERSION: Final[str] = "v1alpha1"
@@ -58,15 +59,7 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
     the same reason (no dynamic per-model Project provisioning exists)."""
 
     def __init__(self, namespace: str = "default", project: str = "telco-fraud-detection"):
-        # In-cluster once this runs as a pod on worker1 (see
-        # infra/openchoreo/namespaces/default/projects/platform/components/
-        # orchestration-api/workload-orchestration-api.yaml); ConfigException
-        # means it's not running in a pod (local dev via
-        # `make run-orchestration-api`), so fall back to ~/.kube/config.
-        try:
-            config.load_incluster_config()
-        except config.ConfigException:
-            config.load_kube_config()
+        load_kube_config_once()
         self.namespace = namespace
         self.project = project
         self.api = client.CustomObjectsApi()

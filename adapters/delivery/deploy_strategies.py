@@ -1,14 +1,12 @@
 """Concrete IDeployTrafficStrategy / IReleaseStrategy implementations for
-Golden Path #2. Kept in one file — 4 small, tightly related classes, not
-worth 4 separate files.
+Golden Path #2 (and the LLM self-hosted-serving golden path). Kept in one
+file — 4 small, tightly related classes, not worth 4 separate files.
 """
 
-from dataclasses import dataclass
-
-from adapters.interfaces import (
+from adapters.ai_platform.interfaces import IModelRegistryAdapter
+from adapters.delivery.interfaces import (
     IDeployTrafficStrategy,
     IInferenceAdapter,
-    IModelRegistryAdapter,
     IReleaseStrategy,
     ReleaseResult,
     TrafficFields,
@@ -16,23 +14,26 @@ from adapters.interfaces import (
 
 
 class DirectStrategy(IDeployTrafficStrategy):
-    """100% immediately — Knative Serving already avoids downtime via
-    readiness-gated pod replacement, no extra field needed."""
+    """100% immediately. This cluster runs KServe in RawDeployment/raw mode
+    (no Knative/Istio — see infra/ai-platform-zone/kserve/
+    test-inferenceservice-cpu.yaml and OpenChoreoInferenceAdapter's own
+    raw-mode-label-limit comments), so zero-downtime here comes from
+    KServe's own readiness-gated rollout, not Knative revision
+    traffic-splitting."""
 
     def render(self) -> TrafficFields:
         return {}
 
 
-@dataclass(frozen=True)
-class TrafficSplitStrategy(IDeployTrafficStrategy):
-    """Canary/A-B/Blue-Green — same `canaryTrafficPercent` mechanism, the
-    presets only differ in which percent the Dev-facing form suggests by
-    default."""
-
-    percent: int
+class BlueGreenStrategy(IDeployTrafficStrategy):
+    """Full cutover to a new version, after verifying a prior deploy exists.
+    Fixed 100% — no partial split is expressible: OpenChoreo's
+    ClusterComponentType has no canary slot in environmentConfigs at all,
+    and the API was narrowed to match rather than leave one golden path able
+    to express something the other structurally can't."""
 
     def render(self) -> TrafficFields:
-        return {"canaryTrafficPercent": self.percent}
+        return {"canaryTrafficPercent": 100}
 
 
 class PRGatedStrategy(IReleaseStrategy):
@@ -59,7 +60,7 @@ class InstantStrategy(IReleaseStrategy):
         self.model_registry_adapter = model_registry_adapter
 
     def release(self, model_name: str, model_version: str, manifest_content: str) -> ReleaseResult:
-        del manifest_content  # unused — KServeAdapter renders its own body
+        del manifest_content  # unused — the inference adapter renders its own body
         # Resolves the "models:/<name>/<version>" shorthand to a real artifact
         # location (e.g. "s3://...") when a registry adapter is given — KServe's
         # storage-initializer can't read the shorthand (see its module docstring

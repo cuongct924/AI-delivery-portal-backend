@@ -1,6 +1,6 @@
 # Registers the Qdrant instance running in ai-platform-zone on worker2
 # (infra/ai-platform-zone/qdrant.yaml, port 6333) as OpenChoreo Catalog
-# metadata — does not change adapters/vector_db_adapter.py, does not
+# metadata — does not change adapters/ai_platform/vector_db_adapter.py, does not
 # change the port, does not deploy a second Qdrant.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Resource

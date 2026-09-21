@@ -3,8 +3,7 @@
 #1/#3 cut over, the only real workflow backend (the Argo Server adapter was
 removed — see docs/openchoreo-workflow-migration-plan.md).
 
-REST shape confirmed two ways (per docs/openchoreo-migration-next-steps.md
-Phase 2): (1) read against openchoreo-workflows-backend's
+REST shape confirmed two ways: (1) read against openchoreo-workflows-backend's
 GenericWorkflowService.ts in the backstage-plugins repo (POST/GET
 /api/v1/namespaces/{ns}/workflowruns), and (2) a real WorkflowRun on the local
 k3d cluster to see the actual response shape.
@@ -21,7 +20,7 @@ from typing import Final, TypedDict
 
 import httpx
 
-from adapters.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
+from adapters.delivery.interfaces import IWorkflowAdapter, WorkflowStatus, WorkflowStepTiming
 
 OPENCHOREO_API_URL: Final[str] = os.getenv(
     "OPENCHOREO_API_URL", "http://api.openchoreo.localhost:8080/api/v1"

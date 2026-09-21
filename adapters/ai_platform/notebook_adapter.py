@@ -11,7 +11,7 @@ import uuid
 
 import httpx
 
-from adapters.interfaces import INotebookAdapter, NotebookDeletion, NotebookStatus
+from adapters.ai_platform.interfaces import INotebookAdapter, NotebookDeletion, NotebookStatus
 
 
 class JupyterHubAdapter(INotebookAdapter):
