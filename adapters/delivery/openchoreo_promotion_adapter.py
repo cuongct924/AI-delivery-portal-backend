@@ -1,5 +1,5 @@
 """Real IPromotionAdapter for OpenChoreo's DeploymentPipeline/
-ProjectReleaseBinding-based promotion, replacing observability-server's mocked
+ProjectReleaseBinding-based promotion, replacing ai-observability-server's mocked
 get_promotion_status. Same `CustomObjectsApi` convention as
 adapters/delivery/openchoreo_inference_adapter.py, against the ProjectReleaseBinding CRD
 (see infra/openchoreo/namespaces/default/platform/deployment-pipeline.yaml).
@@ -14,8 +14,9 @@ ever changes.
 **Why `promote()` alone counts as "manual approval"**: the only path reaching
 it is a Dev running the "Evaluate & Deploy Model" Golden Path with action=promote
 (the frontend repo's register-deploy template) — nothing in agents/mcp-servers/
-calls it (get_promotion_status stays the read-only MCP tool; promote() isn't a
-tool at all). A second stored "pending" approval gate was rejected: this repo
+calls it (the read-only promotion-status MCP tool now lives in OpenChoreo's own
+Control Plane MCP server; promote() isn't a tool at all). A second stored
+"pending" approval gate was rejected: this repo
 has no distinct requester/approver identities yet (every call carries the same
 Thunder-authenticated user), so a same-person request-then-approve would be
 theater. Revisit if that identity model ever exists.

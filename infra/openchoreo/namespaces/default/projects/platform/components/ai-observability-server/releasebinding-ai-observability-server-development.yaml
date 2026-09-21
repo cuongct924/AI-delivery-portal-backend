@@ -4,12 +4,12 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: ReleaseBinding
 metadata:
-  name: observability-server-development
+  name: ai-observability-server-development
   namespace: default
 spec:
   environment: development
   owner:
-    componentName: observability-server
+    componentName: ai-observability-server
     projectName: platform
   componentTypeEnvironmentConfigs:
     resources:

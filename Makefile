@@ -20,7 +20,7 @@ endif
 SERVICE_REQS := requirements-dev.txt \
 	adapters/requirements.txt \
 	services/orchestration-api/requirements.txt \
-	agents/mcp-servers/observability-server/requirements.txt \
+	agents/mcp-servers/ai-observability-server/requirements.txt \
 	agents/mcp-servers/llmops-golden-paths-server/requirements.txt \
 	agents/mcp-servers/golden-path-guide-server/requirements.txt \
 	agents/mcp-servers/mlops-golden-paths-server/requirements.txt \
@@ -28,7 +28,7 @@ SERVICE_REQS := requirements-dev.txt \
 
 .PHONY: venv install lock hooks lint format format-check typecheck test check \
 	gitleaks checkov trivy security \
-	run-orchestration-api run-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
+	run-orchestration-api run-ai-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
 	run-mlops-golden-paths-mcp \
 	dvc-pull dvc-push \
 	clean-venv
@@ -93,11 +93,11 @@ checkov:
 ## was never added; not this rename's concern to fix.
 trivy:
 	docker build -t orchestration-api:local -f services/orchestration-api/Dockerfile .
-	docker build -t observability-server:local -f agents/mcp-servers/observability-server/Dockerfile .
+	docker build -t ai-observability-server:local -f agents/mcp-servers/ai-observability-server/Dockerfile .
 	docker build -t llmops-golden-paths-server:local -f agents/mcp-servers/llmops-golden-paths-server/Dockerfile .
 	docker build -t mlops-golden-paths-server:local -f agents/mcp-servers/mlops-golden-paths-server/Dockerfile .
 	docker build -t training-image:local -f infra/argo-workflows/training-image/Dockerfile .
-	@for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do \
+	@for img in orchestration-api ai-observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do \
 		echo "=== Trivy scan: $$img ==="; \
 		trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "$$img:local"; \
 	done
@@ -108,8 +108,8 @@ security: gitleaks checkov trivy
 run-orchestration-api:
 	cd services/orchestration-api && PYTHONPATH=$(CURDIR) $(CURDIR)/$(PY) -m uvicorn main:app --reload
 
-run-observability-mcp:
-	bash scripts/run-mcp-local.sh observability
+run-ai-observability-mcp:
+	bash scripts/run-mcp-local.sh ai-observability
 
 run-llmops-golden-paths-mcp:
 	bash scripts/run-mcp-local.sh llmops-golden-paths

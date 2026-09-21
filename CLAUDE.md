@@ -5,8 +5,7 @@ This repo is the **backend** half of AI Delivery Portal. The Portal frontend
 (Backstage-based, OpenChoreo plugins + Viettel Cloud branding) lives in a
 **separate repo**: [`cuongct924/AI-delivery-portal-frontend`](https://github.com/cuongct924/AI-delivery-portal-frontend)
 (fork of `openchoreo/backstage-plugins`, renamed after forking), local clone at
-`/Users/cuongct090_04/Code/backstage-plugins` (directory name predates the
-GitHub rename — not yet renamed locally). See
+`/Users/cuongct090_04/Code/AI-delivery-portal-frontend`. See
 `docs/playbook-ai-delivery-portal.md` for the component diagram and design
 decisions/rationale.
 
@@ -19,7 +18,8 @@ Python (each service under `adapters/`, `services/orchestration-api/`,
 make install   # create .venv, install dev.lock.txt + pre-commit hook
 make lock       # regenerate all *.lock.txt — run after editing any requirements.txt
 make check      # lint + format-check + typecheck + test (what CI runs)
-make run-orchestration-api / run-observability-mcp / run-golden-paths-mcp
+make run-orchestration-api / run-ai-observability-mcp / run-llmops-golden-paths-mcp \
+     / run-golden-path-guide-mcp / run-mlops-golden-paths-mcp
 ```
 
 `make test`/`make check` need a real MLflow reachable at `MLFLOW_TRACKING_URI`
@@ -37,7 +37,7 @@ Local infra runs on a 3-node k3d cluster (`k3d-openchoreo-quick-start`), not
 docker-compose (retired):
 ```bash
 bash scripts/setup-3node-infra.sh   # idempotent — adds/labels/taints worker1+worker2, builds+imports images, applies manifests
-bash scripts/run-mcp-local.sh observability|golden-paths   # run one MCP server without the cluster
+bash scripts/run-mcp-local.sh ai-observability|llmops-golden-paths|golden-path-guide|mlops-golden-paths
 ```
 Node layout — **master** (`k3d-openchoreo-quick-start-server-0`): OpenChoreo
 control plane (API, controllers, Thunder); **worker1**
@@ -68,7 +68,7 @@ exact same commands, nothing else.
   Google-style docstrings, class layout order). Applies to `adapters/`,
   `agents/`, `services/orchestration-api/`.
 - Every Adapter implements a shared interface from `adapters/delivery/interfaces.py`
-  (deploy/promote/workflow) or `adapters/ai_platform/interfaces.py`
+  (deploy/promote/workflow/observer) or `adapters/ai_platform/interfaces.py`
   (registry/experiments/feature-store/vector-store/gateway) — switching Mock
   → real backend means adding one new class, never touching callers.
 - **Business logic never lives in the Portal frontend.** A Custom Scaffolder
@@ -83,8 +83,11 @@ services/             orchestration-api — FastAPI BFF, MCP client, auth, evalu
 agents/               AI Agent & MCP — mcp-servers/, skills/
 adapters/             Adapter Pattern — MLflow, KServe, Argo, Qdrant, LiteLLM, Feast, JupyterHub
 data/                 DVC-tracked datasets — pointer files in git, real data in an S3-compatible remote
-infra/                GitOps infra — monitoring/vector-dbs/llm-gateways (active); helm-charts/argocd/opa-policies (not yet implemented)
-docs/                 playbook, LLMOps draft plan
+infra/                GitOps infra — openchoreo/ (Components), ai-platform-zone/ (MLflow/Qdrant/
+                      MinIO/LiteLLM/Feast), argo-workflows/ (training image), bootstrap/
+                      (ClusterRole), feature-store/, llm-serving/.
+docs/                 playbook-ai-delivery-portal.md (component diagram/rationale),
+                      diagram.md, notes-agent-integration-idp.md
 ```
 
 Portal frontend (Golden Path Scaffolder templates, Catalog entities, custom
@@ -95,7 +98,9 @@ not here.
 
 - Repo is hosted on **GitHub**; CI runs via `.github/workflows/ci.yml`.
 - Adding a new Python service: add its `requirements.txt` path to `Makefile`'s
-  `SERVICE_REQS`, run `make lock`, add it to `docker-compose.yml`, and add a
-  build+scan block to `ci.yml`.
+  `SERVICE_REQS`, run `make lock`, add a build+trivy-scan block to
+  `ci.yml`'s `docker-build-and-scan` job, and (if it runs in-cluster) a
+  Component/Workload under
+  `infra/openchoreo/namespaces/default/projects/platform/components/<name>/`.
 - Adding/changing a Golden Path template or Catalog entity: do it in the
   frontend repo (`cuongct924/AI-delivery-portal-frontend`), not here.

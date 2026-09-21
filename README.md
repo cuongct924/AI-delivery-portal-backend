@@ -47,8 +47,8 @@ docker compose --profile observability up -d   # optional: prometheus, grafana
 docker compose --profile mlops --profile llmops --profile observability up -d   # everything
 
 # MCP servers run detached, discoverable via the Backstage Catalog:
-docker compose up -d observability-server llmops-golden-paths-server mlops-golden-paths-server
-bash scripts/run-mcp-local.sh observability   # or: run a single MCP server standalone, no Docker needed
+docker compose up -d ai-observability-server llmops-golden-paths-server mlops-golden-paths-server
+bash scripts/run-mcp-local.sh ai-observability   # or: run a single MCP server standalone, no Docker needed
 
 make install    # create a Python 3.12 .venv, install ruff + pyright + pytest + every service's requirements.txt
 make lint       # ruff check .
@@ -211,11 +211,10 @@ k3d cluster delete openchoreo-quick-start               # tear the whole cluster
 - [data/README.md](data/README.md) — DVC workflow, dataset layout, dataset contracts.
 - [infra/feature-store/README.md](infra/feature-store/README.md) — Feast init + online/offline store setup.
 - [infra/llm-serving/README.md](infra/llm-serving/README.md) — GPU/KServe/vLLM prerequisites + capability matrix.
-- [infra/monitoring/README.md](infra/monitoring/README.md) — Prometheus/Grafana setup + monitoring limitations.
 - [agents/mcp-servers/golden-path-guide-server/README.md](agents/mcp-servers/golden-path-guide-server/README.md) — Golden Path discovery MCP server.
 - [agents/mcp-servers/llmops-golden-paths-server/README.md](agents/mcp-servers/llmops-golden-paths-server/README.md) — LLMOps Golden Paths MCP server.
 - [agents/mcp-servers/mlops-golden-paths-server/README.md](agents/mcp-servers/mlops-golden-paths-server/README.md) — MLOps Golden Paths MCP server.
-- [agents/mcp-servers/observability-server/README.md](agents/mcp-servers/observability-server/README.md) — Prometheus/MLflow/promotion-status MCP server.
+- [agents/mcp-servers/ai-observability-server/README.md](agents/mcp-servers/ai-observability-server/README.md) — MLflow/LiteLLM/prompt-RAG MCP server.
 
 ## Reference
 

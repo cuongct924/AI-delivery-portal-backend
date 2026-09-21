@@ -24,9 +24,9 @@ def test_discover_mcp_servers_parses_matching_entities() -> None:
         },
         {
             "metadata": {
-                "name": "observability-mcp",
+                "name": "ai-observability-mcp",
                 "annotations": {
-                    "mcp/endpoint": "http://observability-server:9001/mcp",
+                    "mcp/endpoint": "http://ai-observability-server:9001/mcp",
                     "mcp/transport": "streamable-http",
                 },
             }
@@ -42,8 +42,8 @@ def test_discover_mcp_servers_parses_matching_entities() -> None:
             "transport": "streamable-http",
         },
         {
-            "name": "observability-mcp",
-            "endpoint": "http://observability-server:9001/mcp",
+            "name": "ai-observability-mcp",
+            "endpoint": "http://ai-observability-server:9001/mcp",
             "transport": "streamable-http",
         },
     ]

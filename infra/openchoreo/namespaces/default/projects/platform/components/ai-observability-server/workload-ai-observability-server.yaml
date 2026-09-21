@@ -11,17 +11,17 @@
 apiVersion: openchoreo.dev/v1alpha1
 kind: Workload
 metadata:
-  name: observability-server-workload
+  name: ai-observability-server-workload
   namespace: default
   labels:
     openchoreo.dev/project: platform
-    openchoreo.dev/component: observability-server
+    openchoreo.dev/component: ai-observability-server
 spec:
   owner:
     projectName: platform
-    componentName: observability-server
+    componentName: ai-observability-server
   container:
-    image: observability-server:openchoreo-local
+    image: ai-observability-server:openchoreo-local
     env:
       - key: MLFLOW_TRACKING_URI
         value: http://mlflow.ai-platform-zone.svc.cluster.local:5000

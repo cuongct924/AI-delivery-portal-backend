@@ -11,16 +11,12 @@ is a deny-by-default allowlist, not a denylist. Tool names must match the
 
 type ToolScope = frozenset[str]
 
-# agents/mcp-servers/observability-server/server.py — read-only.
-_OBSERVABILITY_TOOLS: ToolScope = frozenset(
+# agents/mcp-servers/ai-observability-server/server.py — read-only.
+_AI_OBSERVABILITY_TOOLS: ToolScope = frozenset(
     {
         "list_experiments",
         "get_model_metrics",
-        "check_pod_status",
-        "get_logs",
-        "query_metric",
         "check_model_latency",
-        "get_promotion_status",
         "get_llm_spend",
         "get_active_prompt_version",
         "get_active_rag_version",
@@ -54,8 +50,8 @@ _MLOPS_GOLDEN_PATH_TOOLS: ToolScope = frozenset(
 )
 
 PERSONA_ALLOWED_TOOLS: dict[str, ToolScope] = {
-    "k8s": _OBSERVABILITY_TOOLS,
-    "mlops": _OBSERVABILITY_TOOLS | _GOLDEN_PATH_TOOLS | _MLOPS_GOLDEN_PATH_TOOLS,
+    "k8s": _AI_OBSERVABILITY_TOOLS,
+    "mlops": _AI_OBSERVABILITY_TOOLS | _GOLDEN_PATH_TOOLS | _MLOPS_GOLDEN_PATH_TOOLS,
 }
 
 

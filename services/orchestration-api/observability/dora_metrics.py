@@ -2,11 +2,11 @@
 Workflow timestamps `IWorkflowAdapter.get_workflow_status()` already
 fetches, not scraped separately from Argo's own controller.
 
-`infra/monitoring/prometheus.yml` notes that docker-compose's Prometheus
-and the k3d cluster running Argo sit on separate Docker networks with no
-bridge, so scraping Argo's controller metrics endpoint directly isn't
-reachable. Computing duration here and exposing it via orchestration-api's
-own `/metrics` (already scraped, see main.py's Instrumentator) avoids
+The old docker-compose Prometheus (config at the now-removed
+`infra/monitoring/`) and the k3d cluster running Argo sat on separate Docker
+networks with no bridge, so scraping Argo's controller metrics endpoint
+directly isn't reachable. Computing duration here and exposing it via
+orchestration-api's own `/metrics` (see main.py's Instrumentator) avoids
 needing that bridge at all.
 
 Callers must dedupe repeated status polls themselves — `record_workflow_completion`

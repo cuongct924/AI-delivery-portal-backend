@@ -34,7 +34,7 @@ luôn dừng lại chờ xác nhận, không tự thực thi.
 
 ## 3. Hai trường hợp đúng nghĩa Tier 4 trong bối cảnh IDP này
 
-### 3.1. Chẩn đoán sự cố (incident triage) qua `observability-server`
+### 3.1. Chẩn đoán sự cố (incident triage) qua `ai-observability-server`
 
 Khi có cảnh báo bất thường (latency tăng đột biến, model drift, tỷ lệ lỗi
 cao), nguyên nhân gốc có thể đến từ nhiều nguồn khác nhau (data drift,
@@ -44,8 +44,10 @@ cần log không, so sánh baseline nào, dừng khi nào là đủ bằng chứ
 
 **Nguyên liệu đã có sẵn (nhưng chưa nối thành agent):**
 
-- `observability-server` (đọc-only): `query_metric`, `check_model_latency`,
-  `get_model_metrics`, `check_pod_status`, `get_logs`.
+- `ai-observability-server` (đọc-only, chỉ domain ML/LLM): `check_model_latency`,
+  `get_model_metrics`. Tool hạ tầng (`query_metric`, `check_pod_status`,
+  `get_logs`) đã chuyển sang MCP server sẵn có của OpenChoreo (Control Plane /
+  Observability Plane) — xem `agents/mcp-servers/ai-observability-server/README.md`.
 - `routers/monitoring.py` — Golden Path "Setup Model Monitoring": tạo Argo
   CronWorkflow (`monitor-drift-golden-path`) chạy định kỳ, kiểm tra drift,
   rẽ nhánh **cố định** giữa `alert-only` và `auto-retrain`.
@@ -56,7 +58,7 @@ nguyên nhân — chỉ so ngưỡng rồi rẽ nhánh nhị phân. Một agent 
 chèn vào đúng chỗ này:
 
 1. CronWorkflow phát hiện bất thường → trigger agent thay vì rẽ nhánh mù quáng.
-2. Agent dùng tool đọc của `observability-server` để tự lên kế hoạch
+2. Agent dùng tool đọc của `ai-observability-server` để tự lên kế hoạch
    điều tra (số bước/thứ tự thay đổi tùy triệu chứng ban đầu).
 3. Agent kết luận nguyên nhân rồi **đề xuất** Golden Path phù hợp (retrain,
    rollback, scale...) — việc thực thi vẫn phải qua xác nhận, giống cách
@@ -135,7 +137,7 @@ multi-agent *thân thiện*, IDP không tự xây multi-agent system.** Nghĩa l
 
 - IDP chịu trách nhiệm expose từng domain thành capability **tách biệt,
   có scope, discover được** — đúng như `llmops-golden-paths-server` (worker hành
-  động) và `observability-server` (worker chẩn đoán) đã tách sẵn.
+  động) và `ai-observability-server` (worker chẩn đoán) đã tách sẵn.
   Đây là điều kiện để **một hệ multi-agent bên ngoài** (framework nào đó,
   do người khác xây, hoặc một hướng mở rộng sau này) có thể gán mỗi domain
   cho một agent riêng, mà IDP không cần biết/quan tâm có bao nhiêu agent
@@ -238,7 +240,8 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
   embedding riêng.
 - **Tool Topology:** dùng **Chain** cho §3.1 (tuần tự, output bước trước
   → input bước sau), có thể **Parallel** ở bước đầu cho các tool đọc độc
-  lập (`check_model_latency`, `get_logs`, `query_metric` đều
+  lập (`check_model_latency` ở `ai-observability-server`; `get_logs`,
+  `query_metric` ở MCP server của OpenChoreo — đều
   `read_only_hint=True`, không phụ thuộc nhau) để giảm latency trước khi
   vào phần suy luận tuần tự. §3.2 chỉ cần **Single Tool** mỗi pha. **Không
   dùng Graph/LangGraph** — không case nào có nhánh điều kiện/điểm hợp nhất
@@ -252,16 +255,16 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
 
 - [ ] Chuyển tool chỉ-đọc/không cần suy luận tham số từ Tool sang
       Resource (Resource Template nếu có tham số định vị), trong
-      `observability-server`:
+      `ai-observability-server`:
 
   | Tool hiện tại | Resource đề xuất |
   |---|---|
   | `list_experiments()` | `mlflow://models` |
   | `get_model_metrics(name, version)` | `mlflow://models/{name}/versions/{version}/metrics` |
-  | `check_pod_status`, `get_logs` | Resource Template tương tự |
 
-  Giữ nguyên Tool: `query_metric`, `check_model_latency` (cần LLM soạn
-  tham số/tổng hợp — đúng bản chất "cần suy luận").
+  Giữ nguyên Tool: `check_model_latency` (cần LLM soạn tham số/tổng hợp — đúng
+  bản chất "cần suy luận"). `query_metric`/`check_pod_status`/`get_logs` giờ
+  thuộc MCP server của OpenChoreo, không còn ở đây.
 - [ ] Mở rộng `McpToolRegistry` (`mcp_client.py`) gọi thêm
       `session.list_resources()` khi connect (hiện chỉ có
       `session.list_tools()` ở dòng 105), thêm map tương tự
@@ -312,7 +315,7 @@ khác mục đích, nhưng nên dùng chung một registry, không tách hai h�
       điều kiện để mỗi identity/agent-caller bên ngoài thật sự bị giới hạn
       đúng phạm vi của nó, không chỉ khác system prompt.
 - [ ] Đảm bảo `llmops-golden-paths-server` (capability hành động) và
-      `observability-server` (capability chẩn đoán) **tiếp tục là 2
+      `ai-observability-server` (capability chẩn đoán) **tiếp tục là 2
       capability tách biệt, độc lập scope/auth** — để một hệ multi-agent
       bên ngoài (bất kỳ ai xây, bất kỳ framework nào) có thể gán mỗi domain
       cho một agent riêng mà không cần đụng vào code của IDP.

@@ -24,7 +24,7 @@ staleness risk and infra for a corpus this size without a real benefit.
 
 ## Auth
 
-No auth header sent — same as `observability-server`, since both are
+No auth header sent — same as `ai-observability-server`, since both are
 read-only against routes that fall back to the dev-bypass identity when
 `AUTH_ENABLED=false` (see `.env`). Give this server a Thunder
 client_credentials identity (`thunder_client.py`,

@@ -70,7 +70,7 @@ build_and_import() {
   k3d image import "$image" -c "$CLUSTER"
 }
 build_and_import orchestration-api:openchoreo-local services/orchestration-api/Dockerfile
-build_and_import observability-server:openchoreo-local agents/mcp-servers/observability-server/Dockerfile
+build_and_import ai-observability-server:openchoreo-local agents/mcp-servers/ai-observability-server/Dockerfile
 build_and_import llmops-golden-paths-server:openchoreo-local agents/mcp-servers/llmops-golden-paths-server/Dockerfile
 build_and_import golden-path-guide-server:openchoreo-local agents/mcp-servers/golden-path-guide-server/Dockerfile
 build_and_import mlops-golden-paths-server:openchoreo-local agents/mcp-servers/mlops-golden-paths-server/Dockerfile
@@ -117,7 +117,7 @@ kubectl --context "$CTX" apply -f "$P/resource-qdrant.yaml"
 kubectl --context "$CTX" apply -f "$P/resource-litellm.yaml"
 kubectl --context "$CTX" apply -f "$P/components/orchestration-api/component-orchestration-api.yaml"
 kubectl --context "$CTX" apply -f "$P/components/orchestration-api/workload-orchestration-api.yaml"
-for svc in observability-server llmops-golden-paths-server golden-path-guide-server mlops-golden-paths-server; do
+for svc in ai-observability-server llmops-golden-paths-server golden-path-guide-server mlops-golden-paths-server; do
   kubectl --context "$CTX" apply -f "$P/components/${svc}/component-${svc}.yaml"
   kubectl --context "$CTX" apply -f "$P/components/${svc}/workload-${svc}.yaml"
 done
@@ -125,7 +125,7 @@ done
 # Component.spec.parameters, is what the renderer actually reads — see
 # releasebinding-orchestration-api-development.yaml's comment. autoDeploy
 # creates a bare ReleaseBinding on its own; these apply on top of it.
-for svc in orchestration-api observability-server llmops-golden-paths-server golden-path-guide-server mlops-golden-paths-server; do
+for svc in orchestration-api ai-observability-server llmops-golden-paths-server golden-path-guide-server mlops-golden-paths-server; do
   kubectl --context "$CTX" apply -f "$P/components/${svc}/releasebinding-${svc}-development.yaml"
 done
 kubectl --context "$CTX" apply -f infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml

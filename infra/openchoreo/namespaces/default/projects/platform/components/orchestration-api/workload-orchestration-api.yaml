@@ -65,9 +65,27 @@ spec:
         value: orchestration-api-agent-dev-secret
       - key: OPENCHOREO_API_URL
         value: http://openchoreo-api.openchoreo-control-plane.svc.cluster.local:8080/api/v1
-      # Delivery Insights mock observer data source: "mock" (synthetic,
+      # PrometheusDeliveryObserverAdapter's source for the real Delivery
+      # Insights DORA tiles — same in-cluster Prometheus
+      # ai-observability-server already queries (see its workload's
+      # PROMETHEUS_URL). Without this, the adapter falls back to
+      # localhost:9090, unreachable from this pod.
+      - key: PROMETHEUS_URL
+        value: http://prometheus-operated.openchoreo-observability-plane.svc.cluster.local:9090
+      # Forced to Mock: the cluster's real Prometheus StatefulSet is
+      # crash-looping on a broken upstream prometheus-config-reloader:v0.88.1
+      # image (confirmed via manual testing — v0.86.0/v0.87.0/v0.89.0 all
+      # run fine), and re-importing a fixed tag is currently blocked by a
+      # separate Docker Desktop containerd-image-store bug breaking
+      # `k3d image import` for any pulled (non-locally-built) image. Revert
+      # once both are fixed — this only affects Delivery Insights, not
+      # promotion/workflow/inference/model-registry (see adapters/factory.py:
+      # USE_MOCK_ADAPTERS would have affected those too, this flag doesn't).
+      - key: USE_MOCK_DELIVERY_OBSERVER
+        value: "true"
+      # MockDeliveryObserverAdapter's data source: "mock" (synthetic,
       # default) or "captured" (real runs from
-      # scripts/capture-delivery-insights-runs.sh). See routers/mock_observer.py.
+      # scripts/capture-delivery-insights-runs.sh). See routers/delivery_insights.py.
       - key: MOCK_OBSERVER_DATA_SOURCE
         value: mock
   endpoints:

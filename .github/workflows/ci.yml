@@ -127,13 +127,13 @@ jobs:
       - name: Build images
         run: |
           docker build -t orchestration-api:$SHORT_SHA -f services/orchestration-api/Dockerfile .
-          docker build -t observability-server:$SHORT_SHA -f agents/mcp-servers/observability-server/Dockerfile .
+          docker build -t ai-observability-server:$SHORT_SHA -f agents/mcp-servers/ai-observability-server/Dockerfile .
           docker build -t llmops-golden-paths-server:$SHORT_SHA -f agents/mcp-servers/llmops-golden-paths-server/Dockerfile .
           docker build -t mlops-golden-paths-server:$SHORT_SHA -f agents/mcp-servers/mlops-golden-paths-server/Dockerfile .
           docker build -t training-image:$SHORT_SHA -f infra/argo-workflows/training-image/Dockerfile .
       - name: Trivy scan
         run: |
-          for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
+          for img in orchestration-api ai-observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
             echo "=== Trivy scan: $img ==="
             trivy image --severity CRITICAL,HIGH --ignore-unfixed --exit-code 1 "$img:$SHORT_SHA"
           done
@@ -147,7 +147,7 @@ jobs:
       - name: Push images
         if: github.ref == 'refs/heads/main'
         run: |
-          for img in orchestration-api observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
+          for img in orchestration-api ai-observability-server llmops-golden-paths-server mlops-golden-paths-server training-image; do
             docker tag "$img:$SHORT_SHA" "ghcr.io/$REPO_LC/$img:$SHORT_SHA"
             docker tag "$img:$SHORT_SHA" "ghcr.io/$REPO_LC/$img:latest"
             docker push "ghcr.io/$REPO_LC/$img:$SHORT_SHA"

@@ -1,6 +1,10 @@
-"""MCP Server for the "system/model health" domain — read-only, merges
-what used to be 3 separate servers (mlops/k8s/metrics). See
-agents/mcp-servers/llmops-golden-paths-server/ and
+"""MCP Server for the AI/ML/LLM health domain — read-only.
+
+Infra-level tools (k8s pod/logs, raw PromQL, OpenChoreo promotion state) are
+left to OpenChoreo's own Control Plane / Observability Plane MCP servers; this
+server only covers what OpenChoreo has no concept of: MLflow registry/metrics,
+model latency, LiteLLM spend, and orchestration-api's prompt/RAG active
+versions. See agents/mcp-servers/llmops-golden-paths-server/ and
 agents/mcp-servers/mlops-golden-paths-server/ for the write-side domains.
 """
 
@@ -15,7 +19,7 @@ from adapters.ai_platform.interfaces import ModelSummary
 from adapters.ai_platform.llm_gateway_adapter import LiteLLMGatewayAdapter
 from adapters.ai_platform.mlflow_adapter import MlflowAdapter
 
-mcp = MCPServer("observability-server")
+mcp = MCPServer("ai-observability-server")
 adapter = MlflowAdapter()
 llm_gateway_adapter = LiteLLMGatewayAdapter()
 PROMETHEUS_URL: Final[str] = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
@@ -31,27 +35,12 @@ ORCHESTRATION_API_URL: Final[str] = os.getenv("ORCHESTRATION_API_URL", "http://l
 READ_ONLY: Final = ToolAnnotations(read_only_hint=True)
 
 
-class PodStatus(TypedDict):
-    namespace: str
-    pod_name: str
-    status: str
-    note: str
-
-
 class LatencyCheck(TypedDict):
     model: str
     namespace: str
     p95_latency_ms: float | None
     threshold_ms: float
     breached: bool
-
-
-class PromotionStatus(TypedDict):
-    model: str
-    tenant: str
-    # env name -> the release bound there, None if never promoted that far.
-    environments: dict[str, str | None]
-    prod_pending_approval: bool
 
 
 class ActiveVersion(TypedDict):
@@ -79,31 +68,6 @@ def get_model_metrics(name: str, version: str) -> dict[str, float]:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def check_pod_status(namespace: str, pod_name: str) -> PodStatus:
-    """Check the status of a pod. (mock — not wired to a real cluster yet)"""
-    return {
-        "namespace": namespace,
-        "pod_name": pod_name,
-        "status": "Running",
-        "note": "mock data — not wired to a real cluster yet",
-    }
-
-
-@mcp.tool(annotations=READ_ONLY)
-def get_logs(namespace: str, pod_name: str, tail_lines: int = 50) -> str:
-    """Get the most recent logs for a pod. (mock — not wired to a real cluster yet)"""
-    return f"[mock log] last {tail_lines} lines of {pod_name} in {namespace}"
-
-
-@mcp.tool(annotations=READ_ONLY)
-def query_metric(promql: str) -> dict[str, object]:
-    """Run a PromQL instant query, returning the raw result from Prometheus."""
-    response = httpx.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": promql}, timeout=10)
-    response.raise_for_status()
-    return response.json()
-
-
-@mcp.tool(annotations=READ_ONLY)
 def check_model_latency(model_name: str, namespace: str, threshold_ms: float = 500) -> LatencyCheck:
     """Check whether a model's p95 latency exceeds a threshold (assumes the
     `model_inference_duration_ms` metric is exposed by KServe/BentoML, labeled by model
@@ -117,7 +81,9 @@ def check_model_latency(model_name: str, namespace: str, threshold_ms: float = 5
         f'model_inference_duration_ms_bucket{{model="{model_name}", namespace="{namespace}"}}'
         "[5m])) by (le))"
     )
-    result = query_metric(promql)
+    response = httpx.get(f"{PROMETHEUS_URL}/api/v1/query", params={"query": promql}, timeout=10)
+    response.raise_for_status()
+    result = response.json()
     data = result.get("data")
     values = data.get("result", []) if isinstance(data, dict) else []
     p95 = float(values[0]["value"][1]) if values else None
@@ -127,33 +93,6 @@ def check_model_latency(model_name: str, namespace: str, threshold_ms: float = 5
         "p95_latency_ms": p95,
         "threshold_ms": threshold_ms,
         "breached": p95 is not None and p95 > threshold_ms,
-    }
-
-
-@mcp.tool(annotations=READ_ONLY)
-def get_promotion_status(model_name: str, tenant: str) -> PromotionStatus:
-    """Check which environments the model has reached via OpenChoreo's
-    DeploymentPipeline/ProjectReleaseBinding-based promotion, and whether a
-    prod promotion is waiting to be done. Real now — calls
-    orchestration-api's GET /models/{name}/promotion-status (same "call
-    orchestration-api directly" pattern as get_active_prompt_version/
-    get_active_rag_version above; `model_name`/`tenant` aren't forwarded,
-    same single-Project/Component scoping as
-    adapters/delivery/openchoreo_promotion_adapter.py's own docstring explains).
-    Read-only by design — actually promoting stays a human action via a
-    Scaffolder Golden Path template, never something this tool (or any
-    agent) can trigger; see that adapter's docstring for why no separate
-    approval step exists on top of that."""
-    response = httpx.get(
-        f"{ORCHESTRATION_API_URL}/models/{model_name}/promotion-status", timeout=10
-    )
-    response.raise_for_status()
-    data = response.json()
-    return {
-        "model": model_name,
-        "tenant": tenant,
-        "environments": data["environments"],
-        "prod_pending_approval": data["prod_pending_approval"],
     }
 
 

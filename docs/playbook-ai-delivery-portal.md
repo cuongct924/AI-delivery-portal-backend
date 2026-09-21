@@ -140,7 +140,7 @@ Chạy trên cụm Kubernetes 3 node (1 master + 2 worker, k3d local —
 │  - auth/thunder.py, evaluations/gate.py     │  │ (ngoài OpenChoreo —   │
 │  - routers/chat.py, prompts.py              │  │  phía Viettel)        │
 │  MCP servers: mlops, llmops, golden-path-   │  │  MLflow · Qdrant      │
-│  guide, observability                       │  │  MinIO · Feast serve  │
+│  guide, ai-observability                     │  │  MinIO · Feast serve  │
 └──────────────────────────────────────────────┘  │  · LiteLLM            │
                                                     │───────────────────────│
                                                     │ Workflow plane        │
@@ -150,7 +150,7 @@ Chạy trên cụm Kubernetes 3 node (1 master + 2 worker, k3d local —
   Adapter Layer (adapters/) nói với cả 2 worker qua Service DNS trong cụm
 ```
 
-agents/mcp-servers/: observability, llmops-golden-paths, mlops-golden-paths,
+agents/mcp-servers/: ai-observability, llmops-golden-paths, mlops-golden-paths,
 golden-path-guide (4 server, chạy trên worker1)
 
 ### Adapter Pattern — nguyên tắc bất biến

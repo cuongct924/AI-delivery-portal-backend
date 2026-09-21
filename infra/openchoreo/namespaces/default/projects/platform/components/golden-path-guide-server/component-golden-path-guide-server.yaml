@@ -1,5 +1,5 @@
 # agents/mcp-servers/golden-path-guide-server as a real OpenChoreo
-# Component, pinned onto worker1 — see component-observability-server.yaml.
+# Component, pinned onto worker1 — see component-ai-observability-server.yaml.
 apiVersion: openchoreo.dev/v1alpha1
 kind: Component
 metadata:
