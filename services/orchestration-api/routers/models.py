@@ -36,6 +36,7 @@ from adapters.delivery.deploy_strategies import (
 )
 from adapters.delivery.interfaces import IDeployTrafficStrategy, IReleaseStrategy
 from adapters.factory import (
+    get_deployment_event_store,
     get_eval_result_adapter,
     get_feature_store_adapter,
     get_inference_adapter,
@@ -52,7 +53,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["models"])
 
 # Module-level singletons — same convention as
-# agents/mcp-servers/observability-server/server.py.
+# agents/mcp-servers/ai-observability-server/server.py.
 mlflow_adapter = get_model_registry_adapter()
 workflow_adapter = get_workflow_adapter()
 prediction_log_adapter = get_prediction_log_adapter()
@@ -60,6 +61,7 @@ promotion_adapter = get_promotion_adapter()
 feast_adapter = get_feature_store_adapter()
 object_storage_adapter = get_object_storage_adapter()
 eval_result_adapter = get_eval_result_adapter()
+deployment_event_store = get_deployment_event_store()
 
 # One WorkflowTemplate covers both train and fine-tune; mode is a parameter.
 TRAIN_REGISTER_TEMPLATE: Final[str] = "train-register-golden-path"
@@ -68,6 +70,11 @@ TRAIN_REGISTER_TEMPLATE: Final[str] = "train-register-golden-path"
 # frontend until the workflow reaches a terminal phase; this set stops a
 # completion from being recorded more than once per workflow.
 _RECORDED_TERMINAL_WORKFLOWS: set[str] = set()
+
+# trigger_training's request carries model_name, but the polled
+# get_training_status(workflow_name) call that later records the Delivery
+# Insights deployment event does not — bridge the two by workflow_name.
+_TRAINING_MODEL_NAMES: dict[str, str] = {}
 
 _TEMPLATES_DIR: Final[Path] = Path(__file__).resolve().parent.parent / "templates"
 _JINJA_ENV: Final[Environment] = Environment(loader=FileSystemLoader(_TEMPLATES_DIR))
@@ -377,7 +384,9 @@ def trigger_training(
         parameters["base-model-name"] = request.base_model_name
     result = workflow_adapter.trigger_workflow(TRAIN_REGISTER_TEMPLATE, parameters)
     metadata = cast(dict[str, object], result["metadata"])
-    return TriggerTrainingResponse(workflow_name=str(metadata["name"]))
+    workflow_name = str(metadata["name"])
+    _TRAINING_MODEL_NAMES[workflow_name] = request.model_name
+    return TriggerTrainingResponse(workflow_name=workflow_name)
 
 
 @router.get("/trigger-training/{workflow_name}/status", response_model=WorkflowStatusResponse)
@@ -395,6 +404,20 @@ def get_training_status(
             finished_at=status.get("finished_at"),
             steps=status.get("steps"),
         )
+        started_at = status.get("started_at")
+        finished_at = status.get("finished_at")
+        if started_at and finished_at:
+            deployment_event_store.record_event(
+                name=workflow_name,
+                change_type="model",
+                project_name=_TRAINING_MODEL_NAMES.get(workflow_name, workflow_name),
+                component_name="train-track-register",
+                environment_name="development",
+                outcome="success" if phase == "Succeeded" else "failed",
+                started_at=started_at,
+                finished_at=finished_at,
+                steps=status.get("steps"),
+            )
     return WorkflowStatusResponse(
         name=status["name"],
         phase=status.get("phase"),
@@ -890,6 +913,7 @@ def promote_model(
         subject_id=name,
         event_type="deploy",
     ).inc()
+    _record_promotion_deployment_event(name, current["component"], request.target_environment)
 
     # MTTR: find last drift detection for this model and calculate recovery time
     last_drift = _get_last_drift_detected_at(name)
@@ -902,6 +926,26 @@ def promote_model(
         ).observe(recovery_seconds)
 
     return PromotionStatusResponse(**status)
+
+
+def _record_promotion_deployment_event(
+    project_name: str, component_name: str, environment_name: str
+) -> None:
+    """promote()/rollback_promotion() are synchronous OpenChoreo
+    ReleaseBinding swaps, not a queued workflow — started/finished are the
+    same instant, and there's no workflow-run name, so one is synthesized
+    from the timestamp."""
+    now = datetime.now().isoformat()
+    deployment_event_store.record_event(
+        name=f"promote-{project_name}-{now}",
+        change_type="model",
+        project_name=project_name,
+        component_name=component_name,
+        environment_name=environment_name,
+        outcome="success",
+        started_at=now,
+        finished_at=now,
+    )
 
 
 def _get_last_drift_detected_at(model_name: str) -> datetime | None:
@@ -944,6 +988,7 @@ def rollback_promotion(
         subject_id=name,
         event_type="rollback",
     ).inc()
+    _record_promotion_deployment_event(name, current["component"], request.environment)
 
     # MTTR: find last drift detection for this model and calculate recovery time
     last_drift = _get_last_drift_detected_at(name)

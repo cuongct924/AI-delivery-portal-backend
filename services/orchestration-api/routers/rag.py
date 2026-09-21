@@ -21,6 +21,7 @@ from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCI
 from pydantic import BaseModel
 
 from adapters.factory import (
+    get_deployment_event_store,
     get_eval_result_adapter,
     get_llm_gateway_adapter,
     get_registry_adapter,
@@ -31,6 +32,7 @@ router = APIRouter(prefix="/rag", tags=["rag"])
 
 llm_gateway_adapter = get_llm_gateway_adapter()
 vector_store_adapter = get_vector_store_adapter()
+deployment_event_store = get_deployment_event_store()
 registry_adapter = get_registry_adapter()
 eval_result_adapter = get_eval_result_adapter()
 
@@ -120,7 +122,7 @@ def get_rag_active_version(
     collection: str, user: dict = Depends(get_current_user)
 ) -> RagActiveVersionResponse:
     # Mirrors routers/prompts.py's list_prompts()/get_prompt() read pattern —
-    # added for agents/mcp-servers/observability-server's
+    # added for agents/mcp-servers/ai-observability-server's
     # get_active_rag_version tool, which had no endpoint to call before.
     return RagActiveVersionResponse(
         collection=collection,
@@ -244,6 +246,17 @@ def rag_activate(
         subject_id=request.collection,
         event_type="deploy",
     ).inc()
+    now = datetime.now().isoformat()
+    deployment_event_store.record_event(
+        name=f"rag-activate-{request.collection}-{now}",
+        change_type="rag_index",
+        project_name=request.collection,
+        component_name="rag-index",
+        environment_name="development",
+        outcome="success",
+        started_at=now,
+        finished_at=now,
+    )
 
     # MTTR: find last judge failure for this rag-index and calculate recovery time
     last_failure = eval_result_adapter.get_last_failure_at("rag-index", request.collection)

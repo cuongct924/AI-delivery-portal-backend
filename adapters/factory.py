@@ -49,6 +49,7 @@ from adapters.ai_platform.prediction_log_adapter import SqlitePredictionLogAdapt
 from adapters.ai_platform.prompt_registry_adapter import MlflowPromptRegistryAdapter
 from adapters.ai_platform.vector_db_adapter import QdrantAdapter
 from adapters.ai_platform.version_registry_adapter import JsonFileVersionRegistryAdapter
+from adapters.delivery.deployment_event_store import SqliteDeploymentEventStore
 from adapters.delivery.gpu_inference_adapter import GpuKServeInferenceAdapter
 from adapters.delivery.interfaces import (
     IDeliveryObserverAdapter,
@@ -214,10 +215,19 @@ def get_eval_result_adapter() -> IEvalResultAdapter:
 
 
 @lru_cache
+def get_deployment_event_store() -> SqliteDeploymentEventStore:
+    # No mock/real split — SQLite has no external service to fake out.
+    return SqliteDeploymentEventStore()
+
+
+@lru_cache
 def get_delivery_observer_adapter() -> IDeliveryObserverAdapter:
     if _use_mock("USE_MOCK_DELIVERY_OBSERVER"):
         return MockDeliveryObserverAdapter()
-    return PrometheusDeliveryObserverAdapter(model_registry_adapter=get_model_registry_adapter())
+    return PrometheusDeliveryObserverAdapter(
+        model_registry_adapter=get_model_registry_adapter(),
+        deployment_event_store=get_deployment_event_store(),
+    )
 
 
 _mock_inference_adapters: dict[str, MockInferenceAdapter] = {}

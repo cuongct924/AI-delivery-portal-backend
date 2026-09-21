@@ -14,6 +14,7 @@ from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCI
 from pydantic import BaseModel
 
 from adapters.factory import (
+    get_deployment_event_store,
     get_eval_result_adapter,
     get_llm_gateway_adapter,
     get_prompt_registry_adapter,
@@ -24,6 +25,7 @@ router = APIRouter(prefix="/prompts", tags=["prompts"])
 llm_gateway_adapter = get_llm_gateway_adapter()
 registry_adapter = get_prompt_registry_adapter()
 eval_result_adapter = get_eval_result_adapter()
+deployment_event_store = get_deployment_event_store()
 
 
 class PromptNamesResponse(BaseModel):
@@ -133,7 +135,7 @@ def list_prompt_versions(
 def get_prompt_active_version(
     name: str, user: dict = Depends(get_current_user)
 ) -> PromptActiveVersionResponse:
-    # Mirrors rag.py's get_rag_active_version — added for observability-server's
+    # Mirrors rag.py's get_rag_active_version — added for ai-observability-server's
     # get_active_prompt_version, which previously filtered every persona client-side.
     return PromptActiveVersionResponse(
         name=name, active_version=registry_adapter.get_active_version("prompt", name)
@@ -251,6 +253,17 @@ def activate_prompt(
         subject_id=name,
         event_type="deploy",
     ).inc()
+    now = datetime.now().isoformat()
+    deployment_event_store.record_event(
+        name=f"prompt-activate-{name}-{now}",
+        change_type="prompt",
+        project_name=name,
+        component_name="prompt",
+        environment_name="development",
+        outcome="success",
+        started_at=now,
+        finished_at=now,
+    )
 
     # MTTR: find last judge failure for this prompt and calculate recovery time
     last_failure = eval_result_adapter.get_last_failure_at("prompt", name)

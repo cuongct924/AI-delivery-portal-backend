@@ -7,10 +7,12 @@ tiles and the ML/LLM split, and MLflow as a secondary source for continuous
 values Prometheus counters can't carry (drift score, model version).
 
 Prometheus's counters/histograms have no per-event detail (commit, incident
-id, ...), so they can't answer `query_deployments`' itemized rows; that
-still reads the same captured Golden Path run snapshot
-MockDeliveryObserverAdapter's `captured` mode uses, enriched here with a
-live MLflow drift lookup per row.
+id, ...), so they can't answer `query_deployments`' itemized rows either;
+those come from `SqliteDeploymentEventStore` instead — populated at each
+real training completion / promote-rollback / prompt-rag-index activate
+call site (routers/models.py|rag.py|prompts.py), not from the manual
+scripts/capture-delivery-insights-runs.sh snapshot MockDeliveryObserverAdapter
+still uses for its own `captured` mode.
 """
 
 import os
@@ -22,7 +24,10 @@ import pandas as pd
 
 from adapters.ai_platform.mlflow_adapter import MlflowAdapter
 from adapters.ai_platform.mock_model_registry_adapter import MockModelRegistryAdapter
-from adapters.delivery._captured_runs import build_deployment_rows, load_captured_runs
+from adapters.delivery.deployment_event_store import (
+    DeploymentEventRecord,
+    SqliteDeploymentEventStore,
+)
 from adapters.delivery.interfaces import (
     DeliveryAvailability,
     DeliveryChangeFailureRatePoint,
@@ -98,13 +103,11 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
     def __init__(
         self,
         model_registry_adapter: MlflowAdapter | MockModelRegistryAdapter,
+        deployment_event_store: SqliteDeploymentEventStore,
         prometheus_url: str | None = None,
     ) -> None:
-        # Captured runs are always changeType="model" today (see
-        # _captured_runs.py) — no code path yet needs a prompt/rag-index
-        # version registry, so this doesn't take one; add it if/when the
-        # capture script starts producing LLMOps rows.
         self._model_registry_adapter = model_registry_adapter
+        self._deployment_event_store = deployment_event_store
         self._prometheus_url = prometheus_url or os.getenv(
             "PROMETHEUS_URL", "http://localhost:9090"
         )
@@ -305,19 +308,56 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
         limit: int,
         sort_order: Literal["asc", "desc"],
     ) -> DeliveryDeploymentsResult:
-        runs = load_captured_runs()
-        rows = build_deployment_rows(runs, scope, start, end, limit, sort_order)
+        events = self._deployment_event_store.list_events(start, end, limit, sort_order)
+        rows = [self._to_deployment_row(event) for event in events]
         enriched = [self._enrich_with_drift(row) for row in rows]
         return DeliveryDeploymentsResult(deployments=enriched, totalCount=len(enriched), tookMs=0)
 
+    def _to_deployment_row(self, event: DeploymentEventRecord) -> DeliveryDeployment:
+        started = datetime.fromisoformat(event["startedAt"])
+        finished = datetime.fromisoformat(event["finishedAt"])
+        failed = event["outcome"] != "success"
+        return DeliveryDeployment(
+            deployedAt=event["finishedAt"],
+            projectName=event["projectName"],
+            componentName=event["componentName"],
+            environmentName=event["environmentName"],
+            componentRelease=event["name"],
+            commit="",
+            outcome=event["outcome"],
+            failedBy="train-step" if failed else "",
+            failureReason="training failed" if failed else "",
+            incidentId=f"INC-{event['name'][-6:]}" if failed else "",
+            leadTimeMs=round((finished - started).total_seconds() * 1000),
+            changeType=event["changeType"],
+            driftTriggered=False,
+            evalCoverage=None,
+            leadTimeBreakdown=None,
+            evalBottleneck=None,
+            failureClass=None,
+            semanticType=None,
+            evalScore=None,
+            baselineScore=None,
+            driftScore=None,
+            recoveryStrategy=None,
+            modelVersion=None,
+            promptVersion=None,
+            ragIndexVersion=None,
+        )
+
     def _enrich_with_drift(self, row: DeliveryDeployment) -> DeliveryDeployment:
         """Looks up the most recent drift-monitoring MLflow run for this
-        row's model (keyed by projectName — the closest proxy the captured
-        run data has to a registered model name) at or before its
-        deployedAt, per the tags infra/argo-workflows/training-image/
-        monitor_drift.py:97-107 writes. modelVersion/evalScore stay None —
-        no interface method resolves a point-in-time model version from a
-        captured run name (see plan's known-gaps section)."""
+        row's model (keyed by projectName — the closest proxy available to a
+        registered model name) at or before its deployedAt, per the tags
+        infra/argo-workflows/training-image/monitor_drift.py:97-107 writes.
+        modelVersion/evalScore stay None — no interface method resolves a
+        point-in-time model version from a deployment event.
+
+        Only "model" rows carry a monitoring_model_name tag to look up —
+        rag-index/prompt/infra rows have no matching drift signal, so this
+        is a no-op for them rather than a nonsensical MLflow query."""
+        if row["changeType"] != "model":
+            return row
         model_name = row["projectName"]
         deployed_at = row["deployedAt"]
         runs_df = self._model_registry_adapter.search_runs(

@@ -1,10 +1,10 @@
 """Tests adapters/delivery/prometheus_delivery_observer_adapter.py.
 
 httpx is mocked — no live cluster/Prometheus needed. The model registry
-adapter is a MagicMock returning an empty DataFrame by default (no captured
-runs to enrich in these tests' fixed window, matched to no MLflow drift
-runs either), exercising the "no data available" paths honestly rather than
-fabricating values.
+adapter and deployment event store are MagicMocks; query_deployments tests
+exercise SqliteDeploymentEventStore.list_events's contract via mocking
+rather than a real sqlite file (that round-trip lives in
+tests/test_deployment_event_store.py).
 """
 
 from datetime import UTC, datetime
@@ -47,12 +47,29 @@ def model_registry_adapter() -> MagicMock:
     return adapter
 
 
-def test_query_metrics_builds_series_from_prometheus_response(
+@pytest.fixture
+def deployment_event_store() -> MagicMock:
+    store = MagicMock()
+    store.list_events.return_value = []
+    return store
+
+
+def _adapter(
     model_registry_adapter: MagicMock,
-) -> None:
-    adapter = PrometheusDeliveryObserverAdapter(
-        model_registry_adapter=model_registry_adapter, prometheus_url="http://prom.test:9090"
+    deployment_event_store: MagicMock,
+    prometheus_url: str | None = None,
+) -> PrometheusDeliveryObserverAdapter:
+    return PrometheusDeliveryObserverAdapter(
+        model_registry_adapter=model_registry_adapter,
+        deployment_event_store=deployment_event_store,
+        prometheus_url=prometheus_url,
     )
+
+
+def test_query_metrics_builds_series_from_prometheus_response(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    adapter = _adapter(model_registry_adapter, deployment_event_store, "http://prom.test:9090")
     with patch(
         "adapters.delivery.prometheus_delivery_observer_adapter.httpx.get",
         return_value=_matrix_response([3.0, 5.0]),
@@ -68,8 +85,10 @@ def test_query_metrics_builds_series_from_prometheus_response(
     assert freq_summary["total"] == 8
 
 
-def test_query_metrics_handles_no_prometheus_data(model_registry_adapter: MagicMock) -> None:
-    adapter = PrometheusDeliveryObserverAdapter(model_registry_adapter=model_registry_adapter)
+def test_query_metrics_handles_no_prometheus_data(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
     empty_response = MagicMock()
     empty_response.raise_for_status.return_value = None
     empty_response.json.return_value = {"data": {"result": []}}
@@ -86,8 +105,10 @@ def test_query_metrics_handles_no_prometheus_data(model_registry_adapter: MagicM
     assert result["dataAvailability"]["deliveryEvents"] is False
 
 
-def test_query_metrics_applies_metric_filter(model_registry_adapter: MagicMock) -> None:
-    adapter = PrometheusDeliveryObserverAdapter(model_registry_adapter=model_registry_adapter)
+def test_query_metrics_applies_metric_filter(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
     with patch(
         "adapters.delivery.prometheus_delivery_observer_adapter.httpx.get",
         return_value=_matrix_response([1.0, 1.0]),
@@ -100,33 +121,32 @@ def test_query_metrics_applies_metric_filter(model_registry_adapter: MagicMock) 
     assert result["summary"]["mttr"] is None
 
 
-def test_query_deployments_returns_empty_when_no_captured_runs(
-    model_registry_adapter: MagicMock,
+def test_query_deployments_returns_empty_when_store_has_no_events(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
 ) -> None:
-    adapter = PrometheusDeliveryObserverAdapter(model_registry_adapter=model_registry_adapter)
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
 
-    with patch(
-        "adapters.delivery.prometheus_delivery_observer_adapter.load_captured_runs",
-        return_value=[],
-    ):
-        result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
+    result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
 
     assert result["deployments"] == []
     assert result["totalCount"] == 0
     model_registry_adapter.search_runs.assert_not_called()
 
 
-def test_query_deployments_enriches_rows_with_drift_score(
-    model_registry_adapter: MagicMock,
+def test_query_deployments_enriches_model_rows_with_drift_score(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
 ) -> None:
-    adapter = PrometheusDeliveryObserverAdapter(model_registry_adapter=model_registry_adapter)
-    captured_runs = [
+    deployment_event_store.list_events.return_value = [
         {
             "name": "train-track-register-abc12",
-            "started_at": "2026-08-01T10:00:00Z",
-            "finished_at": "2026-08-01T11:00:00Z",
+            "changeType": "model",
+            "projectName": "fraud-detection",
+            "componentName": "train-track-register",
+            "environmentName": "development",
             "outcome": "success",
-            "steps": [],
+            "startedAt": "2026-08-01T10:00:00",
+            "finishedAt": "2026-08-01T11:00:00",
+            "steps": None,
         }
     ]
     model_registry_adapter.search_runs.return_value = pd.DataFrame(
@@ -139,15 +159,36 @@ def test_query_deployments_enriches_rows_with_drift_score(
             }
         ]
     )
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
 
-    with patch(
-        "adapters.delivery.prometheus_delivery_observer_adapter.load_captured_runs",
-        return_value=captured_runs,
-    ):
-        result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
+    result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
 
     assert len(result["deployments"]) == 1
     row = result["deployments"][0]
     assert row["driftScore"] == pytest.approx(0.42)
     assert row["driftTriggered"] is True
     assert row["recoveryStrategy"] == "retrain"
+
+
+def test_query_deployments_skips_drift_lookup_for_non_model_rows(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    deployment_event_store.list_events.return_value = [
+        {
+            "name": "rag-activate-collection-1",
+            "changeType": "rag_index",
+            "projectName": "collection",
+            "componentName": "rag-index",
+            "environmentName": "development",
+            "outcome": "success",
+            "startedAt": "2026-08-01T10:00:00",
+            "finishedAt": "2026-08-01T10:00:00",
+            "steps": None,
+        }
+    ]
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
+
+    result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
+
+    assert result["deployments"][0]["changeType"] == "rag_index"
+    model_registry_adapter.search_runs.assert_not_called()
