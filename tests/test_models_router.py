@@ -21,6 +21,7 @@ sys.modules.setdefault("mlflow", MagicMock())
 sys.modules.setdefault("mlflow.tracking", MagicMock())
 
 from routers.models import (  # noqa: E402
+    ConfirmPromotionRequest,
     EnrichDatasetFeaturesRequest,
     LogPredictionRequest,
     PolicyCheckRequest,
@@ -31,6 +32,7 @@ from routers.models import (  # noqa: E402
     RollbackPromotionRequest,
     TriggerTrainingRequest,
     ValidateDatasetRequest,
+    confirm_promotion,
     enrich_dataset_features,
     get_deploy_status,
     get_gate_preview,
@@ -283,6 +285,42 @@ def test_trigger_training_forwards_nlp_fields_for_nlp_architecture() -> None:
     assert call_args[1]["base-model-name"] == "distilbert-base-uncased"
     assert call_args[1]["learning-rate"] == "5e-05"
     assert response.workflow_name == "wf-nlp"
+
+
+def test_trigger_training_is_idempotent_on_a_repeated_key() -> None:
+    request = TriggerTrainingRequest(
+        model_name="fraud-detection",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
+        task_type="classification",
+        algorithm="LogisticRegression",
+    )
+    with patch("routers.models.workflow_adapter") as mock_argo:
+        mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-once"}}
+        first = trigger_training(request, idempotency_key="scaffolder-task-1")
+        second = trigger_training(request, idempotency_key="scaffolder-task-1")
+
+    mock_argo.trigger_workflow.assert_called_once()
+    assert first.workflow_name == second.workflow_name == "wf-once"
+
+
+def test_trigger_training_without_a_key_triggers_twice() -> None:
+    request = TriggerTrainingRequest(
+        model_name="fraud-detection",
+        dataset_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
+        task_type="classification",
+        algorithm="LogisticRegression",
+    )
+    with patch("routers.models.workflow_adapter") as mock_argo:
+        mock_argo.trigger_workflow.side_effect = [
+            {"metadata": {"name": "wf-1"}},
+            {"metadata": {"name": "wf-2"}},
+        ]
+        first = trigger_training(request)
+        second = trigger_training(request)
+
+    assert mock_argo.trigger_workflow.call_count == 2
+    assert first.workflow_name == "wf-1"
+    assert second.workflow_name == "wf-2"
 
 
 def test_get_training_status_returns_argo_status() -> None:
@@ -841,6 +879,8 @@ def test_prepare_deploy_manifest_instant_deploys_without_a_pr() -> None:
     with (
         patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
+        patch("routers.models.DEPLOYMENT_EVENTS") as mock_events,
+        patch("routers.models.deployment_event_store") as mock_event_store,
     ):
         mock_adapter = mock_get_inference.return_value
         # InstantStrategy resolves "models:/<name>/<version>" to the real
@@ -861,6 +901,39 @@ def test_prepare_deploy_manifest_instant_deploys_without_a_pr() -> None:
         traffic_fields={},
     )
     assert response.deployed is True
+    # An instant release is the only branch that actually happens
+    # synchronously — it's real enough to feed Delivery Insights.
+    mock_events.labels.assert_called_once_with(
+        track="mlops",
+        subject_type="model",
+        subject_id="fraud-detection",
+        event_type="deploy",
+    )
+    mock_event_store.record_event.assert_called_once()
+    assert mock_event_store.record_event.call_args.kwargs["change_type"] == "model"
+
+
+def test_prepare_deploy_manifest_pr_gated_records_no_delivery_event() -> None:
+    # Nothing here has actually shipped yet — merging the PR (and an
+    # out-of-process watcher applying it) is what would really deploy it,
+    # and this process has no callback for either, so recording a delivery
+    # event now would claim a change that may never land.
+    request = PrepareDeployRequest(
+        model_name="fraud-detection",
+        model_version="5",
+        release_strategy="pr-gated",
+    )
+    with (
+        patch("routers.models.get_inference_backend_mode", return_value="legacy"),
+        patch("routers.models.mlflow_adapter"),
+        patch("routers.models.DEPLOYMENT_EVENTS") as mock_events,
+        patch("routers.models.deployment_event_store") as mock_event_store,
+    ):
+        response = prepare_deploy_manifest(request)
+
+    assert response.deployed is False
+    mock_events.labels.assert_not_called()
+    mock_event_store.record_event.assert_not_called()
 
 
 def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> None:
@@ -881,6 +954,8 @@ def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> N
         patch("routers.models.get_inference_backend_mode", return_value="legacy"),
         patch("routers.models.get_inference_adapter") as mock_get_inference,
         patch("routers.models.mlflow_adapter") as mock_mlflow,
+        patch("routers.models.DEPLOYMENT_EVENTS") as mock_events,
+        patch("routers.models.deployment_event_store") as mock_event_store,
     ):
         mock_get_inference.return_value.get_deploy_status.return_value = {
             "deployed": True,
@@ -900,6 +975,15 @@ def test_prepare_deploy_manifest_rollback_ignores_request_strategy_fields() -> N
         "s3://mlflow-artifacts/0/run456/artifacts/model",
         traffic_fields={"canaryTrafficPercent": 100},
     )
+    # A rollback is instant by construction — it's the "rework" signal
+    # Deployment Rework Rate reads from dora_deployment_events_total.
+    mock_events.labels.assert_called_once_with(
+        track="mlops",
+        subject_type="model",
+        subject_id="fraud-detection",
+        event_type="rollback",
+    )
+    mock_event_store.record_event.assert_called_once()
     assert response.deployed is True
 
 
@@ -1067,7 +1151,7 @@ def test_get_promotion_status_raises_404_for_a_model_outside_the_scoped_project(
     assert exc_info.value.status_code == 404
 
 
-def test_promote_model_forwards_the_target_environment() -> None:
+def test_promote_model_renders_a_manifest_without_writing_anything() -> None:
     request = PromoteRequest(target_environment="staging")
     with patch("routers.models.promotion_adapter") as mock_promotion:
         mock_promotion.get_promotion_status.return_value = {
@@ -1076,17 +1160,15 @@ def test_promote_model_forwards_the_target_environment() -> None:
             "environments": {"development": "rel-1", "staging": None, "production": None},
             "prod_pending_approval": False,
         }
-        mock_promotion.promote.return_value = {
-            "project": "telco-fraud-detection",
-            "component": "serving",
-            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
-            "prod_pending_approval": True,
-        }
+        mock_promotion.resolve_promotion_release.return_value = "rel-1"
         response = promote_model("telco-fraud-detection", request)
 
-    mock_promotion.promote.assert_called_once_with("staging")
-    assert response.environments["staging"] == "rel-1"
-    assert response.prod_pending_approval is True
+    mock_promotion.resolve_promotion_release.assert_called_once_with("staging")
+    mock_promotion.confirm_promotion.assert_not_called()
+    assert response.environment == "staging"
+    assert response.project_release == "rel-1"
+    assert "projectreleasebinding-staging.yaml" in response.file_name
+    assert "projectRelease: rel-1" in response.content
 
 
 def test_promote_model_raises_404_for_a_model_outside_the_scoped_project() -> None:
@@ -1102,7 +1184,7 @@ def test_promote_model_raises_404_for_a_model_outside_the_scoped_project() -> No
             promote_model("some-other-model", request)
 
     assert exc_info.value.status_code == 404
-    mock_promotion.promote.assert_not_called()
+    mock_promotion.resolve_promotion_release.assert_not_called()
 
 
 def test_promote_model_raises_400_when_the_adapter_rejects_the_target() -> None:
@@ -1114,14 +1196,14 @@ def test_promote_model_raises_400_when_the_adapter_rejects_the_target() -> None:
             "environments": {"development": "rel-1", "staging": None, "production": None},
             "prod_pending_approval": False,
         }
-        mock_promotion.promote.side_effect = ValueError("nothing to promote")
+        mock_promotion.resolve_promotion_release.side_effect = ValueError("nothing to promote")
         with pytest.raises(HTTPException) as exc_info:
             promote_model("telco-fraud-detection", request)
 
     assert exc_info.value.status_code == 400
 
 
-def test_rollback_promotion_forwards_the_environment() -> None:
+def test_rollback_promotion_renders_a_manifest_without_writing_anything() -> None:
     request = RollbackPromotionRequest(environment="staging")
     with patch("routers.models.promotion_adapter") as mock_promotion:
         mock_promotion.get_promotion_status.return_value = {
@@ -1130,16 +1212,13 @@ def test_rollback_promotion_forwards_the_environment() -> None:
             "environments": {"development": "rel-2", "staging": "rel-2", "production": None},
             "prod_pending_approval": True,
         }
-        mock_promotion.rollback_promotion.return_value = {
-            "project": "telco-fraud-detection",
-            "component": "serving",
-            "environments": {"development": "rel-2", "staging": "rel-1", "production": None},
-            "prod_pending_approval": True,
-        }
+        mock_promotion.resolve_rollback_release.return_value = "rel-1"
         response = rollback_promotion("telco-fraud-detection", request)
 
-    mock_promotion.rollback_promotion.assert_called_once_with("staging")
-    assert response.environments["staging"] == "rel-1"
+    mock_promotion.resolve_rollback_release.assert_called_once_with("staging")
+    mock_promotion.confirm_promotion.assert_not_called()
+    assert response.environment == "staging"
+    assert response.project_release == "rel-1"
 
 
 def test_rollback_promotion_raises_404_for_a_model_outside_the_scoped_project() -> None:
@@ -1155,7 +1234,7 @@ def test_rollback_promotion_raises_404_for_a_model_outside_the_scoped_project() 
             rollback_promotion("some-other-model", request)
 
     assert exc_info.value.status_code == 404
-    mock_promotion.rollback_promotion.assert_not_called()
+    mock_promotion.resolve_rollback_release.assert_not_called()
 
 
 def test_rollback_promotion_raises_400_when_the_adapter_rejects_it() -> None:
@@ -1167,8 +1246,99 @@ def test_rollback_promotion_raises_400_when_the_adapter_rejects_it() -> None:
             "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
             "prod_pending_approval": False,
         }
-        mock_promotion.rollback_promotion.side_effect = ValueError("no prior release recorded")
+        mock_promotion.resolve_rollback_release.side_effect = ValueError(
+            "no prior release recorded"
+        )
         with pytest.raises(HTTPException) as exc_info:
             rollback_promotion("telco-fraud-detection", request)
 
     assert exc_info.value.status_code == 400
+
+
+def test_confirm_promotion_writes_and_records_a_deployment_event() -> None:
+    request = ConfirmPromotionRequest(
+        environment="staging", project_release="rel-1", event_type="deploy"
+    )
+    with (
+        patch("routers.models.promotion_adapter") as mock_promotion,
+        patch("routers.models.DEPLOYMENT_EVENTS") as mock_events,
+        patch("routers.models.deployment_event_store") as mock_store,
+        patch("routers.models._get_last_drift_detected_at", return_value=None),
+    ):
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.confirm_promotion.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
+            "prod_pending_approval": True,
+        }
+        response = confirm_promotion("telco-fraud-detection", request)
+
+    mock_promotion.confirm_promotion.assert_called_once_with("staging", "rel-1")
+    mock_events.labels.assert_called_once_with(
+        track="mlops", subject_type="model", subject_id="telco-fraud-detection", event_type="deploy"
+    )
+    mock_store.record_event.assert_called_once()
+    assert response.environments["staging"] == "rel-1"
+    assert response.prod_pending_approval is True
+
+
+def test_confirm_promotion_raises_404_for_a_model_outside_the_scoped_project() -> None:
+    request = ConfirmPromotionRequest(environment="staging", project_release="rel-1")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": None, "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            confirm_promotion("some-other-model", request)
+
+    assert exc_info.value.status_code == 404
+    mock_promotion.confirm_promotion.assert_not_called()
+
+
+def test_confirm_promotion_raises_400_when_the_adapter_rejects_it() -> None:
+    request = ConfirmPromotionRequest(environment="staging", project_release="rel-1")
+    with patch("routers.models.promotion_adapter") as mock_promotion:
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.confirm_promotion.side_effect = ValueError("no prior release recorded")
+        with pytest.raises(HTTPException) as exc_info:
+            confirm_promotion("telco-fraud-detection", request)
+
+    assert exc_info.value.status_code == 400
+
+
+def test_confirm_promotion_is_idempotent_on_a_repeated_key() -> None:
+    request = ConfirmPromotionRequest(environment="staging", project_release="rel-1")
+    with (
+        patch("routers.models.promotion_adapter") as mock_promotion,
+        patch("routers.models._get_last_drift_detected_at", return_value=None),
+    ):
+        mock_promotion.get_promotion_status.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": None, "production": None},
+            "prod_pending_approval": False,
+        }
+        mock_promotion.confirm_promotion.return_value = {
+            "project": "telco-fraud-detection",
+            "component": "serving",
+            "environments": {"development": "rel-1", "staging": "rel-1", "production": None},
+            "prod_pending_approval": True,
+        }
+        confirm_promotion("telco-fraud-detection", request, idempotency_key="task-42")
+        confirm_promotion("telco-fraud-detection", request, idempotency_key="task-42")
+
+    mock_promotion.confirm_promotion.assert_called_once_with("staging", "rel-1")

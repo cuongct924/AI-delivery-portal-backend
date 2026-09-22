@@ -28,32 +28,46 @@ class IPromotionAdapter(ABC):
     server (`get_release_binding`/`list_deployment_pipelines`), not in
     agents/mcp-servers/.
 
-    `promote()` is always a human-initiated action, never an agent/MCP tool —
-    promote() is only reachable via a Scaffolder Golden Path the Dev runs.
-    There is no separate "approve" step beyond that human action — see
-    OpenChoreoPromotionAdapter's docstring for why a second approval gate
-    wasn't built.
+    Staging/production promotion is PR-gated, same as dev's
+    PRGatedStrategy: `resolve_promotion_release()`/`resolve_rollback_release()`
+    only read state (a router renders their result as a ProjectReleaseBinding
+    manifest for a human to review as a PR); `confirm_promotion()` is the one
+    method that actually writes to the cluster, called once that PR is
+    merged. Never an agent/MCP tool — only reachable via a Scaffolder Golden
+    Path the Dev runs.
     """
 
     @abstractmethod
     def get_promotion_status(self) -> PromotionStatus: ...
 
     @abstractmethod
-    def promote(self, target_environment: str) -> PromotionStatus:
-        """Copies whatever release is currently bound in the pipeline's
-        source environment for `target_environment` into a binding there.
-        Raises ValueError if `target_environment` isn't a valid promotion
-        target for wherever the project currently is (e.g. promoting to
-        "production" before anything has reached "staging")."""
+    def resolve_promotion_release(self, target_environment: str) -> str:
+        """Returns whatever release is currently bound in the pipeline's
+        source environment for `target_environment` — what a promotion
+        would move forward, without writing anything. Raises ValueError if
+        `target_environment` isn't a valid promotion target for wherever
+        the project currently is (e.g. promoting to "production" before
+        anything has reached "staging")."""
         ...
 
     @abstractmethod
-    def rollback_promotion(self, environment: str) -> PromotionStatus:
-        """Undoes the last `promote()`/`rollback_promotion()` call for
-        `environment` — swaps it back to whatever was bound there
-        immediately before that call. Raises ValueError when there's
-        nothing bound in `environment` yet, or nothing recorded to roll
-        back to (its current binding was never promoted over)."""
+    def resolve_rollback_release(self, environment: str) -> str:
+        """Returns whatever release `environment` would roll back to right
+        now — the one bound there immediately before its last
+        promotion/rollback, without writing anything. Raises ValueError
+        when there's nothing bound in `environment` yet, or nothing
+        recorded to roll back to (its current binding was never promoted
+        over)."""
+        ...
+
+    @abstractmethod
+    def confirm_promotion(self, environment: str, project_release: str) -> PromotionStatus:
+        """Writes `project_release` as `environment`'s binding — the real
+        OpenChoreo/cluster mutation for both promote and rollback (they
+        differ only in which release a router resolved beforehand). Called
+        once a human has reviewed the manifest a router rendered from
+        `resolve_promotion_release()`/`resolve_rollback_release()` — e.g.
+        merged the PR it was published as."""
         ...
 
 

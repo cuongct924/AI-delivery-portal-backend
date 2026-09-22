@@ -32,7 +32,7 @@ class MockPromotionAdapter(IPromotionAdapter):
             ),
         }
 
-    def promote(self, target_environment: str) -> PromotionStatus:
+    def resolve_promotion_release(self, target_environment: str) -> str:
         source_environment = _SOURCE_ENVIRONMENT.get(target_environment)
         if source_environment is None:
             raise ValueError(
@@ -45,10 +45,9 @@ class MockPromotionAdapter(IPromotionAdapter):
                 f"nothing to promote — '{self.project}' has no release bound in "
                 f"'{source_environment}' yet"
             )
-        self._set_binding(target_environment, release)
-        return self.get_promotion_status()
+        return release
 
-    def rollback_promotion(self, environment: str) -> PromotionStatus:
+    def resolve_rollback_release(self, environment: str) -> str:
         if environment not in self._bindings:
             raise ValueError(
                 f"nothing to roll back — '{self.project}' has no release bound in "
@@ -57,7 +56,10 @@ class MockPromotionAdapter(IPromotionAdapter):
         previous = self._previous.get(environment)
         if previous is None:
             raise ValueError(f"no prior release recorded for '{environment}' to roll back to")
-        self._set_binding(environment, previous)
+        return previous
+
+    def confirm_promotion(self, environment: str, project_release: str) -> PromotionStatus:
+        self._set_binding(environment, project_release)
         return self.get_promotion_status()
 
     def _set_binding(self, environment: str, release: str) -> None:

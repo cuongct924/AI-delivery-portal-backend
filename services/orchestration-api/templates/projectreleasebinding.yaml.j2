@@ -1,0 +1,13 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: ProjectReleaseBinding
+metadata:
+  name: {{ project }}-{{ environment }}
+  namespace: default
+  labels:
+    openchoreo.dev/project: {{ project }}
+    openchoreo.dev/environment: {{ environment }}
+spec:
+  environment: {{ environment }}
+  owner:
+    projectName: {{ project }}
+  projectRelease: {{ project_release }}

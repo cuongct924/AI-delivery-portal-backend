@@ -35,12 +35,24 @@ import tempfile
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 os.environ.setdefault(
     "LLMOPS_REGISTRY_PATH", os.path.join(tempfile.mkdtemp(), "llmops-registry.json")
 )
 
+import idempotency  # noqa: E402
 import mlflow.pyfunc  # noqa: F401, E402
 import torch  # noqa: F401, E402
+
+
+@pytest.fixture(autouse=True)
+def _clear_idempotency_store() -> None:
+    """idempotency._store is a process-wide module-level dict — without
+    this, a key reused across two test functions (unlikely, but the whole
+    point of an Idempotency-Key is to collide on purpose) would leak a
+    cached response from one test into another."""
+    idempotency._store.clear()
 
 
 def load_module_from_path(alias: str, file_path: Path) -> ModuleType:

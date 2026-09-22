@@ -11,21 +11,28 @@ spec.promotionPaths exactly, and parsing an arbitrary DAG for one fixed
 2-hop chain isn't worth it. Update both places together if promotionPaths
 ever changes.
 
-**Why `promote()` alone counts as "manual approval"**: the only path reaching
-it is a Dev running the "Evaluate & Deploy Model" Golden Path with action=promote
-(the frontend repo's register-deploy template) — nothing in agents/mcp-servers/
-calls it (the read-only promotion-status MCP tool now lives in OpenChoreo's own
-Control Plane MCP server; promote() isn't a tool at all). A second stored
-"pending" approval gate was rejected: this repo
-has no distinct requester/approver identities yet (every call carries the same
-Thunder-authenticated user), so a same-person request-then-approve would be
-theater. Revisit if that identity model ever exists.
+**Why staging/production promotion is PR-gated**: the only path reaching
+`confirm_promotion()` is a Dev running the "Evaluate & Deploy Model" Golden
+Path with action=promote/promote-rollback (the frontend repo's
+evaluate-deploy-model template) — nothing in agents/mcp-servers/ calls it
+(the read-only promotion-status MCP tool now lives in OpenChoreo's own
+Control Plane MCP server; this isn't a tool at all). `resolve_promotion_release()`/
+`resolve_rollback_release()` only read state — routers/models.py renders their
+result as a ProjectReleaseBinding manifest and publishes it as a PR, same as
+dev's PRGatedStrategy, and only calls `confirm_promotion()` once that PR is
+merged. This repo still has no distinct requester/approver identities (every
+call carries the same Thunder-authenticated user), so the PR review itself
+isn't a second identity's sign-off yet — but it does give staging/prod
+promotion the same Git-history/audit-trail and revert-by-`git revert`
+properties as a dev deploy, instead of an un-reviewed direct cluster write.
+Revisit the approval-identity gap if a distinct requester/approver model
+ever exists.
 
-`rollback_promotion()` is the staging/prod counterpart to deploy_strategies.py's
-dev-side rollback — swaps an environment back to whatever release was there via
-the `_PREVIOUS_RELEASE_ANNOTATION` every `_upsert_binding()` records. One level
-deep (an undo, not a history) — ProjectReleaseBinding only ever held one
-pointer, so this is strictly additive.
+`resolve_rollback_release()` is the staging/prod counterpart to
+deploy_strategies.py's dev-side rollback — resolves whatever release was
+bound before, via the `_PREVIOUS_RELEASE_ANNOTATION` every `_upsert_binding()`
+records. One level deep (an undo, not a history) — ProjectReleaseBinding only
+ever held one pointer, so this is strictly additive.
 """
 
 from typing import Final, cast
@@ -77,7 +84,7 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
             ),
         }
 
-    def promote(self, target_environment: str) -> PromotionStatus:
+    def resolve_promotion_release(self, target_environment: str) -> str:
         source_environment = _SOURCE_ENVIRONMENT.get(target_environment)
         if source_environment is None:
             raise ValueError(
@@ -92,10 +99,9 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
                 f"nothing to promote — '{self.project}' has no release bound in "
                 f"'{source_environment}' yet"
             )
-        self._upsert_binding(target_environment, release)
-        return self.get_promotion_status()
+        return release
 
-    def rollback_promotion(self, environment: str) -> PromotionStatus:
+    def resolve_rollback_release(self, environment: str) -> str:
         binding = self._get_binding(environment)
         if binding is None:
             raise ValueError(
@@ -107,7 +113,10 @@ class OpenChoreoPromotionAdapter(IPromotionAdapter):
         previous = annotations.get(_PREVIOUS_RELEASE_ANNOTATION)
         if previous is None:
             raise ValueError(f"no prior release recorded for '{environment}' to roll back to")
-        self._upsert_binding(environment, str(previous))
+        return str(previous)
+
+    def confirm_promotion(self, environment: str, project_release: str) -> PromotionStatus:
+        self._upsert_binding(environment, project_release)
         return self.get_promotion_status()
 
     def _get_binding(self, environment: str) -> dict[str, object] | None:

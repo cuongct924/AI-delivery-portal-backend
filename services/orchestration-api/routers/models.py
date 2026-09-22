@@ -17,7 +17,8 @@ from auth.thunder import get_current_user
 from data_quality.checks import CheckResult
 from data_quality.registry import run_checks
 from evaluations.evaluate_gate import MetricsGateResult, evaluate_metrics_gate
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from idempotency import get_or_compute
 from jinja2 import Environment, FileSystemLoader
 from observability.dora_metrics import (
     DEPLOYMENT_EVENTS,
@@ -323,10 +324,38 @@ class RollbackPromotionRequest(BaseModel):
     environment: str
 
 
+class PreparePromotionResponse(BaseModel):
+    """Rendered ProjectReleaseBinding manifest — nothing has been written
+    to the cluster yet. A Scaffolder step publishes `content` as a PR;
+    merging it is the review, and POST .../promote/confirm (below) is what
+    actually applies it."""
+
+    file_name: str
+    content: str
+    environment: str
+    project_release: str
+
+
+class ConfirmPromotionRequest(BaseModel):
+    environment: str
+    project_release: str
+    # "deploy" for a promotion, "rollback" for a rollback — only affects
+    # the DORA deployment-event label, both call the same adapter method.
+    event_type: str = "deploy"
+
+
 @router.post("/trigger-training", response_model=TriggerTrainingResponse)
 def trigger_training(
-    request: TriggerTrainingRequest, user: dict = Depends(get_current_user)
+    request: TriggerTrainingRequest,
+    user: dict = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None),
 ) -> TriggerTrainingResponse:
+    """`idempotency_key` (the `Idempotency-Key` header) guards against a
+    retried request (Scaffolder step retry, double-click, network timeout)
+    starting a *second* real training run — trigger_workflow() names each
+    WorkflowRun from a timestamp, so a naive retry would never collide on
+    its own. Sending the Scaffolder task's own `ctx.taskId` as the key
+    makes retries of the same task idempotent (see mlopsActions.ts)."""
     parameters = {
         "model-name": request.model_name,
         "dataset-uri": request.dataset_uri.strip(),
@@ -382,11 +411,15 @@ def trigger_training(
         parameters["text-column"] = request.text_column
     if request.base_model_name is not None:
         parameters["base-model-name"] = request.base_model_name
-    result = workflow_adapter.trigger_workflow(TRAIN_REGISTER_TEMPLATE, parameters)
-    metadata = cast(dict[str, object], result["metadata"])
-    workflow_name = str(metadata["name"])
-    _TRAINING_MODEL_NAMES[workflow_name] = request.model_name
-    return TriggerTrainingResponse(workflow_name=workflow_name)
+
+    def _do_trigger() -> TriggerTrainingResponse:
+        result = workflow_adapter.trigger_workflow(TRAIN_REGISTER_TEMPLATE, parameters)
+        metadata = cast(dict[str, object], result["metadata"])
+        workflow_name = str(metadata["name"])
+        _TRAINING_MODEL_NAMES[workflow_name] = request.model_name
+        return TriggerTrainingResponse(workflow_name=workflow_name)
+
+    return get_or_compute(idempotency_key, _do_trigger)
 
 
 @router.get("/trigger-training/{workflow_name}/status", response_model=WorkflowStatusResponse)
@@ -770,6 +803,31 @@ def prepare_deploy_manifest(
         str(request.enable_prediction_logging),
     )
 
+    # Only an Instant release has actually happened yet — a PR-gated one is
+    # still pending a human merge (and, beyond that, an out-of-process
+    # watcher applying it), with no callback into this process either way,
+    # so recording a delivery event for it here would claim a change that
+    # may never land. Instant is also the only branch that reaches here
+    # synchronously, same reasoning as promote_model's own recording below.
+    if release_result["deployed"]:
+        DEPLOYMENT_EVENTS.labels(
+            track="mlops",
+            subject_type="model",
+            subject_id=request.model_name,
+            event_type="rollback" if is_rollback else "deploy",
+        ).inc()
+        now = datetime.now().isoformat()
+        deployment_event_store.record_event(
+            name=f"{request.action}-{request.model_name}-{now}",
+            change_type="model",
+            project_name=request.model_name,
+            component_name=_OPENCHOREO_COMPONENT,
+            environment_name="development",
+            outcome="success",
+            started_at=now,
+            finished_at=now,
+        )
+
     return PrepareDeployResponse(
         file_name=file_name, content=content, deployed=release_result["deployed"]
     )
@@ -886,14 +944,35 @@ def get_promotion_status(
     return PromotionStatusResponse(**status)
 
 
-@router.post("/models/{name}/promote", response_model=PromotionStatusResponse)
+def _render_promotion_manifest(
+    project: str, environment: str, project_release: str
+) -> PreparePromotionResponse:
+    template = _JINJA_ENV.get_template("projectreleasebinding.yaml.j2")
+    content = template.render(
+        project=project, environment=environment, project_release=project_release
+    )
+    file_name = (
+        f"infra/openchoreo/namespaces/default/projects/{project}/"
+        f"projectreleasebinding-{environment}.yaml"
+    )
+    return PreparePromotionResponse(
+        file_name=file_name,
+        content=content,
+        environment=environment,
+        project_release=project_release,
+    )
+
+
+@router.post("/models/{name}/promote", response_model=PreparePromotionResponse)
 def promote_model(
     name: str, request: PromoteRequest, user: dict = Depends(get_current_user)
-) -> PromotionStatusResponse:
-    """The manual-approval gate is that this endpoint is only ever called
-    from a Dev explicitly running a Golden Path Scaffolder template
-    themselves — see adapters/delivery/openchoreo_promotion_adapter.py's module
-    docstring for why no separate approval step exists on top of that.
+) -> PreparePromotionResponse:
+    """Renders the ProjectReleaseBinding manifest that would promote `name`
+    to `request.target_environment` — writes nothing yet. A Scaffolder step
+    publishes the result as a PR (same as dev's PRGatedStrategy); merging it
+    is the review. Call POST .../promote/confirm once it's merged to
+    actually apply it — see adapters/delivery/openchoreo_promotion_adapter.py's
+    module docstring for why staging/prod promotion is PR-gated.
     Same `name` scope-check as get_promotion_status — see its docstring."""
     current = promotion_adapter.get_promotion_status()
     if name != current["project"]:
@@ -902,39 +981,94 @@ def promote_model(
             detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
         )
     try:
-        status = promotion_adapter.promote(request.target_environment)
+        release = promotion_adapter.resolve_promotion_release(request.target_environment)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _render_promotion_manifest(current["project"], request.target_environment, release)
 
-    # Emit DORA deployment event (MLOps track)
-    DEPLOYMENT_EVENTS.labels(
-        track="mlops",
-        subject_type="model",
-        subject_id=name,
-        event_type="deploy",
-    ).inc()
-    _record_promotion_deployment_event(name, current["component"], request.target_environment)
 
-    # MTTR: find last drift detection for this model and calculate recovery time
-    last_drift = _get_last_drift_detected_at(name)
-    if last_drift is not None:
-        recovery_seconds = (datetime.now() - last_drift).total_seconds()
-        INCIDENT_RECOVERY.labels(
+@router.post("/models/{name}/promote-rollback", response_model=PreparePromotionResponse)
+def rollback_promotion(
+    name: str, request: RollbackPromotionRequest, user: dict = Depends(get_current_user)
+) -> PreparePromotionResponse:
+    """staging/prod counterpart to the dev-side action=rollback — renders
+    the manifest that would undo the last promote()/confirm-promotion for
+    one environment. Same PR-then-confirm flow and `name` scope-check as
+    promote_model — see its docstring and
+    adapters/delivery/openchoreo_promotion_adapter.py's."""
+    current = promotion_adapter.get_promotion_status()
+    if name != current["project"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
+        )
+    try:
+        release = promotion_adapter.resolve_rollback_release(request.environment)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return _render_promotion_manifest(current["project"], request.environment, release)
+
+
+@router.post("/models/{name}/promote/confirm", response_model=PromotionStatusResponse)
+def confirm_promotion(
+    name: str,
+    request: ConfirmPromotionRequest,
+    user: dict = Depends(get_current_user),
+    idempotency_key: str | None = Header(default=None),
+) -> PromotionStatusResponse:
+    """Applies a ProjectReleaseBinding rendered by promote_model()/
+    rollback_promotion() — the actual OpenChoreo/cluster write, and the
+    point where delivery-metrics events are recorded, since nothing was
+    actually deployed at render time. Call this once a human has reviewed
+    the manifest (e.g. merged the PR it was published as); the manual
+    review of that PR *is* the approval gate — see
+    adapters/delivery/openchoreo_promotion_adapter.py's module docstring."""
+    current = promotion_adapter.get_promotion_status()
+    if name != current["project"]:
+        raise HTTPException(
+            status_code=404,
+            detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
+        )
+
+    def _do_confirm() -> PromotionStatusResponse:
+        try:
+            status = promotion_adapter.confirm_promotion(
+                request.environment, request.project_release
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        # Emit DORA deployment event (MLOps track)
+        DEPLOYMENT_EVENTS.labels(
             track="mlops",
             subject_type="model",
             subject_id=name,
-        ).observe(recovery_seconds)
+            event_type=request.event_type,
+        ).inc()
+        _record_promotion_deployment_event(name, current["component"], request.environment)
 
-    return PromotionStatusResponse(**status)
+        # MTTR: find last drift detection for this model and calculate recovery time
+        last_drift = _get_last_drift_detected_at(name)
+        if last_drift is not None:
+            recovery_seconds = (datetime.now() - last_drift).total_seconds()
+            INCIDENT_RECOVERY.labels(
+                track="mlops",
+                subject_type="model",
+                subject_id=name,
+            ).observe(recovery_seconds)
+
+        return PromotionStatusResponse(**status)
+
+    return get_or_compute(idempotency_key, _do_confirm)
 
 
 def _record_promotion_deployment_event(
     project_name: str, component_name: str, environment_name: str
 ) -> None:
-    """promote()/rollback_promotion() are synchronous OpenChoreo
-    ReleaseBinding swaps, not a queued workflow — started/finished are the
-    same instant, and there's no workflow-run name, so one is synthesized
-    from the timestamp."""
+    """confirm_promotion() is a synchronous OpenChoreo ReleaseBinding swap,
+    not a queued workflow — started/finished are the same instant, and
+    there's no workflow-run name, so one is synthesized from the
+    timestamp."""
     now = datetime.now().isoformat()
     deployment_event_store.record_event(
         name=f"promote-{project_name}-{now}",
@@ -960,44 +1094,3 @@ def _get_last_drift_detected_at(model_name: str) -> datetime | None:
     if isinstance(start_time, str):
         return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
     return start_time
-
-
-@router.post("/models/{name}/promote-rollback", response_model=PromotionStatusResponse)
-def rollback_promotion(
-    name: str, request: RollbackPromotionRequest, user: dict = Depends(get_current_user)
-) -> PromotionStatusResponse:
-    """staging/prod counterpart to the dev-side action=rollback — undoes
-    the last promote()/rollback_promotion() call for one environment. Same
-    manual-approval-via-template and `name` scope-check as promote_model —
-    see its docstring and adapters/delivery/openchoreo_promotion_adapter.py's."""
-    current = promotion_adapter.get_promotion_status()
-    if name != current["project"]:
-        raise HTTPException(
-            status_code=404,
-            detail=f"'{name}' has no promotion pipeline — only '{current['project']}' does today",
-        )
-    try:
-        status = promotion_adapter.rollback_promotion(request.environment)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    # Emit DORA deployment event (MLOps track)
-    DEPLOYMENT_EVENTS.labels(
-        track="mlops",
-        subject_type="model",
-        subject_id=name,
-        event_type="rollback",
-    ).inc()
-    _record_promotion_deployment_event(name, current["component"], request.environment)
-
-    # MTTR: find last drift detection for this model and calculate recovery time
-    last_drift = _get_last_drift_detected_at(name)
-    if last_drift is not None:
-        recovery_seconds = (datetime.now() - last_drift).total_seconds()
-        INCIDENT_RECOVERY.labels(
-            track="mlops",
-            subject_type="model",
-            subject_id=name,
-        ).observe(recovery_seconds)
-
-    return PromotionStatusResponse(**status)
