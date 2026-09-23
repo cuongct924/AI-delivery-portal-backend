@@ -6,8 +6,11 @@ from typing import cast
 
 import pytest
 from routers.costs import (
+    CostCheckRequest,
+    CostCheckResponse,
     EstimateCostRequest,
     RecordCostRequest,
+    check_cost,
     cost_adapter,
     estimate_cost,
     get_cost_summary,
@@ -137,3 +140,38 @@ def test_estimate_cost_scales_training_with_epochs() -> None:
 def test_estimate_cost_unknown_path_falls_back() -> None:
     response = estimate_cost(EstimateCostRequest(golden_path="nope", stage="run"))
     assert response.estimated_cost > 0
+
+
+def _check(**over) -> CostCheckResponse:
+    base = {
+        "golden_path": "llm-serve-deploy",
+        "stage": "run",
+        "params": {"gpuType": "H100", "gpuCount": 1},
+    }
+    return check_cost(CostCheckRequest(**{**base, **over}))
+
+
+def test_check_cost_ok_within_budget() -> None:
+    response = _check(budget_usd=1000)
+    assert response.level == "ok"
+    assert response.allow is True
+
+
+def test_check_cost_warns_just_over_budget() -> None:
+    # H100 x1 x24h = 108; budget 100 is within the 20% warn band.
+    response = _check(budget_usd=100)
+    assert response.level == "warn"
+    assert response.allow is True
+
+
+def test_check_cost_fails_far_over_budget() -> None:
+    response = _check(budget_usd=50)
+    assert response.level == "fail"
+    # warn mode still allows.
+    assert response.allow is True
+
+
+def test_check_cost_enforce_blocks_a_fail() -> None:
+    response = _check(budget_usd=50, mode="enforce")
+    assert response.level == "fail"
+    assert response.allow is False

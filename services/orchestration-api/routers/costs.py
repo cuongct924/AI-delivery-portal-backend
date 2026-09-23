@@ -12,6 +12,7 @@ the page reads /costs/summary. The ledger is append-only — see
 adapters/ai_platform/cost_adapter.py.
 """
 
+import os
 from collections import defaultdict
 from typing import Annotated, Final, cast
 
@@ -80,6 +81,25 @@ class EstimateCostResponse(BaseModel):
     currency: str = "USD"
     stage: str
     breakdown: dict[str, float]
+
+
+class CostCheckRequest(BaseModel):
+    golden_path: str
+    stage: str
+    artifact: str = ""
+    params: dict[str, object] = {}
+    # Overrides the configured budget for this check.
+    budget_usd: float | None = None
+    # "warn" (default) never blocks; "enforce" blocks a fail-level overrun.
+    mode: str = "warn"
+
+
+class CostCheckResponse(BaseModel):
+    allow: bool
+    level: str
+    estimated_cost: float
+    budget: float | None
+    reasons: list[str]
 
 
 def _dimension_value(entry: CostLedgerEntry, dimension: str) -> str:
@@ -178,3 +198,64 @@ def estimate_cost(
     replaces it once it executes."""
     total, breakdown = estimate_golden_path_cost(request.golden_path, request.stage, request.params)
     return EstimateCostResponse(estimated_cost=total, stage=request.stage, breakdown=breakdown)
+
+
+# Within this multiple of the budget is a warning; beyond it is a fail.
+_WARN_RATIO: Final[float] = 1.2
+_DEFAULT_BUDGET_USD: Final[float] = 500.0
+
+
+def _configured_budget() -> float | None:
+    raw = os.getenv("COST_BUDGET_USD")
+    if raw is None:
+        return _DEFAULT_BUDGET_USD
+    try:
+        return float(raw)
+    except ValueError:
+        return _DEFAULT_BUDGET_USD
+
+
+@router.post("/check", response_model=CostCheckResponse)
+def check_cost(
+    request: CostCheckRequest, user: dict = Depends(get_current_user)
+) -> CostCheckResponse:
+    """Pre-flight cost guardrail: compare a run's estimate against the budget
+    and return ok/warn/fail. In `warn` mode it never blocks; in `enforce` mode a
+    fail-level overrun sets allow=False so the caller can stop the run."""
+    estimated, _ = estimate_golden_path_cost(request.golden_path, request.stage, request.params)
+    budget = request.budget_usd if request.budget_usd is not None else _configured_budget()
+
+    if budget is None or budget <= 0:
+        return CostCheckResponse(
+            allow=True,
+            level="ok",
+            estimated_cost=estimated,
+            budget=None,
+            reasons=["No budget set"],
+        )
+    if estimated <= budget:
+        return CostCheckResponse(
+            allow=True,
+            level="ok",
+            estimated_cost=estimated,
+            budget=budget,
+            reasons=[f"Estimate {estimated:.2f} within budget {budget:.2f}"],
+        )
+    if estimated <= budget * _WARN_RATIO:
+        return CostCheckResponse(
+            allow=True,
+            level="warn",
+            estimated_cost=estimated,
+            budget=budget,
+            reasons=[
+                f"Estimate {estimated:.2f} is within "
+                f"{int((_WARN_RATIO - 1) * 100)}% over budget {budget:.2f}"
+            ],
+        )
+    return CostCheckResponse(
+        allow=request.mode != "enforce",
+        level="fail",
+        estimated_cost=estimated,
+        budget=budget,
+        reasons=[f"Estimate {estimated:.2f} exceeds budget {budget:.2f}"],
+    )
