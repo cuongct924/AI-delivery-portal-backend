@@ -12,11 +12,12 @@ Point the frontend's observer URL at orchestration-api (frontend config
 
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Final
+from typing import Annotated, Final, cast
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 
+from adapters.ai_platform.opencost_adapter import fetch_allocation, to_cost_items
 from adapters.factory import get_cost_adapter
 
 router = APIRouter(prefix="/api/v1alpha1/costs", tags=["observer-costs"])
@@ -244,8 +245,17 @@ def get_costs(
     end = _parse(endTime, now)
     targets = _targets(project, component)
 
-    # Real AI cost from the ledger, on top of the synthetic infra baseline.
+    # Real AI cost from the ledger, on top of the infra baseline.
     ledger = _ledger_items(namespace, environment, project, component, start, end)
+
+    # Real OpenCost allocation when configured; otherwise the synthetic baseline.
+    # OpenCost rows are already window-aggregated, so they skip the bucketing.
+    opencost = fetch_allocation(namespace, start, end)
+    if opencost is not None:
+        # to_cost_items returns plain dicts; pydantic coerces them to CostItem.
+        return CostItemsResponse(
+            items=ledger + cast(list[CostItem], to_cost_items(opencost, environment))
+        )
 
     # No granularity: one item per target spanning the whole window.
     if not granularity:
