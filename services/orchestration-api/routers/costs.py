@@ -17,6 +17,7 @@ from collections import defaultdict
 from typing import Annotated, Final, cast
 
 from auth.thunder import get_current_user
+from costs.events import record_cost_event
 from costs.pricing import estimate_golden_path_cost
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -90,8 +91,9 @@ class CostCheckRequest(BaseModel):
     params: dict[str, object] = {}
     # Overrides the configured budget for this check.
     budget_usd: float | None = None
-    # "warn" (default) never blocks; "enforce" blocks a fail-level overrun.
-    mode: str = "warn"
+    # "warn" never blocks; "enforce" blocks a fail-level overrun. Defaults to
+    # the COST_GATE_MODE env (warn) so enforcement can be flipped centrally.
+    mode: str | None = None
 
 
 class CostCheckResponse(BaseModel):
@@ -224,6 +226,18 @@ def check_cost(
     fail-level overrun sets allow=False so the caller can stop the run."""
     estimated, _ = estimate_golden_path_cost(request.golden_path, request.stage, request.params)
     budget = request.budget_usd if request.budget_usd is not None else _configured_budget()
+    mode = request.mode or os.getenv("COST_GATE_MODE", "warn")
+
+    # Record the estimate so the variance view can compare it with the actual
+    # cost the run later records (source="estimate" marks it as a projection).
+    record_cost_event(
+        stage=request.stage,
+        artifact_kind="estimate",
+        artifact_id=request.artifact or request.golden_path,
+        cost_usd=estimated,
+        source="estimate",
+        run_id=f"{request.golden_path}:{request.artifact}:{request.stage}",
+    )
 
     if budget is None or budget <= 0:
         return CostCheckResponse(
@@ -253,9 +267,54 @@ def check_cost(
             ],
         )
     return CostCheckResponse(
-        allow=request.mode != "enforce",
+        allow=mode != "enforce",
         level="fail",
         estimated_cost=estimated,
         budget=budget,
         reasons=[f"Estimate {estimated:.2f} exceeds budget {budget:.2f}"],
     )
+
+
+class CostVarianceRow(BaseModel):
+    artifact: str
+    estimated: float
+    actual: float
+    variance_pct: float | None
+
+
+class CostVarianceResponse(BaseModel):
+    rows: list[CostVarianceRow]
+
+
+@router.get("/variance", response_model=CostVarianceResponse)
+def get_cost_variance(
+    start_time: Annotated[str, Query(description="ISO 8601 inclusive lower bound")],
+    end_time: Annotated[str, Query(description="ISO 8601 inclusive upper bound")],
+    user: dict = Depends(get_current_user),
+) -> CostVarianceResponse:
+    """Estimate-vs-actual variance per artifact: how far the pre-flight estimate
+    was from the cost the run actually recorded. Entries whose source contains
+    "estimate" are projections; everything else is actual spend."""
+    entries = cost_adapter.query_costs(start_time, end_time)
+    estimated: dict[str, float] = defaultdict(float)
+    actual: dict[str, float] = defaultdict(float)
+    for entry in entries:
+        if "estimate" in entry["source"]:
+            estimated[entry["artifact_id"]] += entry["cost_usd"]
+        else:
+            actual[entry["artifact_id"]] += entry["cost_usd"]
+
+    rows: list[CostVarianceRow] = []
+    for artifact in set(estimated) | set(actual):
+        est = estimated.get(artifact, 0.0)
+        act = actual.get(artifact, 0.0)
+        rows.append(
+            CostVarianceRow(
+                artifact=artifact,
+                estimated=est,
+                actual=act,
+                variance_pct=((act - est) / est * 100) if est > 0 else None,
+            )
+        )
+    rows.sort(key=lambda r: abs(r.variance_pct or 0), reverse=True)
+    return CostVarianceResponse(rows=rows)

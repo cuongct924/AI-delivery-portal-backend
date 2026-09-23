@@ -14,6 +14,7 @@ from routers.costs import (
     cost_adapter,
     estimate_cost,
     get_cost_summary,
+    get_cost_variance,
     record_cost,
 )
 
@@ -175,3 +176,32 @@ def test_check_cost_enforce_blocks_a_fail() -> None:
     response = _check(budget_usd=50, mode="enforce")
     assert response.level == "fail"
     assert response.allow is False
+
+
+def test_check_cost_mode_defaults_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("COST_GATE_MODE", "enforce")
+    response = _check(budget_usd=50)
+    assert response.allow is False
+
+
+def test_variance_compares_estimate_with_actual() -> None:
+    _record(
+        artifact_id="model-v",
+        source="estimate",
+        cost_usd=10.0,
+        run_id="est-1",
+    )
+    _record(
+        artifact_id="model-v",
+        source="mlflow",
+        cost_usd=12.0,
+        run_id="act-1",
+    )
+    response = get_cost_variance(
+        start_time="2026-07-01T00:00:00.000Z",
+        end_time="2026-07-02T00:00:00.000Z",
+    )
+    row = next(r for r in response.rows if r.artifact == "model-v")
+    assert row.estimated == 10.0
+    assert row.actual == 12.0
+    assert row.variance_pct == 20.0
