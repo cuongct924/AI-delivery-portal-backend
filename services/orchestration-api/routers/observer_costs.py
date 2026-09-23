@@ -36,6 +36,7 @@ _DEMO_COMPONENTS: Final[tuple[str, ...]] = (
     "training",
     "monitoring",
     "rag-index",
+    "notebook",
 )
 
 # Demo attribution so the persona views (artifact/team/domain) group by
@@ -81,6 +82,11 @@ class CostItem(BaseModel):
     # GPU utilization ratio (0..1) for GPU-backed components, for the
     # resource-utilization-efficiency KPI. Absent for CPU-only items.
     gpuUtilization: float | None = None
+    # Notebook auto-shutdown TTL (minutes) and the cost of idle time beyond it.
+    ttlMinutes: int | None = None
+    idleCost: float | None = None
+    # Cost per request for a serving version, for canary cost telemetry.
+    costPerRequest: float | None = None
 
 
 class CostResourceProfile(BaseModel):
@@ -157,6 +163,11 @@ def _item(
     gpu_utilization = (
         round(_unit(seed + 3, 0.3, 0.9), 3) if component in ("serving", "training") else None
     )
+    # Notebooks carry a TTL and the cost of idle time beyond it; serving carries
+    # a per-request cost for canary telemetry.
+    ttl_minutes = 60 if component == "notebook" else None
+    idle_cost = round(_unit(seed + 5, 0.1, 1.5), 4) if component == "notebook" else None
+    cost_per_request = round(_unit(seed + 6, 0.0002, 0.002), 6) if component == "serving" else None
     return CostItem(
         component=component,
         startTime=start.isoformat(),
@@ -172,6 +183,9 @@ def _item(
         businessDomain=domain,
         usage=usage,
         gpuUtilization=gpu_utilization,
+        ttlMinutes=ttl_minutes,
+        idleCost=idle_cost,
+        costPerRequest=cost_per_request,
     )
 
 

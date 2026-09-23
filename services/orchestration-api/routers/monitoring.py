@@ -27,6 +27,10 @@ workflow_adapter = get_workflow_adapter()
 
 MONITOR_DRIFT_TEMPLATE: Final[str] = "monitor-drift-golden-path"
 
+# Where the platform's managed prediction log lands for a deployed model —
+# the production side used when Dev picks the "managed-prediction-log" source.
+_MANAGED_PREDICTION_LOG_URI: Final[str] = "file:///mnt/data/{model_name}/prediction-log.csv"
+
 # Cron preset → runs per month, for pricing the recurring monitoring job.
 _RUNS_PER_MONTH: Final[dict[str, int]] = {
     "0 * * * *": 720,  # hourly
@@ -39,7 +43,11 @@ class SetupMonitoringRequest(BaseModel):
     model_name: str
     model_version: str
     reference_data_uri: str
-    production_data_uri: str
+    # "managed-prediction-log" (default) | "custom-uri" — mirrors the Portal
+    # template. Managed resolves to the platform's own prediction log path.
+    production_data_source: str = "managed-prediction-log"
+    # Only required when production_data_source="custom-uri".
+    production_data_uri: str | None = None
     schedule: str
     drift_threshold: float = 0.5
     # "alert-only" | "auto-retrain" — Dev-facing on purpose, auto-retrain
@@ -48,6 +56,22 @@ class SetupMonitoringRequest(BaseModel):
     # Required when on_drift_detected="auto-retrain" — the exact JSON body
     # Dev would have POSTed to /trigger-training by hand.
     retrain_request_json: str | None = None
+
+
+def _resolve_production_data_uri(request: SetupMonitoringRequest) -> str:
+    """Resolves the production data URI from the chosen source.
+
+    An explicit URI always wins; otherwise the managed prediction log path
+    is derived from the model name.
+
+    Raises:
+        ValueError: production_data_source="custom-uri" but no URI given.
+    """
+    if request.production_data_uri:
+        return request.production_data_uri
+    if request.production_data_source == "managed-prediction-log":
+        return _MANAGED_PREDICTION_LOG_URI.format(model_name=request.model_name)
+    raise ValueError("production_data_uri is required when production_data_source='custom-uri'")
 
 
 class SetupMonitoringResponse(BaseModel):
@@ -68,7 +92,7 @@ def setup_monitoring(
         "model-name": request.model_name,
         "model-version": request.model_version,
         "reference-data-uri": request.reference_data_uri,
-        "production-data-uri": request.production_data_uri,
+        "production-data-uri": _resolve_production_data_uri(request),
         "drift-threshold": str(request.drift_threshold),
         "on-drift-detected": request.on_drift_detected,
     }

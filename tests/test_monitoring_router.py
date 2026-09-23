@@ -40,6 +40,35 @@ def test_setup_monitoring_creates_a_deterministically_named_cron_workflow() -> N
     assert response.cron_workflow_name == "monitor-fraud-detection"
 
 
+def test_setup_monitoring_resolves_managed_prediction_log_when_no_uri() -> None:
+    request = SetupMonitoringRequest(
+        model_name="fraud-detection",
+        model_version="3",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
+        production_data_source="managed-prediction-log",
+        schedule="0 0 * * *",
+    )
+    with patch("routers.monitoring.workflow_adapter") as mock_argo:
+        setup_monitoring(request)
+
+    call_args = mock_argo.create_cron_workflow.call_args.args
+    assert call_args[3]["production-data-uri"] == (
+        "file:///mnt/data/fraud-detection/prediction-log.csv"
+    )
+
+
+def test_setup_monitoring_requires_uri_for_custom_source() -> None:
+    request = SetupMonitoringRequest(
+        model_name="fraud-detection",
+        model_version="3",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
+        production_data_source="custom-uri",
+        schedule="0 0 * * *",
+    )
+    with pytest.raises(ValueError, match="production_data_uri is required"):
+        setup_monitoring(request)
+
+
 def test_setup_monitoring_forwards_retrain_request_json_for_auto_retrain() -> None:
     request = SetupMonitoringRequest(
         model_name="fraud-detection",
