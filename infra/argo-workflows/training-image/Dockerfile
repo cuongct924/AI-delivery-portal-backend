@@ -13,8 +13,8 @@ RUN uv pip install --system --no-cache --index-strategy unsafe-best-match \
 FROM python:3.12-slim
 WORKDIR /app
 RUN apt-get update && apt-get upgrade -y \
-    # libgomp1: LightGBM needs it at import. git: byoc_runner.py clones with it.
-    && apt-get install -y --no-install-recommends libgomp1 git \
+    # libgomp1: LightGBM needs it at import.
+    && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /deps /usr/local/lib/python3.12/site-packages
 COPY infra/argo-workflows/training-image/*.py .

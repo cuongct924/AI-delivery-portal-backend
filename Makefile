@@ -106,7 +106,7 @@ trivy:
 security: gitleaks checkov trivy
 
 run-orchestration-api:
-	cd services/orchestration-api && PYTHONPATH=$(CURDIR) $(CURDIR)/$(PY) -m uvicorn main:app --reload
+	cd services/orchestration-api && PYTHONPATH=$(CURDIR) FEAST_REPO_PATH=$(CURDIR)/infra/feature-store $(CURDIR)/$(PY) -m uvicorn main:app --reload
 
 run-ai-observability-mcp:
 	bash scripts/run-mcp-local.sh ai-observability

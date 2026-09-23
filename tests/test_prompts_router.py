@@ -29,8 +29,10 @@ def test_list_prompt_names_returns_seeded_prompts():
     # Superset, not equality — a persona name a prior local test run
     # registered against the real MLflow Prompt Registry (never wiped
     # between runs, unlike the JSON-file rag-index registry) has to stay
-    # listed too.
-    assert {"mlops", "k8s"} <= set(list_prompt_names().names)
+    # listed too — e.g. "k8s", registered by runs from before that persona
+    # was removed (persona_tool_scope.py's module docstring), may still
+    # show up here even though it's no longer seeded.
+    assert {"mlops"} <= set(list_prompt_names().names)
 
 
 def test_list_prompt_versions_returns_registered_versions():
@@ -127,3 +129,63 @@ def test_evaluate_prompt_computes_pass_rate_and_forwards_model():
 def test_activate_prompt_raises_for_unregistered_version():
     with pytest.raises(ValueError, match="no registered versions"):
         activate_prompt("never-drafted", ActivatePromptRequest(version="1"))
+
+
+def test_activate_prompt_tags_rollback_event_type():
+    draft_prompt(DraftPromptRequest(name="rollback-target", persona="R", content="sys"))
+    with (
+        patch("routers.prompts.DEPLOYMENT_EVENTS") as mock_deployment_events,
+        patch("routers.prompts.deployment_event_store") as mock_event_store,
+    ):
+        activate_prompt("rollback-target", ActivatePromptRequest(version="1", is_rollback=True))
+
+    mock_deployment_events.labels.assert_called_once_with(
+        track="llmops",
+        subject_type="prompt",
+        subject_id="rollback-target",
+        event_type="rollback",
+    )
+    assert mock_event_store.record_event.call_args.kwargs["name"].startswith(
+        "prompt-rollback-rollback-target-"
+    )
+
+
+def test_activate_prompt_is_isolated_per_environment():
+    draft_prompt(DraftPromptRequest(name="env-target", persona="E", content="sys"))
+
+    activate_prompt("env-target", ActivatePromptRequest(version="1", environment="staging"))
+
+    assert get_prompt_active_version("env-target", environment="staging").active_version == "1"
+    # Never activated in production — still None, exactly as before
+    # environments existed for a caller that passes none.
+    assert get_prompt_active_version("env-target").active_version is None
+
+
+def test_activate_prompt_records_the_activated_environment():
+    draft_prompt(DraftPromptRequest(name="env-event-target", persona="E", content="sys"))
+    with (
+        patch("routers.prompts.DEPLOYMENT_EVENTS"),
+        patch("routers.prompts.deployment_event_store") as mock_event_store,
+    ):
+        activate_prompt(
+            "env-event-target",
+            ActivatePromptRequest(version="1", environment="staging"),
+        )
+
+    assert mock_event_store.record_event.call_args.kwargs["environment_name"] == "staging"
+
+
+def test_activate_prompt_defaults_to_deploy_event_type():
+    draft_prompt(DraftPromptRequest(name="deploy-target", persona="D", content="sys"))
+    with (
+        patch("routers.prompts.DEPLOYMENT_EVENTS") as mock_deployment_events,
+        patch("routers.prompts.deployment_event_store"),
+    ):
+        activate_prompt("deploy-target", ActivatePromptRequest(version="1"))
+
+    mock_deployment_events.labels.assert_called_once_with(
+        track="llmops",
+        subject_type="prompt",
+        subject_id="deploy-target",
+        event_type="deploy",
+    )

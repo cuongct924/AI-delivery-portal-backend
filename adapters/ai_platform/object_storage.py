@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 
 import boto3
-import yaml
 
 from adapters.ai_platform.interfaces import DatasetInfo, IObjectStorageAdapter
 
@@ -55,26 +54,20 @@ class LocalFileObjectStorageAdapter(IObjectStorageAdapter):
 
 
 class MinioObjectStorageAdapter(IObjectStorageAdapter):
-    """The versioned dataset object store — MinIO in the AI Platform zone
-    (infra/ai-platform-zone/minio.yaml and `.dvc/config`'s remote "storage"),
-    any S3-compatible bucket in general.
+    """The AI Platform zone's MinIO (infra/ai-platform-zone/minio.yaml) — a
+    filesystem gateway over the repo's own `./data`, not a `dvc push` target.
+    scripts/setup-3node-infra.sh `docker cp`s `./data`'s contents onto
+    worker2's hostPath as-is (see that manifest's own top comment), so every
+    top-level dataset-category folder under `data/` shows up as its own
+    bucket, holding the same files — and `.dvc` pointers — under their real
+    names. Never DVC's content-addressed `files/md5/<hash>` keys: nothing
+    ever runs `dvc push` against this MinIO, so those keys would never exist
+    here even though `.dvc/config` still names it as a remote.
     """
 
-    def __init__(
-        self,
-        endpoint_url: str | None = None,
-        bucket: str | None = None,
-        mount_path: str = "/mnt/data",
-        local_datasets_path: str | None = None,
-    ):
+    def __init__(self, endpoint_url: str | None = None, mount_path: str = "/mnt/data"):
         self.endpoint_url = endpoint_url or os.getenv("MINIO_ENDPOINT_URL", "http://localhost:9000")
-        self.bucket = bucket or os.getenv("MINIO_DATASETS_BUCKET", "mlops-datasets")
         self.mount_path = mount_path
-        # Same resolution as LocalFileObjectStorageAdapter's root_path — see
-        # _dvc_hash_to_relative_path below.
-        self.local_datasets_path = Path(
-            local_datasets_path or os.getenv("LOCAL_DATASETS_PATH") or _REPO_ROOT / "data"
-        )
         self.client = boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
@@ -82,50 +75,28 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
         )
 
-    def _dvc_hash_to_relative_path(self) -> dict[str, str]:
-        """Every `.dvc` pointer file under `local_datasets_path`, keyed by its
-        md5 content hash.
-
-        `dvc push` uploads objects content-addressed
-        (`<remote-prefix>/files/md5/<hash[:2]>/<hash[2:]>`) — the S3 key alone
-        carries no trace of the dataset's filename/directory. The only place
-        that mapping still exists is the `.dvc` pointer files, each one
-        `{outs: [{md5, path, ...}]}`.
-        """
-        mapping: dict[str, str] = {}
-        if not self.local_datasets_path.is_dir():
-            return mapping
-        for dvc_file in self.local_datasets_path.rglob("*.dvc"):
-            try:
-                spec = yaml.safe_load(dvc_file.read_text())
-                out = spec["outs"][0]
-            except Exception:
-                continue
-            relative_dir = dvc_file.parent.relative_to(self.local_datasets_path)
-            mapping[out["md5"]] = str(relative_dir / out["path"])
-        return mapping
-
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
-        response = self.client.list_objects_v2(Bucket=self.bucket, Prefix=prefix)
-        hash_to_path = self._dvc_hash_to_relative_path()
         datasets: list[DatasetInfo] = []
-        for obj in response.get("Contents", []):
-            # Skip keys with no matching .dvc pointer — avoids a 404'ing picker entry.
-            key_parts = obj["Key"].rsplit("/", 2)
-            if len(key_parts) != 3 or key_parts[0].rsplit("/", 1)[-1] != "md5":
-                continue
-            relative_path = hash_to_path.get(key_parts[1] + key_parts[2])
-            if relative_path is None:
-                continue
-            datasets.append(
-                DatasetInfo(
-                    name=relative_path,
-                    # Same mount-path convention as LocalFileObjectStorageAdapter's hostPath mount.
-                    uri=f"file://{self.mount_path}/{relative_path}",
-                    size_bytes=obj["Size"],
-                    source="s3",
+        for bucket in self.client.list_buckets().get("Buckets", []):
+            bucket_name = bucket["Name"]
+            response = self.client.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+            contents = response.get("Contents", [])
+            keys = {obj["Key"] for obj in contents}
+            for obj in contents:
+                key = obj["Key"]
+                # Same "has a sibling .dvc pointer" convention as
+                # LocalFileObjectStorageAdapter — marks it as a tracked dataset.
+                if key.endswith(".dvc") or f"{key}.dvc" not in keys:
+                    continue
+                relative_path = f"{bucket_name}/{key}"
+                datasets.append(
+                    DatasetInfo(
+                        name=relative_path,
+                        uri=f"file://{self.mount_path}/{relative_path}",
+                        size_bytes=obj["Size"],
+                        source="s3",
+                    )
                 )
-            )
         return datasets
 
 

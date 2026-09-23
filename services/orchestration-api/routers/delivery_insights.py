@@ -31,6 +31,7 @@ class DoraSearchScope(BaseModel):
     project: str | None = None
     component: str | None = None
     environment: str | None = None
+    workloadType: Literal["service", "ml_model", "llm_app"] | None = None
 
 
 class DoraQueryRequest(BaseModel):
@@ -82,11 +83,20 @@ class DoraMttrSummary(BaseModel):
     deltaPct: float | None = None
 
 
+class DoraReworkRateSummary(BaseModel):
+    rate: float
+    reworked: int
+    total: int
+    classification: str
+    deltaPct: float | None = None
+
+
 class DoraSummary(BaseModel):
     deploymentFrequency: DoraFrequencySummary | None = None
     leadTime: DoraLeadTimeSummary | None = None
     changeFailureRate: DoraChangeFailureRateSummary | None = None
     mttr: DoraMttrSummary | None = None
+    reworkRate: DoraReworkRateSummary | None = None
 
 
 class DoraFrequencyPoint(BaseModel):
@@ -115,11 +125,19 @@ class DoraMttrPoint(BaseModel):
     count: int
 
 
+class DoraReworkRatePoint(BaseModel):
+    bucketStart: str
+    rate: float
+    reworked: int
+    total: int
+
+
 class DoraSeries(BaseModel):
     deploymentFrequency: list[DoraFrequencyPoint] | None = None
     leadTime: list[DoraLeadTimePoint] | None = None
     changeFailureRate: list[DoraChangeFailureRatePoint] | None = None
     mttr: list[DoraMttrPoint] | None = None
+    reworkRate: list[DoraReworkRatePoint] | None = None
 
 
 class DoraDataAvailability(BaseModel):
@@ -157,6 +175,7 @@ class DoraDeployment(BaseModel):
     failureReason: str
     incidentId: str
     leadTimeMs: int | None = None
+    workloadType: Literal["service", "ml_model", "llm_app"] | None = None
     changeType: Literal["infra", "model", "rag_index", "prompt"] | None = None
     driftTriggered: bool = False
     evalCoverage: float | None = None

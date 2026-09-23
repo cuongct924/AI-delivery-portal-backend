@@ -50,9 +50,6 @@ spec:
         epochs: {type: string, default: ""}
         batchSize: {type: string, default: ""}
         optimizer: {type: string, default: ""}
-        codeRepoUrl: {type: string, default: ""}
-        entrypointPath: {type: string, default: ""}
-        customConfig: {type: string, default: "{}"}
         searchStrategy: {type: string, default: fixed}
         numTrials: {type: string, default: ""}
         searchSpaceJson: {type: string, default: "{}"}
@@ -110,12 +107,6 @@ spec:
             value: ${parameters.batchSize}
           - name: optimizer
             value: ${parameters.optimizer}
-          - name: code-repo-url
-            value: ${parameters.codeRepoUrl}
-          - name: entrypoint-path
-            value: ${parameters.entrypointPath}
-          - name: custom-config
-            value: ${parameters.customConfig}
           - name: search-strategy
             value: ${parameters.searchStrategy}
           - name: num-trials

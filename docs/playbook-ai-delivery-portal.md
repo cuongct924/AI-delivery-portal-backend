@@ -32,7 +32,7 @@ Tần suất thấp  │  Ưu tiên thấp nhất      │  Stretch goal
 │ - Backstage UI + Adapter Pattern tích hợp 4 sản phẩm     │
 │   AI Platform (Registry/Experiment/Inference/Notebook)   │
 │ - Golden Path #1: Train → Track → Register               │
-│ - Golden Path #2: Register → Deploy (quyết định GÌ được  │
+│ - Golden Path #2: Evaluate → Deploy (quyết định GÌ được  │
 │   phép deploy — Evaluate Gate)                            │
 │ - Vòng lặp Monitor → Drift → Retrain                      │
 │ - Agent-ready: MCP servers + Skills                       │
@@ -79,10 +79,10 @@ Internal Developer Platform (IDP)   ← triết lý ("dev tự phục vụ")
 Chốt **2 golden path** (#1 Train→Track→Register, #2 Register→Deploy) — AI Notebook và provisioning hạ tầng generic vẫn
 là tính năng Portal độc lập, không đóng khung thành golden path.
 
-| | #1 — Train → Track → Register | #2 — Register → Deploy |
+| | #1 — Train → Track → Register | #2 — Evaluate → Deploy |
 |---|---|---|
 | **Mục đích** | Huấn luyện (hoặc fine-tune) → log vào MLflow Tracking → đăng ký Model Registry | Model đủ điều kiện (qua Evaluate Gate) mới được deploy lên KServe |
-| **Template** | `templates/train-track-register/template.yaml` (repo frontend) | `templates/register-deploy/template.yaml` (repo frontend) |
+| **Template** | `templates/train-track-register/template.yaml` (repo frontend) | `templates/evaluate-deploy-model/template.yaml` (repo frontend) |
 | **Cơ chế chạy** | `ClusterWorkflow` `train-register-golden-path` (OpenChoreo WorkflowRun API), hoặc chế độ fine-tune khi có `baseModelUri` | Orchestration API gọi `evaluations/gate.py` (LLM-as-judge) trước khi gọi `KServeAdapter` |
 | **Trạng thái** | Template còn mock (`debug:log`), chưa nối Custom Action thật | Template còn mock (`debug:log`), chưa nối Custom Action thật |
 

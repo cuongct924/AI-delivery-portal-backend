@@ -10,7 +10,6 @@ import json
 import os
 import re
 import sys
-import tempfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -22,7 +21,6 @@ import pandas as pd
 # (OpenMP conflict), harmless on Linux.
 import torch  # noqa: F401
 from algorithm_registry import AlgorithmSpec, get_algorithm_spec
-from byoc_runner import run_custom_training
 from hpo_runner import build_search_spaces, run_hpo
 from hpo_strategies import build_search_strategy
 from metrics import compute_metrics
@@ -240,11 +238,6 @@ def main() -> None:
     mode = os.environ.get("MODE", "train")
     base_model_uri = os.environ.get("BASE_MODEL_URI") or None
     time_column = os.environ.get("TIME_COLUMN") or None
-    # "custom" bypasses the algorithm registry and DL architecture registry
-    # entirely, so it's checked ahead of both.
-    is_custom = algorithm == "custom"
-    code_repo_url = os.environ.get("CODE_REPO_URL") or None
-    entrypoint_path = os.environ.get("ENTRYPOINT_PATH") or None
     # "fixed" (default) keeps the non-search code path completely
     # unchanged — no nested runs, no Optuna involved at all.
     search_strategy_name = os.environ.get("SEARCH_STRATEGY") or "fixed"
@@ -267,29 +260,21 @@ def main() -> None:
     if is_cv and mode != "train":
         raise RuntimeError("ARCHITECTURE=cv does not support MODE=finetune")
 
-    if is_custom and (code_repo_url is None or entrypoint_path is None):
-        raise RuntimeError("CODE_REPO_URL and ENTRYPOINT_PATH are required when ALGORITHM=custom")
-    if is_custom and mode != "train":
-        raise RuntimeError("BYOC (ALGORITHM=custom) does not support MODE=finetune")
     # anomaly-detection's target column is optional (evaluation only —
     # IsolationForest/LocalOutlierFactor never train on it, see the
     # anomaly-detection branch below), same as clustering having none at all.
     if not is_cv and task_type not in ("clustering", "anomaly-detection") and target_column is None:
         raise RuntimeError(f"TARGET_COLUMN is required for task_type {task_type!r}")
-    if not is_custom and architecture == "sklearn" and algorithm is None:
+    if architecture == "sklearn" and algorithm is None:
         raise RuntimeError("ALGORITHM is required when ARCHITECTURE=sklearn")
-    if (
-        not is_custom
-        and architecture != "sklearn"
-        and task_type in ("clustering", "anomaly-detection")
-    ):
+    if architecture != "sklearn" and task_type in ("clustering", "anomaly-detection"):
         # dl_architecture_registry.py's DL_ARCHITECTURES only lists
         # classification/regression hyperparameters — no DL clustering or
         # anomaly-detection support.
         raise RuntimeError(
             f"architecture {architecture!r} does not support task_type={task_type!r}"
         )
-    if is_search and (is_custom or is_nlp or is_cv or architecture == "sklearn"):
+    if is_search and (is_nlp or is_cv or architecture == "sklearn"):
         # HPO is scoped to the DL hyperparameters — the only ones with an
         # existing single-value form field to search over.
         raise RuntimeError("SEARCH_STRATEGY != 'fixed' requires ARCHITECTURE=mlp or lstm")
@@ -321,24 +306,7 @@ def main() -> None:
         mlflow.log_param("architecture", architecture)
         mlflow.log_param("mode", mode)
 
-        if is_custom:
-            # Validated non-None above — df is None only for is_cv, which
-            # never sets algorithm=custom (mutually exclusive branches).
-            assert df is not None
-            assert code_repo_url is not None
-            assert entrypoint_path is not None
-            mlflow.log_param("algorithm", "custom")
-            mlflow.log_param("code_repo_url", code_repo_url)
-            config = cast(dict[str, Any], json.loads(os.environ.get("CUSTOM_CONFIG") or "{}"))
-            config["target_column"] = target_column
-            with tempfile.TemporaryDirectory() as tmp_dir:
-                model, metrics = run_custom_training(
-                    df, config, code_repo_url, entrypoint_path, Path(tmp_dir) / "repo"
-                )
-            for metric_name, value in metrics.items():
-                mlflow.log_metric(metric_name, value)
-            mlflow_pyfunc.log_model(python_model=GenericPyfuncWrapper(model), artifact_path="model")
-        elif architecture == "sklearn":
+        if architecture == "sklearn":
             # df/features are None only for is_cv, mutually exclusive here.
             assert df is not None
             assert features is not None

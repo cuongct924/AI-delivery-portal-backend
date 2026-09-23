@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Literal, TypedDict
 
-from adapters.delivery.interfaces import DeliveryDeployment, DeliveryScope
+from adapters.delivery.interfaces import DeliveryDeployment, DeliveryScope, workload_type_for
 
 REAL_RUNS_PATH: Final[Path] = (
     Path(__file__).resolve().parent.parent.parent
@@ -85,6 +85,7 @@ def build_deployment_rows(
                 failureReason="training failed" if failed else "",
                 incidentId=f"INC-{run['name'][-6:]}" if failed else "",
                 leadTimeMs=round((finished - started).total_seconds() * 1000),
+                workloadType=workload_type_for(_CAPTURED_CHANGE_TYPE),
                 changeType=_CAPTURED_CHANGE_TYPE,
                 driftTriggered=False,
                 evalCoverage=None,

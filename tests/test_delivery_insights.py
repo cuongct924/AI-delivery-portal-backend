@@ -36,9 +36,15 @@ def _mock_source_adapter(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _request(**scope: str) -> DoraQueryRequest:
+def _request(
+    project: str | None = None,
+    component: str | None = None,
+    environment: str | None = None,
+) -> DoraQueryRequest:
     return DoraQueryRequest(
-        searchScope=DoraSearchScope(namespace="default", **scope),
+        searchScope=DoraSearchScope(
+            namespace="default", project=project, component=component, environment=environment
+        ),
         startTime=_START.isoformat(),
         endTime=_END.isoformat(),
         granularity="daily",
@@ -69,6 +75,15 @@ def test_series_are_zero_filled_for_frequency_and_failure_rate() -> None:
     assert len(response.series.deploymentFrequency) == 30
 
 
+def test_rework_rate_series_is_zero_filled_like_the_other_metrics() -> None:
+    response = query_dora_metrics(_request(project="fraud-detection"))
+
+    assert response.series.reworkRate is not None
+    assert response.series.deploymentFrequency is not None
+    assert len(response.series.reworkRate) == len(response.series.deploymentFrequency)
+    assert all(0 <= point.rate <= 1 for point in response.series.reworkRate)
+
+
 def test_data_availability_reports_collecting() -> None:
     response = query_dora_metrics(_request())
 
@@ -95,6 +110,50 @@ def test_metric_filter_drops_unrequested_metrics() -> None:
     assert response.summary.changeFailureRate is None
     assert response.summary.mttr is None
     assert response.series.leadTime is None
+
+
+def test_deployments_carry_a_workload_type_derived_from_change_type() -> None:
+    request = DoraDeploymentsQueryRequest(
+        searchScope=DoraSearchScope(namespace="default"),
+        startTime=_START.isoformat(),
+        endTime=_END.isoformat(),
+        limit=40,
+    )
+
+    response = query_dora_deployments(request)
+
+    expected = {
+        "infra": "service",
+        "model": "ml_model",
+        "rag_index": "llm_app",
+        "prompt": "llm_app",
+    }
+    assert response.deployments
+    for deployment in response.deployments:
+        assert deployment.changeType is not None
+        assert deployment.workloadType == expected[deployment.changeType]
+
+
+def test_deployments_filter_by_workload_type() -> None:
+    request = DoraDeploymentsQueryRequest(
+        searchScope=DoraSearchScope(namespace="default", workloadType="llm_app"),
+        startTime=_START.isoformat(),
+        endTime=_END.isoformat(),
+        limit=40,
+    )
+
+    response = query_dora_deployments(request)
+
+    assert response.deployments
+    assert all(d.workloadType == "llm_app" for d in response.deployments)
+
+
+def test_summary_reports_a_rework_rate() -> None:
+    response = query_dora_metrics(_request(project="fraud-detection"))
+
+    assert response.summary.reworkRate is not None
+    assert 0 <= response.summary.reworkRate.rate <= 1
+    assert response.summary.reworkRate.total > 0
 
 
 def test_deployments_use_mlops_template_names_and_respect_limit() -> None:

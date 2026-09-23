@@ -6,6 +6,11 @@ no OpenChoreo ClusterComponentType for GPU/vLLM serving yet, so this is the
 one place a real backend still talks to KServe's `InferenceService` custom
 resource (serving.kserve.io/v1beta1) directly via the Kubernetes API.
 Requires a kubeconfig pointing at a real cluster.
+
+The InferenceService's predictor is pinned to worker2
+(plane.viettel.vn=ai-platform-workflow) via nodeSelector/tolerations, same
+as the rest of the AI Platform zone (infra/ai-platform-zone/*.yaml) — see
+PLANE_LABEL_KEY below.
 """
 
 from collections.abc import Mapping
@@ -20,6 +25,15 @@ from adapters.delivery.interfaces import DeployStatus, IGpuInferenceAdapter
 GROUP: Final[str] = "serving.kserve.io"
 VERSION: Final[str] = "v1beta1"
 PLURAL: Final[str] = "inferenceservices"
+
+# Same worker2 pin as infra/ai-platform-zone/*.yaml (MLflow, Qdrant, MinIO,
+# LiteLLM, Feast) and the Argo train-register ClusterWorkflowTemplate — see
+# scripts/setup-3node-infra.sh. GPU serving has no CPU/memory reason to sit
+# elsewhere, and worker2 is the only tainted node already carrying the AI
+# Platform zone's own tolerations.
+PLANE_LABEL_KEY: Final[str] = "plane.viettel.vn"
+PLANE_LABEL_VALUE: Final[str] = "ai-platform-workflow"
+PLANE_TAINT_KEY: Final[str] = "dedicated.viettel.vn"
 
 
 class GpuKServeInferenceAdapter(IGpuInferenceAdapter):
@@ -71,11 +85,24 @@ class GpuKServeInferenceAdapter(IGpuInferenceAdapter):
                     "valueFrom": {"secretKeyRef": {"name": hf_token_secret_ref, "key": "token"}},
                 }
             ]
+        predictor_spec: dict[str, object] = {
+            **(traffic_fields or {}),
+            "model": model_spec,
+            "nodeSelector": {PLANE_LABEL_KEY: PLANE_LABEL_VALUE},
+            "tolerations": [
+                {
+                    "key": PLANE_TAINT_KEY,
+                    "operator": "Equal",
+                    "value": PLANE_LABEL_VALUE,
+                    "effect": "NoSchedule",
+                }
+            ],
+        }
         body = {
             "apiVersion": f"{GROUP}/{VERSION}",
             "kind": "InferenceService",
             "metadata": {"name": name, "labels": {"version": version}},
-            "spec": {"predictor": {**(traffic_fields or {}), "model": model_spec}},
+            "spec": {"predictor": predictor_spec},
         }
         try:
             result = self.api.patch_namespaced_custom_object(

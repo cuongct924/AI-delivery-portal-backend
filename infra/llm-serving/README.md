@@ -1,7 +1,7 @@
 # llm-serving
 
 Self-hosted LLM serving (vLLM on KServe) powering the "Serving LLM" Golden
-Path (`templates/deploy-llm/template.yaml` in the frontend repo,
+Path (`templates/llm-serve-deploy/template.yaml` in the frontend repo,
 `cuongct924/AI-delivery-portal-frontend`). **Does not work
 locally** — the k3d `openchoreo-quick-start` cluster used by every other
 Golden Path in this repo has no GPU node, no NVIDIA device plugin, and no

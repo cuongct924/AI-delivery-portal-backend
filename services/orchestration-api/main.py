@@ -16,13 +16,20 @@ from mcp_client import McpToolRegistry
 from observability.dora_metrics import LLM_SPEND_USD
 from prometheus_fastapi_instrumentator import Instrumentator
 from routers import (
+    audit_logs,
     chat,
+    costs,
     delivery_insights,
+    eval_sets,
+    finops_reports,
     golden_paths,
     llm_models,
     llm_serving,
+    mock_observer,
     models,
     monitoring,
+    notebooks,
+    observer_costs,
     portal_assistant,
     prompts,
     rag,
@@ -92,12 +99,19 @@ app.include_router(chat.router)
 app.include_router(prompts.router)
 app.include_router(models.router)
 app.include_router(monitoring.router)
+app.include_router(notebooks.router)
 app.include_router(llm_serving.router)
 app.include_router(rag.router)
+app.include_router(eval_sets.router)
 app.include_router(portal_assistant.router)
 app.include_router(golden_paths.router)
 app.include_router(llm_models.router)
 app.include_router(delivery_insights.router)
+app.include_router(finops_reports.router)
+app.include_router(mock_observer.router)
+app.include_router(costs.router)
+app.include_router(observer_costs.router)
+app.include_router(audit_logs.router)
 
 # feast (via adapters.factory) sets PROMETHEUS_MULTIPROC_DIR at import time,
 # which makes Instrumentator's /metrics read empty multiprocess .db files

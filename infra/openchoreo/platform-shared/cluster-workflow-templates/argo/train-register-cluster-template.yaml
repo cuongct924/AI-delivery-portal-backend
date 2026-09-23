@@ -82,13 +82,6 @@ spec:
       # architecture=mlp/lstm/nlp/cv, defaults to "adam" when unset.
       - name: optimizer
         value: ""
-      # BYOC — only used when algorithm=custom.
-      - name: code-repo-url
-        value: ""
-      - name: entrypoint-path
-        value: ""
-      - name: custom-config
-        value: "{}"
       # HPO — fixed by default, matches the original single-run behavior.
       - name: search-strategy
         value: fixed
@@ -149,12 +142,6 @@ spec:
                   value: '{{workflow.parameters.batch-size}}'
                 - name: optimizer
                   value: '{{workflow.parameters.optimizer}}'
-                - name: code-repo-url
-                  value: '{{workflow.parameters.code-repo-url}}'
-                - name: entrypoint-path
-                  value: '{{workflow.parameters.entrypoint-path}}'
-                - name: custom-config
-                  value: '{{workflow.parameters.custom-config}}'
                 - name: search-strategy
                   value: '{{workflow.parameters.search-strategy}}'
                 - name: num-trials
@@ -204,9 +191,6 @@ spec:
           - name: epochs
           - name: batch-size
           - name: optimizer
-          - name: code-repo-url
-          - name: entrypoint-path
-          - name: custom-config
           - name: search-strategy
           - name: num-trials
           - name: search-space-json
@@ -281,12 +265,6 @@ spec:
             value: '{{inputs.parameters.batch-size}}'
           - name: OPTIMIZER
             value: '{{inputs.parameters.optimizer}}'
-          - name: CODE_REPO_URL
-            value: '{{inputs.parameters.code-repo-url}}'
-          - name: ENTRYPOINT_PATH
-            value: '{{inputs.parameters.entrypoint-path}}'
-          - name: CUSTOM_CONFIG
-            value: '{{inputs.parameters.custom-config}}'
           - name: SEARCH_STRATEGY
             value: '{{inputs.parameters.search-strategy}}'
           - name: NUM_TRIALS

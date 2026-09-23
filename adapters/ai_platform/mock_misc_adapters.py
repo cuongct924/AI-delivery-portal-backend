@@ -103,20 +103,39 @@ class MockEvalResultAdapter(IEvalResultAdapter):
 
 class MockNotebookAdapter(INotebookAdapter):
     """Mock adapter for INotebookAdapter — in-memory stand-in for JupyterHub.
-    Not wired into any router yet, same as JupyterHubAdapter itself."""
+    Keeps the full resource profile so the Portal's provisioning form and a
+    future management view can be exercised without a real spawner."""
 
     def __init__(self) -> None:
         self._notebooks: dict[str, NotebookStatus] = {}
 
     def create_notebook(
-        self, environment: str, ram_gb: int, gpu_type: str | None = None
+        self,
+        environment: str,
+        ram_gb: int,
+        gpu_type: str | None = None,
+        *,
+        cpu_cores: int = 2,
+        gpu_count: int = 1,
+        storage_gb: int = 20,
+        idle_timeout_minutes: int = 60,
     ) -> NotebookStatus:
-        del environment, ram_gb, gpu_type  # unused — no real spawner behind this mock
         notebook_id = f"nb-{uuid.uuid4().hex[:8]}"
+        now = datetime.utcnow().isoformat()
         status: NotebookStatus = {
             "notebook_id": notebook_id,
             "url": f"http://mock-jupyterhub.local/user/{notebook_id}",
             "active": True,
+            "environment": environment,
+            "cpu_cores": cpu_cores,
+            "ram_gb": ram_gb,
+            "gpu_type": gpu_type,
+            # A CPU-only notebook has no GPU to count.
+            "gpu_count": gpu_count if gpu_type else 0,
+            "storage_gb": storage_gb,
+            "idle_timeout_minutes": idle_timeout_minutes,
+            "created_at": now,
+            "last_activity_at": now,
         }
         self._notebooks[notebook_id] = status
         return status
@@ -125,6 +144,22 @@ class MockNotebookAdapter(INotebookAdapter):
         status = self._notebooks.get(notebook_id)
         if status is None:
             raise ValueError(f"Notebook {notebook_id} does not exist")
+        return status
+
+    def list_notebooks(self) -> list[NotebookStatus]:
+        return list(self._notebooks.values())
+
+    def start_notebook(self, notebook_id: str) -> NotebookStatus:
+        status = self.get_notebook_status(notebook_id)
+        status["active"] = True
+        status["url"] = f"http://mock-jupyterhub.local/user/{notebook_id}"
+        status["last_activity_at"] = datetime.utcnow().isoformat()
+        return status
+
+    def stop_notebook(self, notebook_id: str) -> NotebookStatus:
+        status = self.get_notebook_status(notebook_id)
+        status["active"] = False
+        status["url"] = None
         return status
 
     def delete_notebook(self, notebook_id: str) -> NotebookDeletion:

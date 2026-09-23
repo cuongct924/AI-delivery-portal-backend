@@ -10,7 +10,7 @@ touching code that already depends on the interface.
 from abc import ABC, abstractmethod
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import NotRequired, TypedDict
+from typing import Final, NotRequired, TypedDict
 
 
 class ModelRegistration(TypedDict):
@@ -73,11 +73,19 @@ class IModelRegistryAdapter(ABC):
         ...
 
 
+#: Preserves every existing caller's behavior unchanged — chat.py and the
+#: ai-observability MCP tools call get_active_version(kind, name) with no
+#: environment, and must keep reading/writing exactly what "activate" meant
+#: before environments existed (the one version real traffic uses).
+DEFAULT_ENVIRONMENT: Final[str] = "production"
+
+
 class IVersionRegistryAdapter(ABC):
     """Tracks versions of an artifact that isn't a trained model (prompt
-    text, RAG index pointer) and which one is currently active — the LLMOps
-    equivalent of a "model version", without assuming an MLflow-loadable
-    artifact exists.
+    text, RAG index pointer) and which one is currently active *per
+    environment* — the LLMOps equivalent of a "model version" plus
+    OpenChoreo's per-environment ReleaseBinding, without assuming an
+    MLflow-loadable artifact or an OpenChoreo Component exists.
 
     `metadata`/return shape is `dict[str, object]`, not a TypedDict — it's
     polymorphic per `kind` ("prompt" vs "rag-index" carry different fields).
@@ -96,10 +104,14 @@ class IVersionRegistryAdapter(ABC):
     def list_versions(self, kind: str, name: str) -> dict[str, dict[str, object]]: ...
 
     @abstractmethod
-    def get_active_version(self, kind: str, name: str) -> str | None: ...
+    def get_active_version(
+        self, kind: str, name: str, environment: str = DEFAULT_ENVIRONMENT
+    ) -> str | None: ...
 
     @abstractmethod
-    def set_active_version(self, kind: str, name: str, version: str) -> None: ...
+    def set_active_version(
+        self, kind: str, name: str, version: str, environment: str = DEFAULT_ENVIRONMENT
+    ) -> None: ...
 
 
 class PredictionLogEntry(TypedDict):
@@ -243,10 +255,40 @@ class IFeatureStoreAdapter(ABC):
         ...
 
 
+class NotebookSpec(TypedDict):
+    """The resource profile a notebook was spawned with — cached by adapters
+    whose backend (JupyterHub's user API) doesn't echo it back."""
+
+    environment: str
+    cpu_cores: int
+    ram_gb: int
+    gpu_type: str | None
+    gpu_count: int
+    storage_gb: int
+    idle_timeout_minutes: int
+    created_at: str
+
+
 class NotebookStatus(TypedDict):
+    """One notebook's live state + the resource profile it was spawned with.
+
+    Mirrors the Viettel AI Notebooks service: independent notebooks with
+    CPU/GPU/RAM/Storage, on/off lifecycle, idle auto-shutdown, and a
+    persistent per-user working environment (storage survives stop/start).
+    """
+
     notebook_id: str
     url: str | None
     active: bool
+    environment: str
+    cpu_cores: int
+    ram_gb: int
+    gpu_type: str | None
+    gpu_count: int
+    storage_gb: int
+    idle_timeout_minutes: int
+    created_at: str
+    last_activity_at: str | None
 
 
 class NotebookDeletion(TypedDict):
@@ -255,13 +297,46 @@ class NotebookDeletion(TypedDict):
 
 
 class INotebookAdapter(ABC):
+    """AI Notebook (JupyterHub) lifecycle. The Portal only provisions and
+    manages notebooks — the editing surface stays JupyterHub's own web IDE,
+    never re-implemented in Backstage.
+
+    `create_notebook`'s resource args are keyword-only and defaulted so the
+    original `(environment, ram_gb, gpu_type)` call shape keeps working.
+    """
+
     @abstractmethod
     def create_notebook(
-        self, environment: str, ram_gb: int, gpu_type: str | None = None
+        self,
+        environment: str,
+        ram_gb: int,
+        gpu_type: str | None = None,
+        *,
+        cpu_cores: int = 2,
+        gpu_count: int = 1,
+        storage_gb: int = 20,
+        idle_timeout_minutes: int = 60,
     ) -> NotebookStatus: ...
 
     @abstractmethod
     def get_notebook_status(self, notebook_id: str) -> NotebookStatus: ...
+
+    @abstractmethod
+    def list_notebooks(self) -> list[NotebookStatus]:
+        """Every notebook this adapter knows about — backs a future Portal
+        management view (status, resource usage, session history)."""
+        ...
+
+    @abstractmethod
+    def start_notebook(self, notebook_id: str) -> NotebookStatus:
+        """Power a stopped notebook back on — its storage/working
+        environment persists, so this resumes rather than recreates."""
+        ...
+
+    @abstractmethod
+    def stop_notebook(self, notebook_id: str) -> NotebookStatus:
+        """Power off without deleting — frees CPU/GPU while keeping storage."""
+        ...
 
     @abstractmethod
     def delete_notebook(self, notebook_id: str) -> NotebookDeletion: ...
@@ -350,4 +425,69 @@ class IEvalResultAdapter(ABC):
     def get_last_failure_at(self, kind: str, name: str) -> datetime | None:
         """Timestamp of the most recent failed evaluation for kind/name, or
         None if none — used for MTTR (time from failure to remediation)."""
+        ...
+
+
+class CostLedgerEntry(TypedDict):
+    """One append-only cost event, attributed to an AI artifact's lifecycle.
+
+    Every golden-path step that spends money (train, RAG ingest, eval judge,
+    deploy, serve) writes one of these, so cost follows the artifact rather
+    than the K8s topology. `stage` is what lets the dashboard separate
+    one-time Build cost from recurring Run cost.
+    """
+
+    # ISO 8601 instant the cost was incurred.
+    timestamp: str
+    # "build" | "gate" | "run" — see CostStage in the frontend.
+    stage: str
+    # "model" | "prompt" | "rag-index" | "eval-set" | "service".
+    artifact_kind: str
+    artifact_id: str
+    version: str
+    environment: str
+    # Catalog namespace the cost is attributed to (the observer cost API is
+    # queried per namespace, so entries must carry it to be matched).
+    namespace: str
+    # Attribution dimensions, mirroring the golden-path forms.
+    team: str
+    business_domain: str
+    # What was consumed and at what unit price, so the ledger stays auditable.
+    quantity: float
+    unit: str
+    unit_price: float
+    cost_usd: float
+    # Where the number came from: "litellm" | "mlflow" | "observer" | "gpu-pricing".
+    source: str
+    # Correlates every entry a single template run produced.
+    run_id: str
+
+
+class ICostAdapter(ABC):
+    """Append-only cost ledger + aggregation, backing the Cost Insights page.
+
+    Deliberately source-agnostic: the concrete adapter may read LiteLLM's
+    spend ledger, MLflow run compute, the OpenChoreo observer's infra cost, or
+    a static GPU price table — callers only ever see attributed entries.
+    """
+
+    @abstractmethod
+    def record_cost(self, entry: CostLedgerEntry) -> None:
+        """Append one cost event. Never mutates an existing entry."""
+        ...
+
+    @abstractmethod
+    def query_costs(
+        self,
+        start_time: str,
+        end_time: str,
+        *,
+        stage: str | None = None,
+        artifact_kind: str | None = None,
+        team: str | None = None,
+        business_domain: str | None = None,
+        environment: str | None = None,
+        namespace: str | None = None,
+    ) -> list[CostLedgerEntry]:
+        """Entries in [start_time, end_time], narrowed by any provided filter."""
         ...

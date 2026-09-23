@@ -13,15 +13,21 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from adapters.delivery.interfaces import DeliveryScope
+from adapters.delivery.interfaces import DeliveryScope, WorkloadType
 from adapters.delivery.prometheus_delivery_observer_adapter import PrometheusDeliveryObserverAdapter
 
 _START = datetime(2026, 8, 1, tzinfo=UTC)
 _END = datetime(2026, 8, 3, tzinfo=UTC)  # 2 daily buckets
 
 
-def _scope() -> DeliveryScope:
-    return DeliveryScope(namespace="default", project=None, component=None, environment=None)
+def _scope(workload_type: WorkloadType | None = None) -> DeliveryScope:
+    return DeliveryScope(
+        namespace="default",
+        project=None,
+        component=None,
+        environment=None,
+        workloadType=workload_type,
+    )
 
 
 def _matrix_response(values: list[float]) -> MagicMock:
@@ -105,6 +111,29 @@ def test_query_metrics_handles_no_prometheus_data(
     assert result["dataAvailability"]["deliveryEvents"] is False
 
 
+def test_query_metrics_computes_rework_rate_from_rollback_events(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
+    with patch(
+        "adapters.delivery.prometheus_delivery_observer_adapter.httpx.get",
+        return_value=_matrix_response([3.0, 5.0]),
+    ):
+        result = adapter.query_metrics(_scope(), _START, _END, "daily", None)
+
+    rework = result["summary"]["reworkRate"]
+    assert rework is not None
+    assert rework["reworked"] == 8
+    assert rework["total"] == 8
+    assert rework["rate"] == pytest.approx(1.0)
+
+    series = result["series"]["reworkRate"]
+    assert series is not None
+    assert [p["reworked"] for p in series] == [3, 5]
+    assert [p["total"] for p in series] == [3, 5]
+    assert all(p["rate"] == pytest.approx(1.0) for p in series)
+
+
 def test_query_metrics_applies_metric_filter(
     model_registry_adapter: MagicMock, deployment_event_store: MagicMock
 ) -> None:
@@ -119,6 +148,7 @@ def test_query_metrics_applies_metric_filter(
     assert result["summary"]["leadTime"] is None
     assert result["summary"]["changeFailureRate"] is None
     assert result["summary"]["mttr"] is None
+    assert result["summary"]["reworkRate"] is None
 
 
 def test_query_deployments_returns_empty_when_store_has_no_events(
@@ -192,3 +222,61 @@ def test_query_deployments_skips_drift_lookup_for_non_model_rows(
 
     assert result["deployments"][0]["changeType"] == "rag_index"
     model_registry_adapter.search_runs.assert_not_called()
+
+
+def test_query_deployments_derives_workload_type_from_change_type(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    deployment_event_store.list_events.return_value = [
+        {
+            "name": "prompt-activate-1",
+            "changeType": "prompt",
+            "projectName": "support-copilot",
+            "componentName": "prompt",
+            "environmentName": "development",
+            "outcome": "success",
+            "startedAt": "2026-08-01T10:00:00",
+            "finishedAt": "2026-08-01T10:00:00",
+            "steps": None,
+        }
+    ]
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
+
+    result = adapter.query_deployments(_scope(), _START, _END, 100, "desc")
+
+    assert result["deployments"][0]["workloadType"] == "llm_app"
+
+
+def test_query_deployments_filters_by_workload_type(
+    model_registry_adapter: MagicMock, deployment_event_store: MagicMock
+) -> None:
+    deployment_event_store.list_events.return_value = [
+        {
+            "name": "prompt-activate-1",
+            "changeType": "prompt",
+            "projectName": "support-copilot",
+            "componentName": "prompt",
+            "environmentName": "development",
+            "outcome": "success",
+            "startedAt": "2026-08-01T10:00:00",
+            "finishedAt": "2026-08-01T10:00:00",
+            "steps": None,
+        },
+        {
+            "name": "train-track-register-abc12",
+            "changeType": "model",
+            "projectName": "fraud-detection",
+            "componentName": "train-track-register",
+            "environmentName": "development",
+            "outcome": "success",
+            "startedAt": "2026-08-01T10:00:00",
+            "finishedAt": "2026-08-01T11:00:00",
+            "steps": None,
+        },
+    ]
+    adapter = _adapter(model_registry_adapter, deployment_event_store)
+
+    result = adapter.query_deployments(_scope(workload_type="ml_model"), _START, _END, 100, "desc")
+
+    assert len(result["deployments"]) == 1
+    assert result["deployments"][0]["changeType"] == "model"

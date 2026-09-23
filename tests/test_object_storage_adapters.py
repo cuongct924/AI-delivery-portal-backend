@@ -16,8 +16,8 @@ from adapters.ai_platform.object_storage import (
 def test_repo_root_resolves_above_the_adapters_package() -> None:
     # Regression: object_storage.py lives 2 directories under the repo root
     # (adapters/ai_platform/) — _REPO_ROOT must walk up 3 parents, not 2, or
-    # every default (unset LOCAL_DATASETS_PATH) root/local_datasets_path
-    # silently resolves to adapters/data instead of <repo-root>/data.
+    # LocalFileObjectStorageAdapter's default (unset LOCAL_DATASETS_PATH)
+    # root_path silently resolves to adapters/data instead of <repo-root>/data.
     assert (_REPO_ROOT / "data").is_dir()
     assert (_REPO_ROOT / "adapters").is_dir()
 
@@ -64,34 +64,26 @@ def test_local_adapter_returns_empty_list_when_root_missing(tmp_path: Path) -> N
     assert adapter.list_datasets() == []
 
 
-def _minio_adapter_with_local_dvc_files(tmp_path: Path) -> MinioObjectStorageAdapter:
-    (tmp_path / "classification-telco-fraud-detection").mkdir()
-    (
-        tmp_path / "classification-telco-fraud-detection" / "telco-fraud-detection-sample.csv.dvc"
-    ).write_text(
-        "outs:\n"
-        "- md5: 7fc207cd8dfefb2942162f38c2d1497b\n"
-        "  size: 321\n"
-        "  path: telco-fraud-detection-sample.csv\n"
-    )
-    adapter = MinioObjectStorageAdapter(local_datasets_path=str(tmp_path))
+def _minio_adapter() -> MinioObjectStorageAdapter:
+    adapter = MinioObjectStorageAdapter()
     adapter.client = MagicMock()
     return adapter
 
 
-def test_minio_adapter_recovers_real_name_and_uri_from_dvc_pointer(tmp_path: Path) -> None:
-    # Reproduces the exact bug report: `dvc push` uploads content-addressed
-    # (`.../files/md5/<hash[:2]>/<hash[2:]>`), not under the dataset's real
-    # filename — the S3 key alone carries no usable name, and a uri built
-    # straight from it 404s (that hash never exists at the training pod's
-    # mount path). Only the local .dvc pointer still has the mapping.
-    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
+def test_minio_adapter_lists_dvc_tracked_files_across_every_bucket() -> None:
+    # Reproduces the exact bug report: infra/ai-platform-zone/minio.yaml
+    # `docker cp`s ./data's contents onto MinIO's hostPath as-is, so every
+    # dataset-category folder is its own bucket holding the file under its
+    # real name — never a single fixed bucket, never DVC's content-addressed
+    # files/md5/<hash> keys (nothing runs `dvc push` against this MinIO).
+    adapter = _minio_adapter()
+    adapter.client.list_buckets.return_value = {
+        "Buckets": [{"Name": "classification-telco-fraud-detection"}]
+    }
     adapter.client.list_objects_v2.return_value = {
         "Contents": [
-            {
-                "Key": "fraud-detection/files/md5/7f/c207cd8dfefb2942162f38c2d1497b",
-                "Size": 321,
-            }
+            {"Key": "telco-fraud-detection-sample.csv", "Size": 321},
+            {"Key": "telco-fraud-detection-sample.csv.dvc", "Size": 42},
         ]
     }
 
@@ -105,39 +97,28 @@ def test_minio_adapter_recovers_real_name_and_uri_from_dvc_pointer(tmp_path: Pat
             source="s3",
         )
     ]
+    adapter.client.list_objects_v2.assert_called_once_with(
+        Bucket="classification-telco-fraud-detection", Prefix=""
+    )
 
 
-def test_minio_adapter_skips_object_whose_hash_has_no_local_dvc_pointer(tmp_path: Path) -> None:
-    # An object in the bucket with no matching .dvc file checked out
-    # locally has no recoverable name/uri — surfacing it anyway would just
-    # be a dataset picker entry that 404s the moment someone picks it.
-    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
+def test_minio_adapter_skips_files_without_a_dvc_pointer() -> None:
+    # No matching ".dvc" sibling object — just a file that happens to live
+    # in the bucket, not a DVC-tracked dataset.
+    adapter = _minio_adapter()
+    adapter.client.list_buckets.return_value = {
+        "Buckets": [{"Name": "classification-telco-fraud-detection"}]
+    }
     adapter.client.list_objects_v2.return_value = {
-        "Contents": [
-            {"Key": "fraud-detection/files/md5/ab/cdef0000000000000000000000000000", "Size": 99}
-        ]
+        "Contents": [{"Key": "random-upload.csv", "Size": 99}]
     }
 
     assert adapter.list_datasets() == []
 
 
-def test_minio_adapter_skips_object_not_shaped_like_a_dvc_content_address(tmp_path: Path) -> None:
-    adapter = _minio_adapter_with_local_dvc_files(tmp_path)
-    adapter.client.list_objects_v2.return_value = {
-        "Contents": [{"Key": "some/other/random-upload.csv", "Size": 99}]
-    }
-
-    assert adapter.list_datasets() == []
-
-
-def test_minio_adapter_returns_empty_when_local_datasets_path_missing(tmp_path: Path) -> None:
-    adapter = MinioObjectStorageAdapter(local_datasets_path=str(tmp_path / "does-not-exist"))
-    adapter.client = MagicMock()
-    adapter.client.list_objects_v2.return_value = {
-        "Contents": [
-            {"Key": "fraud-detection/files/md5/7f/c207cd8dfefb2942162f38c2d1497b", "Size": 321}
-        ]
-    }
+def test_minio_adapter_returns_empty_when_no_buckets_exist() -> None:
+    adapter = _minio_adapter()
+    adapter.client.list_buckets.return_value = {"Buckets": []}
 
     assert adapter.list_datasets() == []
 

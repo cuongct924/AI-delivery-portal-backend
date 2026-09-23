@@ -16,6 +16,9 @@ from kubernetes.client.exceptions import ApiException
 
 from adapters.delivery.gpu_inference_adapter import (
     GROUP,
+    PLANE_LABEL_KEY,
+    PLANE_LABEL_VALUE,
+    PLANE_TAINT_KEY,
     PLURAL,
     VERSION,
     GpuKServeInferenceAdapter,
@@ -71,6 +74,25 @@ def test_deploy_llm_model_injects_secret_key_ref_env_var(
         {
             "name": "HUGGING_FACE_HUB_TOKEN",
             "valueFrom": {"secretKeyRef": {"name": "llama-3-hf-token", "key": "token"}},
+        }
+    ]
+
+
+def test_deploy_llm_model_pins_to_the_ai_platform_workflow_node(
+    adapter: GpuKServeInferenceAdapter, mock_api: MagicMock
+) -> None:
+    mock_api.patch_namespaced_custom_object.return_value = {"metadata": {"name": "llama-3"}}
+
+    adapter.deploy_llm_model("llama-3", "1", "meta-llama/Llama-3-8B", "vllm-runtime", 1, None, 4096)
+
+    predictor = mock_api.patch_namespaced_custom_object.call_args[0][-1]["spec"]["predictor"]
+    assert predictor["nodeSelector"] == {PLANE_LABEL_KEY: PLANE_LABEL_VALUE}
+    assert predictor["tolerations"] == [
+        {
+            "key": PLANE_TAINT_KEY,
+            "operator": "Equal",
+            "value": PLANE_LABEL_VALUE,
+            "effect": "NoSchedule",
         }
     ]
 

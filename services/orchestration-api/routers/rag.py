@@ -14,12 +14,15 @@ from pathlib import Path
 from typing import Final
 
 from auth.thunder import get_current_user
+from costs.events import record_cost_event
+from costs.pricing import EMBED_USD_PER_1K_CHUNK
 from evaluations.evaluate_gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
+from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT
 from adapters.factory import (
     get_deployment_event_store,
     get_eval_result_adapter,
@@ -77,15 +80,23 @@ class RagEvaluateResponse(BaseModel):
 class RagActivateRequest(BaseModel):
     collection: str
     index_version: str
+    # See ActivatePromptRequest.environment (routers/prompts.py) — same
+    # convention, mirrored here for the RAG-index half of the lifecycle.
+    environment: str = DEFAULT_ENVIRONMENT
+    # See ActivatePromptRequest.is_rollback (routers/prompts.py) — same
+    # convention, mirrored here for the RAG-index half of the lifecycle.
+    is_rollback: bool = False
 
 
 class RagActivateResponse(BaseModel):
     collection: str
+    environment: str
     active_version: str
 
 
 class RagActiveVersionResponse(BaseModel):
     collection: str
+    environment: str
     active_version: str | None
 
 
@@ -119,14 +130,17 @@ def list_rag_collection_versions(
 
 @router.get("/{collection}", response_model=RagActiveVersionResponse)
 def get_rag_active_version(
-    collection: str, user: dict = Depends(get_current_user)
+    collection: str, environment: str = DEFAULT_ENVIRONMENT, user: dict = Depends(get_current_user)
 ) -> RagActiveVersionResponse:
     # Mirrors routers/prompts.py's list_prompts()/get_prompt() read pattern —
     # added for agents/mcp-servers/ai-observability-server's
     # get_active_rag_version tool, which had no endpoint to call before.
+    # `environment` defaults to DEFAULT_ENVIRONMENT — same backward-compat
+    # reasoning as get_prompt_active_version.
     return RagActiveVersionResponse(
         collection=collection,
-        active_version=registry_adapter.get_active_version("rag-index", collection),
+        environment=environment,
+        active_version=registry_adapter.get_active_version("rag-index", collection, environment),
     )
 
 
@@ -161,6 +175,24 @@ def rag_ingest(
         request.collection,
         {"chunks_ingested": len(chunks), "source_paths": request.source_paths},
     )
+
+    # Attribute the embedding spend to the index version's build stage. The
+    # embed() call returns no cost header, so this is priced from the real
+    # chunk count at the reference embedding rate.
+    record_cost_event(
+        stage="build",
+        artifact_kind="rag-index",
+        artifact_id=request.collection,
+        version=index_version,
+        environment=DEFAULT_ENVIRONMENT,
+        cost_usd=len(chunks) / 1000 * EMBED_USD_PER_1K_CHUNK,
+        quantity=float(len(chunks)),
+        unit="chunk",
+        unit_price=EMBED_USD_PER_1K_CHUNK,
+        source="litellm",
+        run_id=f"ingest-{request.collection}-{index_version}",
+    )
+
     return RagIngestResponse(
         collection=request.collection, index_version=index_version, chunks_ingested=len(chunks)
     )
@@ -196,7 +228,7 @@ def rag_evaluate(
             cost_known = False
         else:
             total_cost_usd += response_cost
-        judge_result = judge_response(eval_case.question, answer)
+        judge_result = judge_response(eval_case.question, answer, context)
         gate_result = evaluate_gate(judge_result)
         results.append(
             {"question": eval_case.question, "answer": answer, "passed": gate_result["passed"]}
@@ -215,6 +247,20 @@ def rag_evaluate(
 
     pass_rate = passed_count / len(results) if results else 0.0
     overall_passed = pass_rate >= 0.8
+
+    # Attribute the real judge spend to the index version's gate stage.
+    record_cost_event(
+        stage="gate",
+        artifact_kind="rag-index",
+        artifact_id=request.collection,
+        version=request.index_version,
+        environment=DEFAULT_ENVIRONMENT,
+        cost_usd=total_cost_usd if cost_known else 0.0,
+        quantity=float(total_tokens),
+        unit="token",
+        source="litellm",
+        run_id=f"eval-rag-{request.collection}-{request.index_version}",
+    )
 
     # Emit DORA gate evaluation metric (LLMOps track, rag-index)
     GATE_EVALUATIONS.labels(
@@ -237,22 +283,29 @@ def rag_evaluate(
 def rag_activate(
     request: RagActivateRequest, user: dict = Depends(get_current_user)
 ) -> RagActivateResponse:
-    registry_adapter.set_active_version("rag-index", request.collection, request.index_version)
+    registry_adapter.set_active_version(
+        "rag-index", request.collection, request.index_version, request.environment
+    )
+
+    event_type = "rollback" if request.is_rollback else "deploy"
 
     # Emit DORA deployment event (LLMOps track)
     DEPLOYMENT_EVENTS.labels(
         track="llmops",
         subject_type="rag-index",
         subject_id=request.collection,
-        event_type="deploy",
+        event_type=event_type,
     ).inc()
     now = datetime.now().isoformat()
     deployment_event_store.record_event(
-        name=f"rag-activate-{request.collection}-{now}",
+        name=f"rag-{event_type}-{request.collection}-{now}",
         change_type="rag_index",
         project_name=request.collection,
         component_name="rag-index",
-        environment_name="development",
+        # Reflects the environment actually activated — see
+        # routers/prompts.py's activate_prompt for why this was a bug
+        # before (hardcoded "development" regardless of what happened).
+        environment_name=request.environment,
         outcome="success",
         started_at=now,
         finished_at=now,
@@ -268,4 +321,8 @@ def rag_activate(
             subject_id=request.collection,
         ).observe(recovery_seconds)
 
-    return RagActivateResponse(collection=request.collection, active_version=request.index_version)
+    return RagActivateResponse(
+        collection=request.collection,
+        environment=request.environment,
+        active_version=request.index_version,
+    )

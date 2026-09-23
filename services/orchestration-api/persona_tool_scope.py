@@ -1,12 +1,16 @@
 """Which MCP tools a chat persona may see/call — chat.py filters
 `registry.list_tools()` through this before handing the tool list to the
-LLM, so e.g. a "k8s" persona (self-described read-only in its prompt text)
-can't be steered into calling a destructive tool the model was never even
-offered.
+LLM, so a persona can't be steered into calling a destructive tool the
+model was never even offered.
 
 A persona absent from `PERSONA_ALLOWED_TOOLS` gets no tools at all — this
 is a deny-by-default allowlist, not a denylist. Tool names must match the
 `@mcp.tool` function names in the corresponding server exactly.
+
+The "k8s" persona (Kubernetes read-only ops) was removed — OpenChoreo's own
+built-in MCP server now covers pod/log/event lookups, so a separate
+Portal-native persona for it duplicated coverage the platform already
+provides.
 """
 
 type ToolScope = frozenset[str]
@@ -50,7 +54,6 @@ _MLOPS_GOLDEN_PATH_TOOLS: ToolScope = frozenset(
 )
 
 PERSONA_ALLOWED_TOOLS: dict[str, ToolScope] = {
-    "k8s": _AI_OBSERVABILITY_TOOLS,
     "mlops": _AI_OBSERVABILITY_TOOLS | _GOLDEN_PATH_TOOLS | _MLOPS_GOLDEN_PATH_TOOLS,
 }
 

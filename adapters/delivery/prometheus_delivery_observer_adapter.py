@@ -41,12 +41,15 @@ from adapters.delivery.interfaces import (
     DeliveryMetricsResult,
     DeliveryMttrPoint,
     DeliveryMttrSummary,
+    DeliveryReworkRatePoint,
+    DeliveryReworkRateSummary,
     DeliveryScope,
     DeliverySeries,
     DeliverySummary,
     DeliveryWindow,
     DoraGranularity,
     IDeliveryObserverAdapter,
+    workload_type_for,
 )
 
 _DAYS_PER_BUCKET: Final[dict[str, int]] = {"daily": 1, "weekly": 7, "monthly": 30}
@@ -177,6 +180,18 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
             end,
             step_seconds,
         )
+        rework_events = self._range_by_bucket(
+            'sum(increase(dora_deployment_events_total{event_type="rollback"}[__STEP__s]))',
+            buckets,
+            end,
+            step_seconds,
+        )
+        deploy_events = self._range_by_bucket(
+            'sum(increase(dora_deployment_events_total{event_type=~"deploy|rollback"}[__STEP__s]))',
+            buckets,
+            end,
+            step_seconds,
+        )
 
         freq_points = [
             DeliveryFrequencyPoint(bucketStart=b.isoformat(), count=round(completed[i]))
@@ -213,6 +228,15 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
             for i, b in enumerate(buckets)
             if mttr_count[i] > 0
         ]
+        rework_points = [
+            DeliveryReworkRatePoint(
+                bucketStart=b.isoformat(),
+                rate=(rework_events[i] / deploy_events[i]) if deploy_events[i] else 0.0,
+                reworked=round(rework_events[i]),
+                total=round(deploy_events[i]),
+            )
+            for i, b in enumerate(buckets)
+        ]
 
         total_deployments = round(sum(completed))
         total_failed = round(sum(failed))
@@ -222,6 +246,9 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
         cfr_rate = (total_failed / total_changes) if total_changes else 0.0
         all_lead_p50 = [v for v in lead_p50 if v > 0]
         all_mttr_mean = [v for v in mttr_mean if v > 0]
+        total_reworked = round(sum(rework_events))
+        total_deploy_events = round(sum(deploy_events))
+        rework_rate = (total_reworked / total_deploy_events) if total_deploy_events else 0.0
 
         result = DeliveryMetricsResult(
             dataAvailability=DeliveryAvailability(
@@ -286,12 +313,20 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
                     ),
                     deltaPct=None,
                 ),
+                reworkRate=DeliveryReworkRateSummary(
+                    rate=round(rework_rate, 4),
+                    reworked=total_reworked,
+                    total=total_deploy_events,
+                    classification=_classify_rate(rework_rate),
+                    deltaPct=None,
+                ),
             ),
             series=DeliverySeries(
                 deploymentFrequency=freq_points,
                 leadTime=lead_points,
                 changeFailureRate=cfr_points,
                 mttr=mttr_points,
+                reworkRate=rework_points,
             ),
         )
         self._apply_metric_filter(result, metrics)
@@ -308,6 +343,9 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
         events = self._deployment_event_store.list_events(start, end, limit, sort_order)
         rows = [self._to_deployment_row(event) for event in events]
         enriched = [self._enrich_with_drift(row) for row in rows]
+        wanted_workload = scope.get("workloadType")
+        if wanted_workload is not None:
+            enriched = [row for row in enriched if row["workloadType"] == wanted_workload]
         return DeliveryDeploymentsResult(deployments=enriched, totalCount=len(enriched), tookMs=0)
 
     def _to_deployment_row(self, event: DeploymentEventRecord) -> DeliveryDeployment:
@@ -326,6 +364,7 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
             failureReason="training failed" if failed else "",
             incidentId=f"INC-{event['name'][-6:]}" if failed else "",
             leadTimeMs=round((finished - started).total_seconds() * 1000),
+            workloadType=workload_type_for(event["changeType"]),
             changeType=event["changeType"],
             driftTriggered=False,
             evalCoverage=None,
@@ -397,6 +436,9 @@ class PrometheusDeliveryObserverAdapter(IDeliveryObserverAdapter):
         if "mttr" not in wanted:
             result["summary"]["mttr"] = None
             result["series"]["mttr"] = None
+        if "reworkRate" not in wanted:
+            result["summary"]["reworkRate"] = None
+            result["series"]["reworkRate"] = None
 
     def _range_by_bucket(
         self, promql_template: str, buckets: list[datetime], end: datetime, step_seconds: int

@@ -2,15 +2,21 @@
 
 from datetime import UTC, datetime, timedelta
 
-from adapters.delivery.interfaces import DeliveryScope
+from adapters.delivery.interfaces import DeliveryScope, WorkloadType
 from adapters.delivery.mock_delivery_observer_adapter import MockDeliveryObserverAdapter
 
 _START = datetime(2026, 8, 1, tzinfo=UTC)
 _END = _START + timedelta(days=30)
 
 
-def _scope(project: str | None = None) -> DeliveryScope:
-    return DeliveryScope(namespace="default", project=project, component=None, environment=None)
+def _scope(project: str | None = None, workload_type: WorkloadType | None = None) -> DeliveryScope:
+    return DeliveryScope(
+        namespace="default",
+        project=project,
+        component=None,
+        environment=None,
+        workloadType=workload_type,
+    )
 
 
 def test_query_metrics_is_deterministic_per_seed() -> None:

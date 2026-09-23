@@ -211,8 +211,9 @@ async def test_send_message_use_tools_gates_destructive_tool_behind_confirmation
 
 @pytest.mark.asyncio
 async def test_send_message_use_tools_scopes_tool_list_to_persona() -> None:
-    """k8s is read-only — the model must never even be offered a mutating tool."""
-    request = ChatRequest(message="how's the cluster", use_tools=True, persona="k8s")
+    """An unregistered persona is deny-by-default (empty tool set) — the
+    model must never even be offered a mutating tool for it."""
+    request = ChatRequest(message="how's the cluster", use_tools=True, persona="unregistered")
     mock_mcp_registry = MagicMock()
     mock_mcp_registry.list_tools.return_value = []
 
@@ -228,8 +229,8 @@ async def test_send_message_use_tools_scopes_tool_list_to_persona() -> None:
 
         await send_message(request, _http_request(mock_mcp_registry))
 
-    mock_mcp_registry.list_tools.assert_called_once_with(allowed_tools_for("k8s"))
-    assert "activate_prompt" not in allowed_tools_for("k8s")
+    mock_mcp_registry.list_tools.assert_called_once_with(allowed_tools_for("unregistered"))
+    assert "activate_prompt" not in allowed_tools_for("unregistered")
 
 
 @pytest.mark.asyncio
@@ -270,7 +271,7 @@ async def test_send_message_confirmed_tool_call_executes_directly_without_the_ll
 async def test_send_message_confirmed_tool_call_rejects_tool_outside_persona_scope() -> None:
     request = ChatRequest(
         message="do it",
-        persona="k8s",
+        persona="unregistered",
         confirmed_tool_call={"name": "activate_prompt", "arguments": {}},
     )
     mock_mcp_registry = MagicMock()

@@ -79,6 +79,14 @@ def draft_prompt(name: str, persona: str, content: str) -> dict:
 
 
 @mcp.tool(annotations=AUTO_EXECUTABLE)
+def draft_eval_set(name: str, questions: list[str]) -> dict:
+    """Register a new version of a named, reusable eval-case set — so
+    evaluate_prompt/rag_evaluate can grade successive versions of the same
+    artifact against the same benchmark instead of ad hoc questions."""
+    return _post("/eval-sets", {"name": name, "questions": questions})
+
+
+@mcp.tool(annotations=AUTO_EXECUTABLE)
 def evaluate_prompt(
     name: str, version: str, eval_cases: list[EvalCase], model: str = "claude-sonnet-5"
 ) -> dict:
@@ -90,8 +98,22 @@ def evaluate_prompt(
 
 
 @mcp.tool(annotations=NEEDS_CONFIRMATION)
-def activate_prompt(name: str, version: str, confirm: bool = False) -> dict:
+def activate_prompt(
+    name: str,
+    version: str,
+    environment: str = "production",
+    is_rollback: bool = False,
+    confirm: bool = False,
+) -> dict:
     """Activate a prompt version for the chat endpoint — mutates live state.
+
+    `environment` ("development" | "staging" | "production") is tracked
+    independently per environment — activating in "development" doesn't
+    touch what "production" (the default, what chat.py reads) is serving.
+
+    `is_rollback=True` reactivates a previously-active version without
+    re-running the Evaluate Gate — same request either way, only the DORA
+    deployment-event label (`deploy` vs `rollback`) differs.
 
     `confirm` must be explicitly True (chat.py only ever sets it after the
     human approves the pending-confirmation prompt — never from raw model
@@ -100,7 +122,10 @@ def activate_prompt(name: str, version: str, confirm: bool = False) -> dict:
     error = _require_confirmed_mutation(confirm)
     if error is not None:
         return error
-    return _post(f"/prompts/{name}/activate", {"version": version})
+    return _post(
+        f"/prompts/{name}/activate",
+        {"version": version, "environment": environment, "is_rollback": is_rollback},
+    )
 
 
 @mcp.tool(annotations=AUTO_EXECUTABLE)
@@ -142,15 +167,30 @@ def rag_evaluate(
 
 
 @mcp.tool(annotations=NEEDS_CONFIRMATION)
-def rag_activate(collection: str, index_version: str, confirm: bool = False) -> dict:
+def rag_activate(
+    collection: str,
+    index_version: str,
+    environment: str = "production",
+    is_rollback: bool = False,
+    confirm: bool = False,
+) -> dict:
     """Activate a RAG index version for the chat endpoint — mutates live state.
 
-    See `activate_prompt`'s docstring — same `confirm` + MUTATE_SCOPE gate.
+    See `activate_prompt`'s docstring — same `environment`, `is_rollback`,
+    `confirm` + MUTATE_SCOPE gate.
     """
     error = _require_confirmed_mutation(confirm)
     if error is not None:
         return error
-    return _post("/rag/activate", {"collection": collection, "index_version": index_version})
+    return _post(
+        "/rag/activate",
+        {
+            "collection": collection,
+            "index_version": index_version,
+            "environment": environment,
+            "is_rollback": is_rollback,
+        },
+    )
 
 
 if __name__ == "__main__":

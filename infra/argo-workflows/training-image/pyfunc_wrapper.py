@@ -1,7 +1,7 @@
 """Generic `mlflow.pyfunc.PythonModel` wrapper — any object exposing
 `.predict(X)` becomes servable through the same KServe `"mlflow"`
 servingRuntime the sklearn/DL paths already use, no per-preset serving
-code. Built for BYOC, reused unchanged by CV and RecSys.
+code. Reused unchanged by CV and RecSys.
 """
 
 from typing import Any

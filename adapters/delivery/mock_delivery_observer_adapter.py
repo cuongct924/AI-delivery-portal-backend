@@ -31,6 +31,8 @@ from adapters.delivery.interfaces import (
     DeliveryMetricsResult,
     DeliveryMttrPoint,
     DeliveryMttrSummary,
+    DeliveryReworkRatePoint,
+    DeliveryReworkRateSummary,
     DeliveryScope,
     DeliverySeries,
     DeliverySummary,
@@ -40,12 +42,13 @@ from adapters.delivery.interfaces import (
     LifecyclePhase,
     RecoveryStrategy,
     SemanticFailureType,
+    workload_type_for,
 )
 
 # MLOps Golden Path templates — fallback component names when scope doesn't pin one.
 _MLOPS_TEMPLATES: Final[tuple[str, ...]] = (
     "train-track-register",
-    "register-deploy",
+    "evaluate-deploy-model",
     "setup-model-monitoring",
 )
 _MLOPS_PROJECTS: Final[tuple[str, ...]] = (
@@ -127,6 +130,19 @@ def _classify_rate(rate: float) -> str:
     return "Low"
 
 
+_CHANGE_TYPES_BY_WORKLOAD: Final[dict[str, tuple[ChangeType, ...]]] = {
+    "service": ("infra",),
+    "ml_model": ("model",),
+    "llm_app": ("rag_index", "prompt"),
+}
+
+
+def _change_types_for(workload_type: str | None) -> tuple[ChangeType, ...]:
+    if workload_type is None:
+        return _CHANGE_TYPES
+    return _CHANGE_TYPES_BY_WORKLOAD[workload_type]
+
+
 def _seed(scope: DeliveryScope) -> int:
     key = "|".join(
         [
@@ -203,16 +219,19 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
         failure_rate = rng.uniform(0.05, 0.28)
         lead_mu = rng.uniform(1.2, 2.2)
         mttr_mu = rng.uniform(0.8, 1.8)
+        rework_rate = rng.uniform(0.05, 0.25)
 
         freq_points: list[DeliveryFrequencyPoint] = []
         cfr_points: list[DeliveryChangeFailureRatePoint] = []
         lead_points: list[DeliveryLeadTimePoint] = []
         mttr_points: list[DeliveryMttrPoint] = []
+        rework_points: list[DeliveryReworkRatePoint] = []
         all_lead_ms: list[float] = []
         all_mttr_ms: list[float] = []
         total_deployments = 0
         total_failed = 0
         total_semantic_failed = 0
+        total_reworked = 0
 
         for bucket in buckets:
             days = _DAYS_PER_BUCKET[granularity]
@@ -232,6 +251,17 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
                     bucketStart=bucket.isoformat(),
                     rate=(failed / count) if count else 0.0,
                     failed=failed,
+                    total=count,
+                )
+            )
+
+            reworked = sum(1 for _ in range(count) if rng.random() < rework_rate)
+            total_reworked += reworked
+            rework_points.append(
+                DeliveryReworkRatePoint(
+                    bucketStart=bucket.isoformat(),
+                    rate=(reworked / count) if count else 0.0,
+                    reworked=reworked,
                     total=count,
                 )
             )
@@ -274,6 +304,7 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
         lead_p95 = _percentile(all_lead_ms, 0.95) if all_lead_ms else None
         mttr_mean = (sum(all_mttr_ms) / len(all_mttr_ms)) if all_mttr_ms else None
         mttr_p50 = _percentile(all_mttr_ms, 0.5) if all_mttr_ms else None
+        overall_rework_rate = (total_reworked / total_deployments) if total_deployments else 0.0
 
         return DeliveryMetricsResult(
             dataAvailability=DeliveryAvailability(
@@ -320,12 +351,20 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
                     classification=_classify_duration(mttr_mean),
                     deltaPct=round(rng.uniform(-20, 20), 1),
                 ),
+                reworkRate=DeliveryReworkRateSummary(
+                    rate=round(overall_rework_rate, 4),
+                    reworked=total_reworked,
+                    total=total_deployments,
+                    classification=_classify_rate(overall_rework_rate),
+                    deltaPct=round(rng.uniform(-20, 20), 1),
+                ),
             ),
             series=DeliverySeries(
                 deploymentFrequency=freq_points,
                 leadTime=lead_points,
                 changeFailureRate=cfr_points,
                 mttr=mttr_points,
+                reworkRate=rework_points,
             ),
         )
 
@@ -490,12 +529,14 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
                     classification=_classify_duration(mttr_mean),
                     deltaPct=round(rng.uniform(-20, 20), 1),
                 ),
+                reworkRate=None,
             ),
             series=DeliverySeries(
                 deploymentFrequency=freq_points,
                 leadTime=lead_points,
                 changeFailureRate=cfr_points,
                 mttr=mttr_points,
+                reworkRate=None,
             ),
         )
 
@@ -517,6 +558,9 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
         if "mttr" not in wanted:
             result["summary"]["mttr"] = None
             result["series"]["mttr"] = None
+        if "reworkRate" not in wanted:
+            result["summary"]["reworkRate"] = None
+            result["series"]["reworkRate"] = None
 
     def _build_deployments(
         self,
@@ -539,7 +583,7 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
             project = scope["project"] or rng.choice(_MLOPS_PROJECTS)
             environment = scope["environment"] or rng.choice(_ENVIRONMENTS)
             lead_time_ms = round(rng.lognormvariate(1.6, 0.7) * 3_600_000)
-            change_type = rng.choice(_CHANGE_TYPES)
+            change_type = rng.choice(_change_types_for(scope.get("workloadType")))
             is_ml_change = change_type != "infra"
             failure_class: Literal["infra", "semantic"] | None = None
             semantic_type: SemanticFailureType | None = None
@@ -571,6 +615,7 @@ class MockDeliveryObserverAdapter(IDeliveryObserverAdapter):
                     failureReason="eval score below threshold" if failed else "",
                     incidentId=f"INC-{rng.randint(1000, 9999)}" if failed else "",
                     leadTimeMs=lead_time_ms,
+                    workloadType=workload_type_for(change_type),
                     changeType=change_type,
                     driftTriggered=is_ml_change and rng.random() < 0.12,
                     evalCoverage=round(rng.uniform(0.5, 1.0), 2) if is_ml_change else None,

@@ -41,6 +41,12 @@ os.environ.setdefault(
     "LLMOPS_REGISTRY_PATH", os.path.join(tempfile.mkdtemp(), "llmops-registry.json")
 )
 
+# Same reasoning as LLMOPS_REGISTRY_PATH above: routers.costs constructs a
+# module-level JsonFileCostLedgerAdapter() at import time, which reads this env
+# var in __init__. Redirect it to a fresh temp file so a test run never reads
+# or pollutes the real .state/cost-ledger.json.
+os.environ.setdefault("COST_LEDGER_PATH", os.path.join(tempfile.mkdtemp(), "cost-ledger.json"))
+
 import idempotency  # noqa: E402
 import mlflow.pyfunc  # noqa: F401, E402
 import torch  # noqa: F401, E402

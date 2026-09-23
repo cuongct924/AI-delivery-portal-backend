@@ -1,18 +1,20 @@
 """Prompt Registry API — versions system prompts separately from the Model
 Registry (see docs/architecture.md). Backed by MLflow's native Prompt
 Registry (MlflowPromptRegistryAdapter, kind="prompt"), not routers/rag.py's
-file-backed "rag-index" adapter. Two personas ("mlops", "k8s") seed at
-import time; new ones register via POST /prompts."""
+file-backed "rag-index" adapter. The "mlops" persona seeds at import time;
+new ones register via POST /prompts."""
 
 from datetime import datetime
 
 from auth.thunder import get_current_user
+from costs.events import record_cost_event
 from evaluations.evaluate_gate import evaluate_gate
 from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
+from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT
 from adapters.factory import (
     get_deployment_event_store,
     get_eval_result_adapter,
@@ -38,6 +40,7 @@ class PromptVersionsResponse(BaseModel):
 
 class PromptActiveVersionResponse(BaseModel):
     name: str
+    environment: str
     active_version: str | None
 
 
@@ -85,25 +88,37 @@ class EvaluatePromptResponse(BaseModel):
 
 class ActivatePromptRequest(BaseModel):
     version: str
+    # "development" | "staging" | "production" — each tracked as its own
+    # independent active version (IVersionRegistryAdapter.set_active_version).
+    # Defaults to DEFAULT_ENVIRONMENT so every pre-existing caller (chat.py,
+    # ai-observability-server) that never passed one keeps activating/
+    # reading exactly what "activate" meant before environments existed.
+    environment: str = DEFAULT_ENVIRONMENT
+    # True for a rollback to a previously-active version: same effect as a
+    # normal activate (no re-evaluation is enforced either way — that's
+    # purely a template/caller-side convention), but tagged as "rollback"
+    # rather than "deploy" in the DORA deployment-event stream, mirroring
+    # routers/models.py's PrepareDeployRequest.action="rollback".
+    is_rollback: bool = False
 
 
 class ActivatePromptResponse(BaseModel):
     name: str
+    environment: str
     active_version: str
 
 
 def _seed_default_prompts() -> None:
+    # "k8s" (Kubernetes read-only ops assistant) was removed — OpenChoreo's
+    # own built-in MCP server now covers pod/log/event lookups, so this
+    # Portal-native persona duplicated coverage the platform already
+    # provides. See persona_tool_scope.py's module docstring.
     defaults = {
         "mlops": {
             "persona": "MLOps Assistant",
             "content": "You are the MLOps assistant for the AI Delivery Portal. You help "
             "ML engineers look up experiments, model registry entries, and deploy "
             "status via MCP tools.",
-        },
-        "k8s": {
-            "persona": "K8s Assistant",
-            "content": "You are the Kubernetes operations assistant. You may only read "
-            "status (pods, logs, events) via MCP tools — you have no write/delete permission.",
         },
     }
     for name, metadata in defaults.items():
@@ -133,12 +148,17 @@ def list_prompt_versions(
 
 @router.get("/{name}/active", response_model=PromptActiveVersionResponse)
 def get_prompt_active_version(
-    name: str, user: dict = Depends(get_current_user)
+    name: str, environment: str = DEFAULT_ENVIRONMENT, user: dict = Depends(get_current_user)
 ) -> PromptActiveVersionResponse:
     # Mirrors rag.py's get_rag_active_version — added for ai-observability-server's
     # get_active_prompt_version, which previously filtered every persona client-side.
+    # `environment` query param defaults to DEFAULT_ENVIRONMENT, so an
+    # existing caller that never passed one keeps reading exactly what it
+    # read before environments existed.
     return PromptActiveVersionResponse(
-        name=name, active_version=registry_adapter.get_active_version("prompt", name)
+        name=name,
+        environment=environment,
+        active_version=registry_adapter.get_active_version("prompt", name, environment),
     )
 
 
@@ -223,6 +243,22 @@ def evaluate_prompt(
     pass_rate = passed_count / len(results) if results else 0.0
     overall_passed = pass_rate >= 0.8
 
+    # Attribute the real judge spend to the prompt version's gate stage. The
+    # per-call cost comes straight from LiteLLM's response header, so this is
+    # real data, not an estimate.
+    record_cost_event(
+        stage="gate",
+        artifact_kind="prompt",
+        artifact_id=name,
+        version=request.version,
+        environment=DEFAULT_ENVIRONMENT,
+        cost_usd=total_cost_usd if cost_known else 0.0,
+        quantity=float(total_tokens),
+        unit="token",
+        source="litellm",
+        run_id=f"eval-prompt-{name}-{request.version}",
+    )
+
     # Emit DORA gate evaluation metric (LLMOps track, prompt)
     GATE_EVALUATIONS.labels(
         track="llmops",
@@ -244,22 +280,28 @@ def evaluate_prompt(
 def activate_prompt(
     name: str, request: ActivatePromptRequest, user: dict = Depends(get_current_user)
 ) -> ActivatePromptResponse:
-    registry_adapter.set_active_version("prompt", name, request.version)
+    registry_adapter.set_active_version("prompt", name, request.version, request.environment)
+
+    event_type = "rollback" if request.is_rollback else "deploy"
 
     # Emit DORA deployment event (LLMOps track)
     DEPLOYMENT_EVENTS.labels(
         track="llmops",
         subject_type="prompt",
         subject_id=name,
-        event_type="deploy",
+        event_type=event_type,
     ).inc()
     now = datetime.now().isoformat()
     deployment_event_store.record_event(
-        name=f"prompt-activate-{name}-{now}",
+        name=f"prompt-{event_type}-{name}-{now}",
         change_type="prompt",
         project_name=name,
         component_name="prompt",
-        environment_name="development",
+        # Reflects the environment actually activated — this used to be
+        # hardcoded to "development" regardless of what happened, which
+        # made Delivery Insights unable to tell dev/staging/prod activity
+        # apart for the LLMOps prompt track.
+        environment_name=request.environment,
         outcome="success",
         started_at=now,
         finished_at=now,
@@ -275,4 +317,6 @@ def activate_prompt(
             subject_id=name,
         ).observe(recovery_seconds)
 
-    return ActivatePromptResponse(name=name, active_version=request.version)
+    return ActivatePromptResponse(
+        name=name, environment=request.environment, active_version=request.version
+    )

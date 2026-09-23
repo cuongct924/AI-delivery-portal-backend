@@ -14,6 +14,8 @@ from typing import Final, cast
 
 import pandas as pd
 from auth.thunder import get_current_user
+from costs.events import record_cost_event
+from costs.pricing import CPU_HOUR_USD, train_estimate_hours
 from data_quality.checks import CheckResult
 from data_quality.registry import run_checks
 from evaluations.evaluate_gate import MetricsGateResult, evaluate_metrics_gate
@@ -110,10 +112,6 @@ class TriggerTrainingRequest(BaseModel):
     # Dev-facing optimizer choice ("adam"/"sgd", optimizers.py) — only used
     # for architecture="mlp"/"lstm"/"nlp"/"cv", defaults to "adam" when unset.
     optimizer: str | None = None
-    # BYOC — only used when algorithm="custom".
-    code_repo_url: str | None = None
-    entrypoint_path: str | None = None
-    custom_config: str | None = None
     # HPO — only used when architecture is "mlp"/"lstm" and search_strategy
     # is not "fixed" (the default).
     search_strategy: str | None = None
@@ -391,12 +389,6 @@ def trigger_training(
         parameters["batch-size"] = str(request.batch_size)
     if request.optimizer is not None:
         parameters["optimizer"] = request.optimizer
-    if request.code_repo_url is not None:
-        parameters["code-repo-url"] = request.code_repo_url
-    if request.entrypoint_path is not None:
-        parameters["entrypoint-path"] = request.entrypoint_path
-    if request.custom_config is not None:
-        parameters["custom-config"] = request.custom_config
     if request.search_strategy is not None:
         parameters["search-strategy"] = request.search_strategy
     if request.num_trials is not None:
@@ -417,6 +409,23 @@ def trigger_training(
         metadata = cast(dict[str, object], result["metadata"])
         workflow_name = str(metadata["name"])
         _TRAINING_MODEL_NAMES[workflow_name] = request.model_name
+        # Attribute the run's compute to the model's build stage. The real
+        # duration is only known once the workflow finishes, so this prices a
+        # nominal run length scaled by the form's own cost drivers (epochs,
+        # HPO trials) — source=workflow-estimate keeps that honest.
+        hours = train_estimate_hours(request.epochs, request.num_trials)
+        record_cost_event(
+            stage="build",
+            artifact_kind="model",
+            artifact_id=request.model_name,
+            environment="development",
+            cost_usd=hours * CPU_HOUR_USD,
+            quantity=hours,
+            unit="cpu-hour",
+            unit_price=CPU_HOUR_USD,
+            source="workflow-estimate",
+            run_id=workflow_name,
+        )
         return TriggerTrainingResponse(workflow_name=workflow_name)
 
     return get_or_compute(idempotency_key, _do_trigger)

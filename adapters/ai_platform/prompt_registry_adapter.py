@@ -14,10 +14,18 @@ from mlflow.exceptions import MlflowException
 from mlflow.tracking import MlflowClient
 
 from adapters.ai_platform._mlflow import get_mlflow_tracking_uri
-from adapters.ai_platform.interfaces import IVersionRegistryAdapter
+from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT, IVersionRegistryAdapter
 
+# Kept as the bare "active" alias for DEFAULT_ENVIRONMENT specifically (not
+# e.g. "active-production") so a prompt version already aliased "active" by
+# a pre-environment run of this adapter is still read as production's —
+# only non-default environments get their own "active-<environment>" alias.
 _ACTIVE_ALIAS = "active"
 _SUPPORTED_KIND = "prompt"
+
+
+def _alias_for(environment: str) -> str:
+    return _ACTIVE_ALIAS if environment == DEFAULT_ENVIRONMENT else f"{_ACTIVE_ALIAS}-{environment}"
 
 
 class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
@@ -70,18 +78,24 @@ class MlflowPromptRegistryAdapter(IVersionRegistryAdapter):
             version += 1
         return versions
 
-    def get_active_version(self, kind: str, name: str) -> str | None:
+    def get_active_version(
+        self, kind: str, name: str, environment: str = DEFAULT_ENVIRONMENT
+    ) -> str | None:
         self._check_kind(kind)
         try:
-            pv = self.client.get_prompt_version_by_alias(name=name, alias=_ACTIVE_ALIAS)
+            pv = self.client.get_prompt_version_by_alias(name=name, alias=_alias_for(environment))
         except MlflowException:
             return None
         return str(pv.version)
 
-    def set_active_version(self, kind: str, name: str, version: str) -> None:
+    def set_active_version(
+        self, kind: str, name: str, version: str, environment: str = DEFAULT_ENVIRONMENT
+    ) -> None:
         self._check_kind(kind)
         try:
-            mlflow.genai.set_prompt_alias(name=name, alias=_ACTIVE_ALIAS, version=int(version))
+            mlflow.genai.set_prompt_alias(
+                name=name, alias=_alias_for(environment), version=int(version)
+            )
         except MlflowException as exc:
             # Any MlflowException here means the version doesn't exist.
             raise ValueError(f"{kind}/{name} has no registered versions") from exc

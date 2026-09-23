@@ -20,9 +20,11 @@ import os
 from functools import lru_cache
 from typing import Literal, cast
 
+from adapters.ai_platform.cost_adapter import JsonFileCostLedgerAdapter
 from adapters.ai_platform.feature_store_adapter import FeastAdapter
 from adapters.ai_platform.huggingface_hub_adapter import HuggingFaceHubAdapter
 from adapters.ai_platform.interfaces import (
+    ICostAdapter,
     IEvalResultAdapter,
     IHuggingFaceHubAdapter,
     ILLMGatewayAdapter,
@@ -142,6 +144,14 @@ def get_prompt_registry_adapter() -> IVersionRegistryAdapter:
 def get_prediction_log_adapter() -> IPredictionLogAdapter:
     # No mock/real split — SQLite has no external service to fake out.
     return SqlitePredictionLogAdapter()
+
+
+@lru_cache
+def get_cost_adapter() -> ICostAdapter:
+    # No mock/real split — the ledger is a local append-only file, and the
+    # sources it aggregates (LiteLLM/MLflow/observer) are read by the callers
+    # that record entries, not by this adapter.
+    return JsonFileCostLedgerAdapter()
 
 
 @lru_cache

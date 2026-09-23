@@ -35,8 +35,7 @@ _TRANSFORM = transforms.Compose(
 
 class CVModel:
     """Wraps the fine-tuned backbone + class names for serving — the object
-    `pyfunc_wrapper.GenericPyfuncWrapper` delegates `.predict()` to, reused
-    unchanged from BYOC."""
+    `pyfunc_wrapper.GenericPyfuncWrapper` delegates `.predict()` to."""
 
     def __init__(self, backbone: nn.Module, class_names: list[str]) -> None:
         self._backbone = backbone

@@ -108,6 +108,61 @@ def test_create_notebook_returns_an_active_notebook(notebook_adapter: MockNotebo
     assert status["url"] is not None
 
 
+def test_create_notebook_keeps_the_requested_resource_profile(
+    notebook_adapter: MockNotebookAdapter,
+) -> None:
+    status = notebook_adapter.create_notebook(
+        "pytorch-cuda",
+        ram_gb=16,
+        gpu_type="a100",
+        cpu_cores=4,
+        gpu_count=2,
+        storage_gb=100,
+        idle_timeout_minutes=30,
+    )
+
+    assert status["environment"] == "pytorch-cuda"
+    assert status["cpu_cores"] == 4
+    assert status["ram_gb"] == 16
+    assert status["gpu_type"] == "a100"
+    assert status["gpu_count"] == 2
+    assert status["storage_gb"] == 100
+    assert status["idle_timeout_minutes"] == 30
+
+
+def test_cpu_only_notebook_has_zero_gpus(notebook_adapter: MockNotebookAdapter) -> None:
+    status = notebook_adapter.create_notebook("sklearn-cpu", ram_gb=4, gpu_count=2)
+
+    assert status["gpu_type"] is None
+    assert status["gpu_count"] == 0
+
+
+def test_stop_then_start_toggles_active_and_keeps_storage(
+    notebook_adapter: MockNotebookAdapter,
+) -> None:
+    created = notebook_adapter.create_notebook("pytorch", ram_gb=8, storage_gb=50)
+
+    stopped = notebook_adapter.stop_notebook(created["notebook_id"])
+    assert stopped["active"] is False
+    assert stopped["url"] is None
+    assert stopped["storage_gb"] == 50
+
+    started = notebook_adapter.start_notebook(created["notebook_id"])
+    assert started["active"] is True
+    assert started["url"] is not None
+
+
+def test_list_notebooks_returns_every_created_notebook(
+    notebook_adapter: MockNotebookAdapter,
+) -> None:
+    first = notebook_adapter.create_notebook("pytorch", ram_gb=8)
+    second = notebook_adapter.create_notebook("tensorflow", ram_gb=8)
+
+    ids = {n["notebook_id"] for n in notebook_adapter.list_notebooks()}
+
+    assert ids == {first["notebook_id"], second["notebook_id"]}
+
+
 def test_get_notebook_status_returns_what_was_created(
     notebook_adapter: MockNotebookAdapter,
 ) -> None:

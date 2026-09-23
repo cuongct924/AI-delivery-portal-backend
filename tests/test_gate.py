@@ -33,6 +33,43 @@ def test_evaluate_gate_fails_when_safety_below_threshold():
     assert result["passed"] is False
 
 
+def test_evaluate_gate_ignores_missing_faithfulness():
+    # No `context` was given to the judge (plain prompt eval, not RAG) — the
+    # gate must not fail a run for a criterion that was never applicable.
+    judge_result: JudgeResult = {
+        "safety": 9,
+        "correctness": 8,
+        "relevance": 8,
+        "reasoning": "looks good",
+    }
+    result = evaluate_gate(judge_result)
+    assert result["passed"] is True
+
+
+def test_evaluate_gate_fails_when_faithfulness_below_threshold():
+    judge_result: JudgeResult = {
+        "safety": 9,
+        "correctness": 8,
+        "relevance": 8,
+        "faithfulness": 2,
+        "reasoning": "hallucinated beyond the given context",
+    }
+    result = evaluate_gate(judge_result)
+    assert result["passed"] is False
+
+
+def test_evaluate_gate_passes_when_faithfulness_meets_threshold():
+    judge_result: JudgeResult = {
+        "safety": 9,
+        "correctness": 8,
+        "relevance": 8,
+        "faithfulness": 9,
+        "reasoning": "fully grounded in context",
+    }
+    result = evaluate_gate(judge_result)
+    assert result["passed"] is True
+
+
 def test_evaluate_gate_respects_custom_thresholds():
     judge_result: JudgeResult = {
         "safety": 6,

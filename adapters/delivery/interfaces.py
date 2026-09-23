@@ -216,6 +216,20 @@ type SemanticFailureType = Literal[
     "accuracy_drop", "drift", "hallucination", "guardrail", "prompt_injection"
 ]
 type RecoveryStrategy = Literal["rollback", "fallback", "guardrail", "retrain"]
+type WorkloadType = Literal["service", "ml_model", "llm_app"]
+
+_WORKLOAD_TYPE_BY_CHANGE_TYPE: dict[ChangeType, WorkloadType] = {
+    "model": "ml_model",
+    "rag_index": "llm_app",
+    "prompt": "llm_app",
+    "infra": "service",
+}
+
+
+def workload_type_for(change_type: ChangeType | None) -> WorkloadType | None:
+    if change_type is None:
+        return None
+    return _WORKLOAD_TYPE_BY_CHANGE_TYPE[change_type]
 
 
 class DeliveryScope(TypedDict):
@@ -223,6 +237,7 @@ class DeliveryScope(TypedDict):
     project: str | None
     component: str | None
     environment: str | None
+    workloadType: WorkloadType | None
 
 
 class DeliveryDeployment(TypedDict):
@@ -241,6 +256,7 @@ class DeliveryDeployment(TypedDict):
     failureReason: str
     incidentId: str
     leadTimeMs: int | None
+    workloadType: WorkloadType | None
     changeType: ChangeType | None
     driftTriggered: bool
     evalCoverage: float | None
@@ -290,11 +306,20 @@ class DeliveryMttrSummary(TypedDict):
     deltaPct: float | None
 
 
+class DeliveryReworkRateSummary(TypedDict):
+    rate: float
+    reworked: int
+    total: int
+    classification: str
+    deltaPct: float | None
+
+
 class DeliverySummary(TypedDict):
     deploymentFrequency: DeliveryFrequencySummary | None
     leadTime: DeliveryLeadTimeSummary | None
     changeFailureRate: DeliveryChangeFailureRateSummary | None
     mttr: DeliveryMttrSummary | None
+    reworkRate: DeliveryReworkRateSummary | None
 
 
 class DeliveryFrequencyPoint(TypedDict):
@@ -323,11 +348,19 @@ class DeliveryMttrPoint(TypedDict):
     count: int
 
 
+class DeliveryReworkRatePoint(TypedDict):
+    bucketStart: str
+    rate: float
+    reworked: int
+    total: int
+
+
 class DeliverySeries(TypedDict):
     deploymentFrequency: list[DeliveryFrequencyPoint] | None
     leadTime: list[DeliveryLeadTimePoint] | None
     changeFailureRate: list[DeliveryChangeFailureRatePoint] | None
     mttr: list[DeliveryMttrPoint] | None
+    reworkRate: list[DeliveryReworkRatePoint] | None
 
 
 class DeliveryAvailability(TypedDict):

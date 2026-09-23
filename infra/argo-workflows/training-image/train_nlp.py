@@ -1,7 +1,7 @@
 """Text classification training — fine-tunes a pretrained HuggingFace
 sequence-classification model with `transformers.Trainer`. Same role as
-`train_dl.py`/`byoc_runner.py`: a separate script `train.py` dispatches
-into, not a rewrite of the shared split/gate/register flow.
+`train_dl.py`: a separate script `train.py` dispatches into, not a rewrite
+of the shared split/gate/register flow.
 """
 
 from typing import Any, Final, cast

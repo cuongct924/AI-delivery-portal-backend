@@ -97,6 +97,9 @@ def test_rag_evaluate_computes_pass_rate_and_forwards_model() -> None:
             {"role": "user", "content": "q1"},
         ],
     )
+    # The judge must see the same retrieved context the answer was generated
+    # from — otherwise it can't score faithfulness (see llm_judge.py).
+    mock_judge.assert_any_call("q1", "an answer", "context chunk")
 
 
 def test_rag_evaluate_reports_none_cost_when_model_has_no_pricing() -> None:
@@ -150,9 +153,59 @@ def test_rag_activate_calls_set_active_version() -> None:
     with (
         patch("routers.rag.registry_adapter") as mock_registry,
         patch("routers.rag.eval_result_adapter") as mock_eval_result,
+        patch("routers.rag.DEPLOYMENT_EVENTS") as mock_deployment_events,
+        patch("routers.rag.deployment_event_store"),
     ):
         mock_eval_result.get_last_failure_at.return_value = None
         response = rag_activate(request)
 
-    mock_registry.set_active_version.assert_called_once_with("rag-index", "smoke-test", "1")
+    mock_registry.set_active_version.assert_called_once_with(
+        "rag-index", "smoke-test", "1", "production"
+    )
     assert response.active_version == "1"
+    mock_deployment_events.labels.assert_called_once_with(
+        track="llmops",
+        subject_type="rag-index",
+        subject_id="smoke-test",
+        event_type="deploy",
+    )
+
+
+def test_rag_activate_threads_environment_to_registry_and_event_store() -> None:
+    request = RagActivateRequest(collection="smoke-test", index_version="1", environment="staging")
+    with (
+        patch("routers.rag.registry_adapter") as mock_registry,
+        patch("routers.rag.eval_result_adapter") as mock_eval_result,
+        patch("routers.rag.DEPLOYMENT_EVENTS"),
+        patch("routers.rag.deployment_event_store") as mock_event_store,
+    ):
+        mock_eval_result.get_last_failure_at.return_value = None
+        response = rag_activate(request)
+
+    assert response.environment == "staging"
+    mock_registry.set_active_version.assert_called_once_with(
+        "rag-index", "smoke-test", "1", "staging"
+    )
+    assert mock_event_store.record_event.call_args.kwargs["environment_name"] == "staging"
+
+
+def test_rag_activate_tags_rollback_event_type() -> None:
+    request = RagActivateRequest(collection="smoke-test", index_version="1", is_rollback=True)
+    with (
+        patch("routers.rag.registry_adapter"),
+        patch("routers.rag.eval_result_adapter") as mock_eval_result,
+        patch("routers.rag.DEPLOYMENT_EVENTS") as mock_deployment_events,
+        patch("routers.rag.deployment_event_store") as mock_event_store,
+    ):
+        mock_eval_result.get_last_failure_at.return_value = None
+        rag_activate(request)
+
+    mock_deployment_events.labels.assert_called_once_with(
+        track="llmops",
+        subject_type="rag-index",
+        subject_id="smoke-test",
+        event_type="rollback",
+    )
+    assert mock_event_store.record_event.call_args.kwargs["name"].startswith(
+        "rag-rollback-smoke-test-"
+    )

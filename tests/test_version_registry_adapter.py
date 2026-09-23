@@ -2,6 +2,8 @@
 against a real file on tmp_path (no SDK to mock — same convention as other
 pure-I/O adapters with no existing mock precedent)."""
 
+import json
+
 import pytest
 
 from adapters.ai_platform.version_registry_adapter import JsonFileVersionRegistryAdapter
@@ -84,3 +86,48 @@ def test_state_persists_across_separate_adapter_instances(tmp_path) -> None:
     JsonFileVersionRegistryAdapter(path=path).register_version("prompt", "mlops", {"content": "v1"})
     reloaded = JsonFileVersionRegistryAdapter(path=path)
     assert reloaded.list_versions("prompt", "mlops") == {"1": {"content": "v1"}}
+
+
+def test_set_active_version_is_isolated_per_environment(tmp_path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter.register_version("prompt", "mlops", {"content": "v1"})
+    adapter.register_version("prompt", "mlops", {"content": "v2"})
+    adapter.set_active_version("prompt", "mlops", "1", environment="production")
+    adapter.set_active_version("prompt", "mlops", "2", environment="development")
+
+    assert adapter.get_active_version("prompt", "mlops", environment="production") == "1"
+    assert adapter.get_active_version("prompt", "mlops", environment="development") == "2"
+    # No environment argument means production, unchanged from before
+    # environments existed — every pre-existing caller (chat.py,
+    # ai-observability-server) keeps reading exactly what it read before.
+    assert adapter.get_active_version("prompt", "mlops") == "1"
+
+
+def test_get_active_version_returns_none_for_an_environment_never_activated(tmp_path) -> None:
+    adapter = _adapter(tmp_path)
+    adapter.register_version("prompt", "mlops", {"content": "v1"})
+    adapter.set_active_version("prompt", "mlops", "1", environment="production")
+
+    assert adapter.get_active_version("prompt", "mlops", environment="staging") is None
+
+
+def test_get_active_version_migrates_a_pre_environment_file(tmp_path) -> None:
+    # A registry file written before this adapter tracked environments —
+    # bare "active_version" string, no "active_versions" dict at all.
+    path = tmp_path / "registry.json"
+    path.write_text(
+        json.dumps(
+            {
+                "prompt": {
+                    "mlops": {
+                        "versions": {"1": {"content": "v1"}},
+                        "active_version": "1",
+                    }
+                }
+            }
+        )
+    )
+    adapter = JsonFileVersionRegistryAdapter(path=str(path))
+
+    assert adapter.get_active_version("prompt", "mlops") == "1"
+    assert adapter.get_active_version("prompt", "mlops", environment="staging") is None

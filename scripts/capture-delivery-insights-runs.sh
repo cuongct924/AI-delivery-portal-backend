@@ -3,7 +3,7 @@
 # services/orchestration-api/mock_data/delivery_insights_runs.json, which
 # routers/delivery_insights.py serves to the Portal's Delivery Insights page.
 #
-# Re-run after triggering Golden Paths (train-track-register / register-deploy
+# Re-run after triggering Golden Paths (train-track-register / evaluate-deploy-model
 # / setup-model-monitoring) so the dashboard reflects the latest real runs.
 #
 # Usage: bash scripts/capture-delivery-insights-runs.sh

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Final
 
 from auth.thunder import get_current_user, user_has_role
+from costs.events import record_cost_event
+from costs.pricing import gpu_hour_price
 from fastapi import APIRouter, Depends, HTTPException
 from jinja2 import Environment, FileSystemLoader
 from llm_serving.gpu_sizing import estimate_vram_gb, recommend_gpu
@@ -290,5 +292,24 @@ def prepare_llm_deploy_manifest(
     else:
         # PRGatedStrategy.release() is a no-op — safe to reuse unchanged.
         deployed = PRGatedStrategy().release(request.model_name, "1", content)["deployed"]
+
+    # Attribute the GPU serving cost to the model's run stage. Serving is
+    # recurring, so this prices a nominal 24h at the GPU's hourly rate; the
+    # real gpu_type/gpu_count come straight from the form.
+    gpu_hours = request.gpu_count * 24
+    unit_price = gpu_hour_price(request.gpu_type)
+    record_cost_event(
+        stage="run",
+        artifact_kind="llm-serving",
+        artifact_id=request.model_name,
+        version="1",
+        environment=request.environment,
+        cost_usd=gpu_hours * unit_price,
+        quantity=float(gpu_hours),
+        unit="gpu-hour",
+        unit_price=unit_price,
+        source="gpu-pricing",
+        run_id=f"serve-{request.model_name}",
+    )
 
     return PrepareLlmDeployResponse(file_name=file_name, content=content, deployed=deployed)

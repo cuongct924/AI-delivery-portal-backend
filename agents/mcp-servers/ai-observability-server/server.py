@@ -107,26 +107,35 @@ def get_llm_spend(
 
 
 @mcp.tool(annotations=READ_ONLY)
-def get_active_prompt_version(name: str) -> ActiveVersion:
+def get_active_prompt_version(name: str, environment: str = "production") -> ActiveVersion:
     """Which version of a system prompt is currently active. LLMOps
     releases are Instant-only, not PR-gated (docs/llmops-lifecycle-plan.md
     mục Q4) — there is no Git/ArgoCD trail to read this from, unlike a
     model deploy, so this calls orchestration-api's own registry directly.
     Mirrors get_active_rag_version below, which calls the "rag-index"
-    equivalent (GET /rag/{collection})."""
-    response = httpx.get(f"{ORCHESTRATION_API_URL}/prompts/{name}/active", timeout=10)
+    equivalent (GET /rag/{collection}). `environment` defaults to
+    "production" — the version real chat traffic actually uses."""
+    response = httpx.get(
+        f"{ORCHESTRATION_API_URL}/prompts/{name}/active",
+        params={"environment": environment},
+        timeout=10,
+    )
     response.raise_for_status()
     data = response.json()
     return {"name": name, "active_version": data["active_version"]}
 
 
 @mcp.tool(annotations=READ_ONLY)
-def get_active_rag_version(collection: str) -> ActiveVersion:
+def get_active_rag_version(collection: str, environment: str = "production") -> ActiveVersion:
     """Which RAG index version is currently active for a collection. Same
     Instant-only reasoning as get_active_prompt_version — calls
     orchestration-api's GET /rag/{collection} (added alongside this tool;
     no read endpoint existed for RAG's active version before)."""
-    response = httpx.get(f"{ORCHESTRATION_API_URL}/rag/{collection}", timeout=10)
+    response = httpx.get(
+        f"{ORCHESTRATION_API_URL}/rag/{collection}",
+        params={"environment": environment},
+        timeout=10,
+    )
     response.raise_for_status()
     data = response.json()
     return {"name": collection, "active_version": data["active_version"]}

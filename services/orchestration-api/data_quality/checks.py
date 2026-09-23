@@ -5,12 +5,37 @@ ETL validates schema ("does this load"); these checks validate ML fitness
 ("will this train a sane model") — a warehouse table can pass ETL and still
 have leakage, class imbalance, or MNAR missingness that silently wrecks a
 model, so this module runs independently of however the data got here.
+
+Column/Series/shape-level thresholds (target nullability, high missing
+ratio, high cardinality, class balance, dimensionality, date parseability)
+are expressed as Pandera schemas — Pandera already owns "does this column/
+series/dataframe satisfy property X", with standardized, structured failure
+reporting (`SchemaErrors.failure_cases`) instead of a hand-rolled dict
+comprehension per check. Every custom `Check` below passes `ignore_na=False`
+— Pandera's default (`ignore_na=True`) drops null values from the Series
+*before* calling the check function, which silently breaks any check whose
+own predicate is about the null ratio itself (missing-value checks would
+always see a NaN-free Series and never fire).
+
+Cross-column statistical relationships (target-leakage correlation, MNAR
+missingness correlation) stay plain pandas: a Pandera Check only ever sees
+the one column/series/dataframe it's attached to, and both of these need the
+*actual correlation values* back (for the message and for a 2-tier
+blocking/warning threshold), not just a pass/fail — smuggling a second
+column into the check via closure would satisfy the type checker but buys
+nothing over calling pandas directly, since the values still have to be
+extracted separately either way. Whole-row duplicate detection is a similar
+case: Pandera's composite-uniqueness check flags one failure_cases row per
+*column* per duplicate occurrence, not one per duplicate row, so recovering
+the same "N duplicate rows" count pandas' `.duplicated().sum()` gives for
+free would mean re-deriving it from pandas anyway.
 """
 
 from dataclasses import dataclass
 from typing import Literal, cast
 
 import pandas as pd
+import pandera.pandas as pa
 
 Severity = Literal["blocking", "warning", "info"]
 
@@ -36,6 +61,20 @@ class CheckResult:
     details: dict[str, object]
 
 
+def _flagged_columns(errors: pa.errors.SchemaErrors) -> list[str]:
+    """Distinct column names Pandera flagged, in first-seen order — a
+    coerce failure can emit more than one failure_cases row per column."""
+    return list(dict.fromkeys(c for c in errors.failure_cases["column"] if c is not None))
+
+
+def _flagged_row_count(errors: pa.errors.SchemaErrors) -> int:
+    """Distinct row count Pandera flagged — a coerce failure emits one
+    failure_cases row per check it fails against the same value (e.g. both
+    `coerce_dtype` and the resulting `dtype` check), so counting distinct
+    `index` values avoids double-counting the same bad row."""
+    return int(errors.failure_cases["index"].nunique())
+
+
 def check_missing_values(df: pd.DataFrame, target_column: str | None = None) -> CheckResult:
     """Flags missing values — blocking only when the label itself is
     incomplete (can't supervise-train on a missing target); otherwise
@@ -43,10 +82,16 @@ def check_missing_values(df: pd.DataFrame, target_column: str | None = None) -> 
     with the target, calls that out as a signal worth keeping rather than
     naively imputing away (a column that's more often missing for one
     outcome than another is itself predictive)."""
+    target_series = None
     if target_column is not None and target_column in df.columns:
         target_series = cast(pd.Series, df[target_column])
-        if target_series.isna().any():
-            missing_count = int(target_series.isna().sum())
+        target_not_null_schema = pa.DataFrameSchema({target_column: pa.Column(nullable=False)})
+        try:
+            # df[[col]] is a DataFrame at runtime — pandas' stub over-widens
+            # list-of-one column indexing the same way it over-widens df[str].
+            target_not_null_schema.validate(cast(pd.DataFrame, df[[target_column]]), lazy=True)
+        except pa.errors.SchemaErrors as errors:
+            missing_count = _flagged_row_count(errors)
             return CheckResult(
                 "check_missing_values",
                 "blocking",
@@ -54,11 +99,27 @@ def check_missing_values(df: pd.DataFrame, target_column: str | None = None) -> 
                 "cannot train on missing labels",
                 {"target_missing_count": missing_count},
             )
-    else:
-        target_series = None
 
     ratios = cast(pd.Series, df.isna().mean()).to_dict()
-    high_missing = {col: r for col, r in ratios.items() if r > _HIGH_MISSING_RATIO}
+
+    high_missing_schema = pa.DataFrameSchema(
+        {
+            column: pa.Column(
+                nullable=True,
+                checks=pa.Check(
+                    lambda s: not (s.isna().mean() > _HIGH_MISSING_RATIO),
+                    error="high_missing_ratio",
+                    ignore_na=False,
+                ),
+            )
+            for column in df.columns
+        }
+    )
+    try:
+        high_missing_schema.validate(df, lazy=True)
+        high_missing_columns: list[str] = []
+    except pa.errors.SchemaErrors as errors:
+        high_missing_columns = _flagged_columns(errors)
 
     mnar_signals: dict[str, float] = {}
     if target_series is not None and pd.api.types.is_numeric_dtype(target_series):
@@ -82,11 +143,11 @@ def check_missing_values(df: pd.DataFrame, target_column: str | None = None) -> 
             "consider keeping as a signal instead of imputing",
             {"missing_ratios": ratios, "mnar_correlations": mnar_signals},
         )
-    if high_missing:
+    if high_missing_columns:
         return CheckResult(
             "check_missing_values",
             "warning",
-            f"columns with >{_HIGH_MISSING_RATIO:.0%} missing values: {list(high_missing)}",
+            f"columns with >{_HIGH_MISSING_RATIO:.0%} missing values: {high_missing_columns}",
             {"missing_ratios": ratios},
         )
     return CheckResult(
@@ -101,8 +162,17 @@ def check_duplicate_rows(df: pd.DataFrame, target_column: str | None = None) -> 
     # target_column accepted-but-unused so registry.run_checks can call every
     # check with the same (df, target_column=...) signature.
     del target_column
-    duplicate_count = int(df.duplicated().sum())
-    if duplicate_count > 0:
+    schema = pa.DataFrameSchema(
+        checks=pa.Check(lambda d: not d.duplicated().any(), error="duplicate_rows", ignore_na=False)
+    )
+    try:
+        schema.validate(df, lazy=True)
+    except pa.errors.SchemaErrors:
+        # Pandera's own composite-uniqueness check reports one failure_cases
+        # row per column per duplicate occurrence, not one per duplicate
+        # row — recomputing the count via pandas directly is simpler and
+        # exactly matches what the message/details need.
+        duplicate_count = int(df.duplicated().sum())
         return CheckResult(
             "check_duplicate_rows",
             "warning",
@@ -182,8 +252,18 @@ def check_class_imbalance(df: pd.DataFrame, target_column: str | None = None) ->
     if counts.empty:
         return CheckResult("check_class_imbalance", "info", "no rows to evaluate class balance", {})
     ratios = (counts / counts.sum()).to_dict()
-    minority_ratio = min(ratios.values())
-    if minority_ratio < _MINORITY_CLASS_RATIO:
+
+    balance_schema = pa.SeriesSchema(
+        checks=pa.Check(
+            lambda s: not (s.value_counts(normalize=True).min() < _MINORITY_CLASS_RATIO),
+            error="minority_class_too_small",
+            ignore_na=False,
+        )
+    )
+    try:
+        balance_schema.validate(cast(pd.Series, df[target_column]), lazy=True)
+    except pa.errors.SchemaErrors:
+        minority_ratio = min(ratios.values())
         return CheckResult(
             "check_class_imbalance",
             "warning",
@@ -204,20 +284,38 @@ def check_high_cardinality(df: pd.DataFrame, target_column: str | None = None) -
     automatic ordinal encoding — near-unique values encode to near-unique
     codes, giving the model no generalizable signal."""
     del target_column  # unused — see check_duplicate_rows
+    object_columns = df.select_dtypes(include="object").columns
     row_count = len(df)
-    flagged: dict[str, int] = {}
-    for column in df.select_dtypes(include="object").columns:
-        unique_count = df[column].nunique()
-        if unique_count > _HIGH_CARDINALITY_ABSOLUTE or (
-            row_count > 0 and unique_count / row_count > _HIGH_CARDINALITY_RATIO
-        ):
-            flagged[column] = int(unique_count)
-    if flagged:
+
+    def _is_high_cardinality(s: pd.Series) -> bool:
+        unique_count = s.nunique()
+        return not (
+            unique_count > _HIGH_CARDINALITY_ABSOLUTE
+            or (row_count > 0 and unique_count / row_count > _HIGH_CARDINALITY_RATIO)
+        )
+
+    flagged_columns: list[str] = []
+    if len(object_columns) > 0:
+        schema = pa.DataFrameSchema(
+            {
+                column: pa.Column(
+                    checks=pa.Check(_is_high_cardinality, error="high_cardinality", ignore_na=False)
+                )
+                for column in object_columns
+            }
+        )
+        try:
+            schema.validate(cast(pd.DataFrame, df[object_columns]), lazy=True)
+        except pa.errors.SchemaErrors as errors:
+            flagged_columns = _flagged_columns(errors)
+
+    if flagged_columns:
+        cardinalities = {column: int(df[column].nunique()) for column in flagged_columns}
         return CheckResult(
             "check_high_cardinality",
             "warning",
-            f"high-cardinality column(s): {flagged}",
-            {"cardinalities": flagged},
+            f"high-cardinality column(s): {cardinalities}",
+            {"cardinalities": cardinalities},
         )
     return CheckResult("check_high_cardinality", "info", "no high-cardinality columns found", {})
 
@@ -230,7 +328,17 @@ def check_dimensionality_vs_samples(
     del target_column  # unused — see check_duplicate_rows
     feature_count = df.shape[1]
     sample_count = df.shape[0]
-    if sample_count > 0 and feature_count > sample_count:
+
+    schema = pa.DataFrameSchema(
+        checks=pa.Check(
+            lambda d: not (d.shape[0] > 0 and d.shape[1] > d.shape[0]),
+            error="too_many_features",
+            ignore_na=False,
+        )
+    )
+    try:
+        schema.validate(df, lazy=True)
+    except pa.errors.SchemaErrors:
         return CheckResult(
             "check_dimensionality_vs_samples",
             "warning",
@@ -252,16 +360,28 @@ def check_time_gaps(df: pd.DataFrame, time_column: str) -> CheckResult:
     reasonably even coverage.
 
     Also the only check that verifies `time_column` is actually a date/time
-    column at all: `pd.to_datetime(errors="coerce")` silently turns
-    anything it can't parse into NaT, so a column picked by mistake (wrong
-    dtype, free text) would otherwise just fall through to "not enough
-    timestamps to evaluate gaps" at `info` severity — indistinguishable
-    from a genuinely tiny but valid dataset. Blocking here instead is what
-    actually catches "this architecture=lstm run has no real date column."
+    column at all: Pandera's own `coerce=True` runs the same
+    `pd.to_datetime`-style parsing pandas did directly before, and reports
+    exactly which rows failed to coerce — a column picked by mistake
+    (wrong dtype, free text) surfaces as a blocking failure here instead of
+    silently falling through to "not enough timestamps to evaluate gaps" at
+    `info` severity, indistinguishable from a genuinely tiny but valid
+    dataset.
     """
     raw = df[time_column]
-    parsed = pd.to_datetime(raw, errors="coerce")
-    unparseable_ratio = cast(float, parsed.isna().mean()) if len(raw) > 0 else 0.0
+    schema = pa.DataFrameSchema(
+        {time_column: pa.Column("datetime64[ns]", coerce=True, nullable=True)}
+    )
+    try:
+        parsed_df = schema.validate(cast(pd.DataFrame, df[[time_column]]), lazy=True)
+        unparseable_ratio = 0.0
+    except pa.errors.SchemaErrors as errors:
+        unparseable_ratio = _flagged_row_count(errors) / len(raw) if len(raw) > 0 else 0.0
+        # Coercion still fills in what it could parse — pull it out of the
+        # partially-coerced object Pandera hands back on failure, same as
+        # `pd.to_datetime(raw, errors="coerce")` used to.
+        parsed_df = pd.DataFrame({time_column: pd.to_datetime(raw, errors="coerce")})
+
     if unparseable_ratio > _UNPARSEABLE_TIME_RATIO:
         return CheckResult(
             "check_time_gaps",
@@ -270,7 +390,7 @@ def check_time_gaps(df: pd.DataFrame, time_column: str) -> CheckResult:
             f"{unparseable_ratio:.0%} of values don't parse as a date",
             {"unparseable_ratio": round(unparseable_ratio, 3)},
         )
-    timestamps = parsed.dropna().sort_values()
+    timestamps = cast(pd.Series, parsed_df[time_column]).dropna().sort_values()
     if len(timestamps) < 3:
         return CheckResult("check_time_gaps", "info", "not enough timestamps to evaluate gaps", {})
     gaps = timestamps.diff().dropna()
