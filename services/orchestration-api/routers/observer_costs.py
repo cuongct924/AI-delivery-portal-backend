@@ -143,6 +143,9 @@ def _item(
 ) -> CostItem:
     seed = _seed(namespace, environment, project, component)
     team, domain = _DEMO_ATTRIBUTION.get(project, ("platform-team", "network-infrastructure"))
+    # Serving components carry an inference count so the unit-economics metric
+    # (cost per 1k inferences) has a denominator.
+    usage = {"inferences": float(1000 + seed % 9000)} if component == "serving" else None
     return CostItem(
         component=component,
         startTime=start.isoformat(),
@@ -156,6 +159,7 @@ def _item(
         artifact=component,
         team=team,
         businessDomain=domain,
+        usage=usage,
     )
 
 
