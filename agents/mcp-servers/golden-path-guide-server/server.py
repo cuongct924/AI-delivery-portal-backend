@@ -50,6 +50,14 @@ class GoldenPathGuide(TypedDict):
     steps: list[GoldenPathStep]
 
 
+class CostEstimate(TypedDict):
+    golden_path: str
+    stage: str
+    estimated_cost: float
+    currency: str
+    breakdown: dict[str, float]
+
+
 @mcp.tool(annotations=READ_ONLY)
 def list_golden_paths() -> list[GoldenPathSummary]:
     """List every mlops/llmops Golden Path Scaffolder template — name,
@@ -69,6 +77,33 @@ def get_golden_path_guide(name: str) -> GoldenPathGuide:
     response = httpx.get(f"{ORCHESTRATION_API_URL}/golden-paths/{name}", timeout=10)
     response.raise_for_status()
     return response.json()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def estimate_golden_path_cost(
+    golden_path: str,
+    stage: str,
+    params: dict[str, object] | None = None,
+) -> CostEstimate:
+    """Pre-flight cost estimate (USD) for running a Golden Path, so an agent can
+    answer "how much will this cost". `golden_path` is a name from
+    list_golden_paths; `stage` is build | gate | run; `params` are the path's
+    own cost drivers, e.g. {"gpuType": "H100", "gpuCount": 2} for
+    llm-serve-deploy or {"epochs": 10} for train-track-register."""
+    response = httpx.post(
+        f"{ORCHESTRATION_API_URL}/costs/estimate",
+        json={"golden_path": golden_path, "stage": stage, "params": params or {}},
+        timeout=10,
+    )
+    response.raise_for_status()
+    body = response.json()
+    return {
+        "golden_path": golden_path,
+        "stage": stage,
+        "estimated_cost": body["estimated_cost"],
+        "currency": body.get("currency", "USD"),
+        "breakdown": body.get("breakdown", {}),
+    }
 
 
 if __name__ == "__main__":
