@@ -90,6 +90,9 @@ class CostResourceProfile(BaseModel):
     memoryLimit: str
     cpuCost: float
     memoryCost: float
+    # GPU request/cost, present on GPU-backed components only.
+    gpuRequest: str | None = None
+    gpuCost: float | None = None
 
 
 class CostRecommendationItem(BaseModel):
@@ -313,6 +316,12 @@ def get_cost_recommendations(
         # Right-size to ~60% of the current request, so there's a visible saving.
         cpu_rec = max(10, int(cpu_req * 0.6))
         mem_rec = max(32, int(mem_req * 0.6))
+        # GPU-backed components also get a GPU right-size: drop one GPU when the
+        # utilization is low, so the biggest AI cost line is addressed too.
+        is_gpu = c in ("serving", "training")
+        gpu_req = 1 + seed % 2
+        gpu_rec = max(1, gpu_req - 1) if is_gpu else 0
+        gpu_cost = round(_unit(seed + 4, 2.0, 9.0), 4) if is_gpu else None
         items.append(
             CostRecommendationItem(
                 component=c,
@@ -326,6 +335,8 @@ def get_cost_recommendations(
                     memoryLimit=f"{mem_req * 2}Mi",
                     cpuCost=round(_unit(seed, 0.4, 7.0), 4),
                     memoryCost=round(_unit(seed + 1, 0.2, 4.0), 4),
+                    gpuRequest=f"{gpu_req}" if is_gpu else None,
+                    gpuCost=gpu_cost,
                 ),
                 recommendation=CostResourceProfile(
                     cpuRequest=f"{cpu_rec}m",
@@ -334,6 +345,8 @@ def get_cost_recommendations(
                     memoryLimit=f"{mem_rec * 2}Mi",
                     cpuCost=round(_unit(seed, 0.4, 7.0) * 0.6, 4),
                     memoryCost=round(_unit(seed + 1, 0.2, 4.0) * 0.6, 4),
+                    gpuRequest=f"{gpu_rec}" if is_gpu else None,
+                    gpuCost=round(gpu_cost * 0.6, 4) if gpu_cost is not None else None,
                 ),
             )
         )
