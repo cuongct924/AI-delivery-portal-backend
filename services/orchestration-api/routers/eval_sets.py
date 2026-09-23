@@ -64,6 +64,21 @@ def list_eval_set_versions(
     return EvalSetVersionsResponse(versions=sorted(versions, key=int))
 
 
+def _not_found_detail(name: str) -> str:
+    """Actionable 404 body for a name that was never drafted — the caller
+    (llm-evaluate-activate's fetch-eval-set step) only has a free-text name
+    to go on, so listing what *does* exist turns "not found" into "here's
+    the name you meant" without a second round-trip."""
+    available = registry_adapter.list_names(_KIND)
+    if not available:
+        return (
+            f"Eval set not found: {name!r}. No eval sets registered yet — draft one "
+            "via the 'Draft Prompt / Ingest RAG Data / Draft Eval Set' template "
+            "(artifactKind=eval-set) first."
+        )
+    return f"Eval set not found: {name!r}. Available eval sets: {sorted(available)}"
+
+
 @router.get("/{name}/latest", response_model=EvalSetVersionResponse)
 def get_latest_eval_set_version(
     name: str, user: dict = Depends(get_current_user)
@@ -74,7 +89,7 @@ def get_latest_eval_set_version(
     revision without the caller tracking version numbers itself."""
     versions = registry_adapter.list_versions(_KIND, name)
     if not versions:
-        raise HTTPException(404, f"Eval set not found: {name!r}")
+        raise HTTPException(404, _not_found_detail(name))
     latest_version = max(versions, key=int)
     metadata = registry_adapter.get_version(_KIND, name, latest_version)
     return EvalSetVersionResponse(

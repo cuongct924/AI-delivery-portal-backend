@@ -54,6 +54,9 @@ class PrepareLlmDeployRequest(BaseModel):
     max_context_length: int = 4096
     # "direct" | "blue-green" (same shape as models.py).
     traffic_strategy: str = "direct"
+    # Share of traffic to the new version; only meaningful for a non-direct
+    # strategy. None → 100 (full cutover).
+    traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
     # "dev" | "staging" | "prod" — only "dev" may pair with "instant",
@@ -248,7 +251,7 @@ def prepare_llm_deploy_manifest(
                 f"{request.model_name} has no prior deploy — "
                 "choose deployStrategy=direct for a model's first deploy"
             )
-        traffic_strategy = BlueGreenStrategy()
+        traffic_strategy = BlueGreenStrategy(request.traffic_percent)
 
     traffic_fields = traffic_strategy.render()
     template = _JINJA_ENV.get_template("llm_inference_service.yaml.j2")

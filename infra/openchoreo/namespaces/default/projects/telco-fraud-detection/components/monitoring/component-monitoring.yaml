@@ -1,0 +1,30 @@
+# Drift-monitoring workload — a scheduled job that checks the deployed model
+# for data drift (Golden Path "Set Up Model Monitoring").
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: monitoring
+  namespace: default
+  labels:
+    openchoreo.dev/project: telco-fraud-detection
+spec:
+  owner:
+    projectName: telco-fraud-detection
+  componentType:
+    kind: ClusterComponentType
+    name: cronjob/scheduled-task
+  autoDeploy: true
+  parameters:
+    restartPolicy: OnFailure
+    concurrencyPolicy: Forbid
+    activeDeadlineSeconds: 120
+    backoffLimit: 1
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

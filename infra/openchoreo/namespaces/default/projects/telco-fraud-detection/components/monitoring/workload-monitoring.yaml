@@ -1,0 +1,20 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: monitoring-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: telco-fraud-detection
+    openchoreo.dev/component: monitoring
+spec:
+  owner:
+    projectName: telco-fraud-detection
+    componentName: monitoring
+  container:
+    image: curlimages/curl:8.11.1
+    command: ["sh", "-c"]
+    args:
+      - >-
+        curl -sS -f -X POST http://host.docker.internal:8000/setup-monitoring
+        -H 'Content-Type: application/json'
+        -d '{"model_name":"fraud-detection","model_version":"1","reference_data_uri":"file:///data/telco-fraud-detection-sample.csv","production_data_source":"managed-prediction-log","schedule":"0 0 * * *","monitoring_type":"data-drift"}'

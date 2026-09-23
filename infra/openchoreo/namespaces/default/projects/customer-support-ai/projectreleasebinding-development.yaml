@@ -1,0 +1,13 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: ProjectReleaseBinding
+metadata:
+  name: customer-support-ai-development
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+    openchoreo.dev/environment: development
+spec:
+  environment: development
+  owner:
+    projectName: customer-support-ai
+  projectRelease: customer-support-ai-0000000000

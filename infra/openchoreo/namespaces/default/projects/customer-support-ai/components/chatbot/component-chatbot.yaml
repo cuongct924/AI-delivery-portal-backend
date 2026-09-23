@@ -1,0 +1,15 @@
+# LLM App workload — a KServe InferenceService serving a self-hosted LLM.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: chatbot
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+spec:
+  owner:
+    projectName: customer-support-ai
+  componentType:
+    kind: ClusterComponentType
+    name: proxy/inference-service
+  autoDeploy: true

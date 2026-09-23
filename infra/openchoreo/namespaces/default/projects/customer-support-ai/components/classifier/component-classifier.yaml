@@ -1,0 +1,16 @@
+# ML Model workload — a KServe InferenceService serving an MLflow-registered
+# intent classifier.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: classifier
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+spec:
+  owner:
+    projectName: customer-support-ai
+  componentType:
+    kind: ClusterComponentType
+    name: proxy/inference-service
+  autoDeploy: true

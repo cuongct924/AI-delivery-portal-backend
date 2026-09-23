@@ -1,0 +1,20 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Project
+metadata:
+  name: customer-support-ai
+  namespace: default
+  labels:
+    openchoreo.dev/name: customer-support-ai
+  annotations:
+    openchoreo.dev/display-name: Customer Support AI
+    openchoreo.dev/description: >-
+      Customer Support AI — a project spanning all three workload types:
+      a Software Service (api), an ML Model (classifier), and an LLM App
+      (chatbot + rag-index).
+spec:
+  type:
+    kind: ClusterProjectType
+    name: default
+  deploymentPipelineRef:
+    kind: DeploymentPipeline
+    name: default

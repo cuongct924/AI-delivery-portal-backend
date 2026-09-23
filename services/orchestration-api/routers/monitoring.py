@@ -31,6 +31,10 @@ MONITOR_DRIFT_TEMPLATE: Final[str] = "monitor-drift-golden-path"
 # the production side used when Dev picks the "managed-prediction-log" source.
 _MANAGED_PREDICTION_LOG_URI: Final[str] = "file:///mnt/data/{model_name}/prediction-log.csv"
 
+# Where the platform's managed delayed-label stream lands — the ground-truth
+# side used when Dev picks the "managed-label-log" source.
+_MANAGED_LABEL_LOG_URI: Final[str] = "file:///mnt/data/{model_name}/label-log.csv"
+
 # Cron preset → runs per month, for pricing the recurring monitoring job.
 _RUNS_PER_MONTH: Final[dict[str, int]] = {
     "0 * * * *": 720,  # hourly
@@ -49,13 +53,27 @@ class SetupMonitoringRequest(BaseModel):
     # Only required when production_data_source="custom-uri".
     production_data_uri: str | None = None
     schedule: str
+    # "data-drift" | "performance-degradation" — the latter needs delayed
+    # ground-truth labels and a metric to watch.
+    monitoring_type: str = "data-drift"
     drift_threshold: float = 0.5
+    # "managed-label-log" (default) | "custom-uri" — only used when
+    # monitoring_type="performance-degradation".
+    ground_truth_data_source: str = "managed-label-log"
+    # Only required when ground_truth_data_source="custom-uri".
+    ground_truth_data_uri: str | None = None
+    # Required when monitoring_type="performance-degradation".
+    metric_name: str | None = None
+    min_metric_threshold: float = 0.85
     # "alert-only" | "auto-retrain" — Dev-facing on purpose, auto-retrain
     # has real risk if the drift check false-positives.
     on_drift_detected: str = "alert-only"
     # Required when on_drift_detected="auto-retrain" — the exact JSON body
     # Dev would have POSTed to /trigger-training by hand.
     retrain_request_json: str | None = None
+    # Portal endpoint the monitoring run POSTs to when it detects drift/
+    # degradation — optional, so a run without it just logs to MLflow.
+    failure_webhook_url: str | None = None
 
 
 def _resolve_production_data_uri(request: SetupMonitoringRequest) -> str:
@@ -74,6 +92,25 @@ def _resolve_production_data_uri(request: SetupMonitoringRequest) -> str:
     raise ValueError("production_data_uri is required when production_data_source='custom-uri'")
 
 
+def _resolve_ground_truth_data_uri(request: SetupMonitoringRequest) -> str | None:
+    """Resolves the ground-truth URI for performance-degradation monitoring.
+
+    Returns None for data-drift (no labels needed). An explicit URI always
+    wins; otherwise the managed label log path is derived from the model name.
+
+    Raises:
+        ValueError: performance-degradation with ground_truth_data_source=
+            "custom-uri" but no URI given.
+    """
+    if request.monitoring_type != "performance-degradation":
+        return None
+    if request.ground_truth_data_uri:
+        return request.ground_truth_data_uri
+    if request.ground_truth_data_source == "managed-label-log":
+        return _MANAGED_LABEL_LOG_URI.format(model_name=request.model_name)
+    raise ValueError("ground_truth_data_uri is required when ground_truth_data_source='custom-uri'")
+
+
 class SetupMonitoringResponse(BaseModel):
     cron_workflow_name: str
 
@@ -84,6 +121,8 @@ def setup_monitoring(
 ) -> SetupMonitoringResponse:
     if request.on_drift_detected == "auto-retrain" and request.retrain_request_json is None:
         raise ValueError("retrain_request_json is required when on_drift_detected='auto-retrain'")
+    if request.monitoring_type == "performance-degradation" and request.metric_name is None:
+        raise ValueError("metric_name is required when monitoring_type='performance-degradation'")
 
     # Deterministic name — re-running Setup for the same model updates the
     # existing schedule/threshold instead of creating a duplicate CronWorkflow.
@@ -93,11 +132,20 @@ def setup_monitoring(
         "model-version": request.model_version,
         "reference-data-uri": request.reference_data_uri,
         "production-data-uri": _resolve_production_data_uri(request),
+        "monitoring-type": request.monitoring_type,
         "drift-threshold": str(request.drift_threshold),
+        "min-metric-threshold": str(request.min_metric_threshold),
         "on-drift-detected": request.on_drift_detected,
     }
+    ground_truth_data_uri = _resolve_ground_truth_data_uri(request)
+    if ground_truth_data_uri is not None:
+        parameters["ground-truth-data-uri"] = ground_truth_data_uri
+    if request.metric_name is not None:
+        parameters["metric-name"] = request.metric_name
     if request.retrain_request_json is not None:
         parameters["retrain-request-json"] = request.retrain_request_json
+    if request.failure_webhook_url is not None:
+        parameters["failure-webhook-url"] = request.failure_webhook_url
 
     workflow_adapter.create_cron_workflow(
         cron_workflow_name, request.schedule, MONITOR_DRIFT_TEMPLATE, parameters

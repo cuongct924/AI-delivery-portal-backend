@@ -26,14 +26,24 @@ class DirectStrategy(IDeployTrafficStrategy):
 
 
 class BlueGreenStrategy(IDeployTrafficStrategy):
-    """Full cutover to a new version, after verifying a prior deploy exists.
-    Fixed 100% — no partial split is expressible: OpenChoreo's
-    ClusterComponentType has no canary slot in environmentConfigs at all,
-    and the API was narrowed to match rather than leave one golden path able
-    to express something the other structurally can't."""
+    """Cutover to a new version, after verifying a prior deploy exists.
+
+    `traffic_percent` (default 100) is honored where the backend can express
+    a partial split — the KServe manifest's `canaryTrafficPercent`. The
+    OpenChoreo path has no canary slot in environmentConfigs, so it renders
+    the same field but the cluster ignores it; the frontend's canary/ab
+    strategies map here too, so their chosen percent is at least carried
+    through instead of silently dropped."""
+
+    def __init__(self, traffic_percent: int | None = None):
+        self.traffic_percent = traffic_percent
 
     def render(self) -> TrafficFields:
-        return {"canaryTrafficPercent": 100}
+        return {
+            "canaryTrafficPercent": self.traffic_percent
+            if self.traffic_percent is not None
+            else 100
+        }
 
 
 class PRGatedStrategy(IReleaseStrategy):

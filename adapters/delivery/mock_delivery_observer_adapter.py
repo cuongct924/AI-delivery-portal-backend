@@ -52,9 +52,9 @@ _MLOPS_TEMPLATES: Final[tuple[str, ...]] = (
     "setup-model-monitoring",
 )
 _MLOPS_PROJECTS: Final[tuple[str, ...]] = (
-    "fraud-detection",
+    "telco-fraud-detection",
+    "customer-support-ai",
     "churn-prediction",
-    "customer-segmentation",
 )
 _ENVIRONMENTS: Final[tuple[str, ...]] = ("dev", "staging", "prod")
 _DAYS_PER_BUCKET: Final[dict[str, int]] = {"daily": 1, "weekly": 7, "monthly": 30}

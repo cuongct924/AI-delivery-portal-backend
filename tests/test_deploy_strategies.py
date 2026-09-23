@@ -18,6 +18,11 @@ def test_blue_green_strategy_renders_a_100_percent_cutover() -> None:
     assert BlueGreenStrategy().render() == {"canaryTrafficPercent": 100}
 
 
+def test_blue_green_strategy_honors_an_explicit_traffic_percent() -> None:
+    assert BlueGreenStrategy(10).render() == {"canaryTrafficPercent": 10}
+    assert BlueGreenStrategy(0).render() == {"canaryTrafficPercent": 0}
+
+
 def test_pr_gated_strategy_is_a_no_op() -> None:
     result = PRGatedStrategy().release("fraud-detection", "3", "manifest: yaml")
     assert result == {"deployed": False}

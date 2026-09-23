@@ -250,8 +250,11 @@ class PrepareDeployRequest(BaseModel):
     # so the rest of this request/the release strategies below don't need
     # to know "rollback" exists as a concept at all.
     model_version: str
-    # "direct" | "blue-green".
+    # "direct" | "blue-green" (the frontend's canary/ab also map here).
     traffic_strategy: str = "direct"
+    # Share of traffic to the new version; only meaningful for a non-direct
+    # strategy. None → 100 (full cutover).
+    traffic_percent: int | None = None
     # "pr-gated" | "instant"
     release_strategy: str = "pr-gated"
     # "deploy" | "rollback". Rollback is a production emergency — Dev picks
@@ -757,7 +760,7 @@ def prepare_deploy_manifest(
                 "choose deployStrategy=direct for a model's first deploy"
             )
             raise ValueError(message)
-        traffic_strategy = BlueGreenStrategy()
+        traffic_strategy = BlueGreenStrategy(request.traffic_percent)
 
     traffic_fields = traffic_strategy.render()
     canary_percent = traffic_fields.get("canaryTrafficPercent")

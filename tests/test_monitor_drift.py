@@ -5,10 +5,11 @@ httpx call, mocked."""
 import json
 from unittest.mock import MagicMock, patch
 
+import httpx
 import numpy as np
 import pandas as pd
 import pytest
-from monitor_drift import _trigger_retrain, compute_drift_share
+from monitor_drift import _notify_failure, _trigger_retrain, compute_drift_share, compute_metric
 
 
 def test_compute_drift_share_is_high_when_distributions_shift() -> None:
@@ -58,3 +59,36 @@ def test_trigger_retrain_exits_nonzero_on_http_error(
     _trigger_retrain("{}", "http://orchestration-api.test")
 
     mock_exit.assert_called_once_with(1)
+
+
+def test_compute_metric_supports_classification_and_regression() -> None:
+    y_true = pd.Series([1, 0, 1, 1])
+    y_pred = [1, 0, 0, 1]
+
+    assert compute_metric("accuracy", y_true, y_pred) == pytest.approx(0.75)
+    # weighted f1 across both classes, not the 0.75 accuracy.
+    assert compute_metric("f1_score", y_true, y_pred) == pytest.approx(0.7667, abs=1e-3)
+    assert compute_metric("rmse", pd.Series([1.0, 2.0]), [1.0, 4.0]) == pytest.approx(2**0.5)
+
+
+def test_compute_metric_rejects_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown metric_name"):
+        compute_metric("nope", pd.Series([1]), [1])
+
+
+@patch("monitor_drift.httpx.post")
+def test_notify_failure_posts_the_payload(mock_post: MagicMock) -> None:
+    mock_post.return_value = MagicMock(is_error=False)
+
+    _notify_failure("http://portal.test/hook", {"model_name": "fraud-detection"})
+
+    mock_post.assert_called_once_with(
+        "http://portal.test/hook", json={"model_name": "fraud-detection"}, timeout=30.0
+    )
+
+
+@patch("monitor_drift.httpx.post")
+def test_notify_failure_swallows_http_errors(mock_post: MagicMock) -> None:
+    mock_post.side_effect = httpx.HTTPError("boom")
+
+    _notify_failure("http://portal.test/hook", {})

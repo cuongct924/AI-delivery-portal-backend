@@ -1,0 +1,16 @@
+# Software Service workload — a plain pinned Deployment/Service, the same
+# ClusterComponentType the platform's own services use.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: api
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+spec:
+  owner:
+    projectName: customer-support-ai
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/pinned-service
+  autoDeploy: true

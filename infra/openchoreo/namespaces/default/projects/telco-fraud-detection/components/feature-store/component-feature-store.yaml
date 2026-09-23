@@ -1,0 +1,16 @@
+# Feature-store workload — a pinned service exposing precomputed features
+# (Feast serving) to the training and scoring paths.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: feature-store
+  namespace: default
+  labels:
+    openchoreo.dev/project: telco-fraud-detection
+spec:
+  owner:
+    projectName: telco-fraud-detection
+  componentType:
+    kind: ClusterComponentType
+    name: deployment/pinned-service
+  autoDeploy: true

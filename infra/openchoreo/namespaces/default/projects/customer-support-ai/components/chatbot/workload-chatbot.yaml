@@ -1,0 +1,14 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: chatbot-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+    openchoreo.dev/component: chatbot
+spec:
+  owner:
+    projectName: customer-support-ai
+    componentName: chatbot
+  container:
+    image: models:/support-llm/1

@@ -1,0 +1,20 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: rag-index-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+    openchoreo.dev/component: rag-index
+spec:
+  owner:
+    projectName: customer-support-ai
+    componentName: rag-index
+  container:
+    image: curlimages/curl:8.11.1
+    command: ["sh", "-c"]
+    args:
+      - >-
+        curl -sS -f -X POST http://host.docker.internal:8000/rag/ingest
+        -H 'Content-Type: application/json'
+        -d '{"collection":"support-kb","source_paths":["file:///data/support-kb"],"chunk_size":800,"chunk_overlap":100}'

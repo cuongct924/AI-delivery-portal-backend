@@ -25,18 +25,21 @@ router = APIRouter(prefix="/api/v1alpha1/costs", tags=["observer-costs"])
 cost_adapter = get_cost_adapter()
 
 # Synthetic scope used when the caller doesn't narrow to a project/component —
-# enough rows for the table and charts to be meaningful.
+# enough rows for the table and charts to be meaningful. Each project carries
+# the components it actually has, spanning Software Service / ML Model / LLM App.
 _DEMO_PROJECTS: Final[tuple[str, ...]] = (
-    "ai-delivery-portal",
     "telco-fraud-detection",
-    "customer-segmentation",
+    "customer-support-ai",
+    "ai-delivery-portal",
 )
-_DEMO_COMPONENTS: Final[tuple[str, ...]] = (
-    "serving",
-    "training",
-    "monitoring",
-    "rag-index",
-    "notebook",
+_DEMO_COMPONENTS_BY_PROJECT: Final[dict[str, tuple[str, ...]]] = {
+    "telco-fraud-detection": ("serving", "training", "monitoring", "feature-store"),
+    "customer-support-ai": ("api", "classifier", "chatbot", "rag-index"),
+    "ai-delivery-portal": ("orchestration-api", "portal", "notebook"),
+}
+# Flat list, for the "no project selected" fan-out.
+_DEMO_COMPONENTS: Final[tuple[str, ...]] = tuple(
+    dict.fromkeys(c for cs in _DEMO_COMPONENTS_BY_PROJECT.values() for c in cs)
 )
 
 # Demo attribution so the persona views (artifact/team/domain) group by
@@ -44,7 +47,7 @@ _DEMO_COMPONENTS: Final[tuple[str, ...]] = (
 _DEMO_ATTRIBUTION: Final[dict[str, tuple[str, str]]] = {
     "ai-delivery-portal": ("platform-team", "network-infrastructure"),
     "telco-fraud-detection": ("fraud-risk-team", "fraud-risk"),
-    "customer-segmentation": ("marketing-team", "marketing-sales"),
+    "customer-support-ai": ("support-team", "customer-experience"),
 }
 
 _GRANULARITY_HOURS: Final[dict[str, int]] = {
@@ -136,13 +139,17 @@ def _parse(value: str | None, fallback: datetime) -> datetime:
         return fallback
 
 
+def _components_for(project: str) -> tuple[str, ...]:
+    return _DEMO_COMPONENTS_BY_PROJECT.get(project, _DEMO_COMPONENTS)
+
+
 def _targets(project: str | None, component: str | None) -> list[tuple[str, str]]:
     """(project, component) pairs the response should cover for this scope."""
     if component:
         return [(project or _DEMO_PROJECTS[0], component)]
     if project:
-        return [(project, c) for c in _DEMO_COMPONENTS]
-    return [(p, c) for p in _DEMO_PROJECTS for c in _DEMO_COMPONENTS[:2]]
+        return [(project, c) for c in _components_for(project)]
+    return [(p, c) for p in _DEMO_PROJECTS for c in _components_for(p)]
 
 
 def _item(

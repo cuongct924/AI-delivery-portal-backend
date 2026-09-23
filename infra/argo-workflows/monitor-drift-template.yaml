@@ -22,13 +22,26 @@ spec:
       - name: model-version
       - name: reference-data-uri
       - name: production-data-uri
+      # "data-drift" | "performance-degradation".
+      - name: monitoring-type
+        value: data-drift
       - name: drift-threshold
         value: "0.5"
+      # Only used when monitoring-type=performance-degradation.
+      - name: ground-truth-data-uri
+        value: ""
+      - name: metric-name
+        value: ""
+      - name: min-metric-threshold
+        value: "0.85"
       - name: on-drift-detected
         value: alert-only
       # Only required when on-drift-detected=auto-retrain — the exact
       # JSON body Dev would have POSTed to /trigger-training by hand.
       - name: retrain-request-json
+        value: ""
+      # Optional Portal endpoint POSTed to when drift/degradation is detected.
+      - name: failure-webhook-url
         value: ""
   templates:
     - name: monitor-drift
@@ -39,9 +52,14 @@ spec:
           - name: model-version
           - name: reference-data-uri
           - name: production-data-uri
+          - name: monitoring-type
           - name: drift-threshold
+          - name: ground-truth-data-uri
+          - name: metric-name
+          - name: min-metric-threshold
           - name: on-drift-detected
           - name: retrain-request-json
+          - name: failure-webhook-url
       container:
         # Same image as every other Golden Path — monitor_drift.py is 1
         # more *.py file the Dockerfile already copies in.
@@ -57,12 +75,22 @@ spec:
             value: '{{inputs.parameters.reference-data-uri}}'
           - name: PRODUCTION_DATA_URI
             value: '{{inputs.parameters.production-data-uri}}'
+          - name: MONITORING_TYPE
+            value: '{{inputs.parameters.monitoring-type}}'
           - name: DRIFT_THRESHOLD
             value: '{{inputs.parameters.drift-threshold}}'
+          - name: GROUND_TRUTH_DATA_URI
+            value: '{{inputs.parameters.ground-truth-data-uri}}'
+          - name: METRIC_NAME
+            value: '{{inputs.parameters.metric-name}}'
+          - name: MIN_METRIC_THRESHOLD
+            value: '{{inputs.parameters.min-metric-threshold}}'
           - name: ON_DRIFT_DETECTED
             value: '{{inputs.parameters.on-drift-detected}}'
           - name: RETRAIN_REQUEST_JSON
             value: '{{inputs.parameters.retrain-request-json}}'
+          - name: FAILURE_WEBHOOK_URL
+            value: '{{inputs.parameters.failure-webhook-url}}'
           - name: MLFLOW_TRACKING_URI
             value: http://host.docker.internal:5000
           - name: ORCHESTRATION_API_URL

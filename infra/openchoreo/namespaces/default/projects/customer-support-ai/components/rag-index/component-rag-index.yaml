@@ -1,0 +1,29 @@
+# LLM App RAG workload — a scheduled job that ingests the knowledge base.
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: rag-index
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+spec:
+  owner:
+    projectName: customer-support-ai
+  componentType:
+    kind: ClusterComponentType
+    name: cronjob/scheduled-task
+  autoDeploy: true
+  parameters:
+    restartPolicy: OnFailure
+    concurrencyPolicy: Forbid
+    activeDeadlineSeconds: 120
+    backoffLimit: 1
+    successfulJobsHistoryLimit: 3
+    failedJobsHistoryLimit: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi

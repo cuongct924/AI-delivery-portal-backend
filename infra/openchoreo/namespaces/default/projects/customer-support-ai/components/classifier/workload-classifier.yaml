@@ -1,0 +1,14 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: classifier-workload
+  namespace: default
+  labels:
+    openchoreo.dev/project: customer-support-ai
+    openchoreo.dev/component: classifier
+spec:
+  owner:
+    projectName: customer-support-ai
+    componentName: classifier
+  container:
+    image: models:/intent-classifier/1
