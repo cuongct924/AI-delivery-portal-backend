@@ -153,7 +153,7 @@ matplotlib==3.11.1
     # via mlflow
 mcp==2.0.0
     # via -r services/orchestration-api/requirements.txt
-mcp-types==2.0.0
+mcp-types==2.2.0
     # via mcp
 mlflow==3.15.1
     # via -r services/orchestration-api/requirements.txt
