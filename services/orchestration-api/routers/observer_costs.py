@@ -37,6 +37,14 @@ _DEMO_COMPONENTS: Final[tuple[str, ...]] = (
     "rag-index",
 )
 
+# Demo attribution so the persona views (artifact/team/domain) group by
+# distinct values instead of all collapsing onto the project.
+_DEMO_ATTRIBUTION: Final[dict[str, tuple[str, str]]] = {
+    "ai-delivery-portal": ("platform-team", "network-infrastructure"),
+    "telco-fraud-detection": ("fraud-risk-team", "fraud-risk"),
+    "customer-segmentation": ("marketing-team", "marketing-sales"),
+}
+
 _GRANULARITY_HOURS: Final[dict[str, int]] = {
     "1h": 1,
     "6h": 6,
@@ -134,6 +142,7 @@ def _item(
     scale: float = 1.0,
 ) -> CostItem:
     seed = _seed(namespace, environment, project, component)
+    team, domain = _DEMO_ATTRIBUTION.get(project, ("platform-team", "network-infrastructure"))
     return CostItem(
         component=component,
         startTime=start.isoformat(),
@@ -144,6 +153,9 @@ def _item(
         cpuCost=round(_unit(seed, 0.4, 7.0) * scale, 4),
         memoryCost=round(_unit(seed + 1, 0.2, 4.0) * scale, 4),
         efficiency=round(_unit(seed + 2, 0.15, 0.95), 3),
+        artifact=component,
+        team=team,
+        businessDomain=domain,
     )
 
 
