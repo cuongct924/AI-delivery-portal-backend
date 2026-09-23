@@ -275,6 +275,18 @@ def check_cost(
     )
 
 
+class RateSuggestion(BaseModel):
+    id: str
+    title: str
+    detail: str
+    saving_pct: float
+    stage: str
+
+
+class RateOptimizationResponse(BaseModel):
+    suggestions: list[RateSuggestion]
+
+
 class CostVarianceRow(BaseModel):
     artifact: str
     estimated: float
@@ -318,3 +330,65 @@ def get_cost_variance(
         )
     rows.sort(key=lambda r: abs(r.variance_pct or 0), reverse=True)
     return CostVarianceResponse(rows=rows)
+
+
+@router.get("/rate-optimization", response_model=RateOptimizationResponse)
+def get_rate_optimization(
+    start_time: Annotated[str, Query(description="ISO 8601 inclusive lower bound")],
+    end_time: Annotated[str, Query(description="ISO 8601 inclusive upper bound")],
+    user: dict = Depends(get_current_user),
+) -> RateOptimizationResponse:
+    """Rate-optimization suggestions derived from what the ledger actually
+    spent: spot for fault-tolerant training, committed use for steady serving,
+    caching/batch for tokens. Complements right-sizing (usage optimization)."""
+    entries = cost_adapter.query_costs(start_time, end_time)
+    units = {entry.get("unit", "") for entry in entries}
+    stages = {entry["stage"] for entry in entries}
+    suggestions: list[RateSuggestion] = []
+    if "gpu-hour" in units and "build" in stages:
+        suggestions.append(
+            RateSuggestion(
+                id="spot-training",
+                title="Run training on spot GPUs",
+                detail=(
+                    "Training is fault-tolerant — spot/preemptible GPUs cost "
+                    "far less than on-demand."
+                ),
+                saving_pct=65.0,
+                stage="build",
+            )
+        )
+    if "gpu-hour" in units and "run" in stages:
+        suggestions.append(
+            RateSuggestion(
+                id="reserved-serving",
+                title="Reserve serving capacity",
+                detail="Steady serving traffic qualifies for committed-use / reserved pricing.",
+                saving_pct=30.0,
+                stage="run",
+            )
+        )
+    if "token" in units:
+        suggestions.append(
+            RateSuggestion(
+                id="prompt-caching",
+                title="Cache prompts / batch judge calls",
+                detail=(
+                    "Prompt caching and the batch API cut token spend on "
+                    "repeated or non-urgent calls."
+                ),
+                saving_pct=40.0,
+                stage="gate",
+            )
+        )
+    if "cpu-hour" in units and "run" in stages:
+        suggestions.append(
+            RateSuggestion(
+                id="committed-monitoring",
+                title="Commit recurring monitoring",
+                detail="Recurring monitoring jobs qualify for committed-use pricing.",
+                saving_pct=20.0,
+                stage="run",
+            )
+        )
+    return RateOptimizationResponse(suggestions=suggestions)

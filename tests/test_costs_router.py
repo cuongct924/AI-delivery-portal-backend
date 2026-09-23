@@ -15,6 +15,7 @@ from routers.costs import (
     estimate_cost,
     get_cost_summary,
     get_cost_variance,
+    get_rate_optimization,
     record_cost,
 )
 
@@ -182,6 +183,32 @@ def test_check_cost_mode_defaults_from_env(monkeypatch) -> None:
     monkeypatch.setenv("COST_GATE_MODE", "enforce")
     response = _check(budget_usd=50)
     assert response.allow is False
+
+
+def test_rate_optimization_suggests_spot_for_gpu_training() -> None:
+    _record(stage="build", unit="gpu-hour", artifact_id="m", run_id="r1")
+    response = get_rate_optimization(
+        start_time="2026-07-01T00:00:00.000Z",
+        end_time="2026-07-02T00:00:00.000Z",
+    )
+    assert "spot-training" in {s.id for s in response.suggestions}
+
+
+def test_rate_optimization_suggests_caching_for_tokens() -> None:
+    _record(stage="gate", unit="token", artifact_id="p", run_id="r1")
+    response = get_rate_optimization(
+        start_time="2026-07-01T00:00:00.000Z",
+        end_time="2026-07-02T00:00:00.000Z",
+    )
+    assert "prompt-caching" in {s.id for s in response.suggestions}
+
+
+def test_rate_optimization_empty_without_spend() -> None:
+    response = get_rate_optimization(
+        start_time="2026-07-01T00:00:00.000Z",
+        end_time="2026-07-02T00:00:00.000Z",
+    )
+    assert response.suggestions == []
 
 
 def test_variance_compares_estimate_with_actual() -> None:
