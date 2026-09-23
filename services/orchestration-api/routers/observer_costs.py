@@ -77,6 +77,9 @@ class CostItem(BaseModel):
     tokenCost: float | None = None
     # Usage counters driving unit economics (cost per 1k tokens).
     usage: dict[str, float] | None = None
+    # GPU utilization ratio (0..1) for GPU-backed components, for the
+    # resource-utilization-efficiency KPI. Absent for CPU-only items.
+    gpuUtilization: float | None = None
 
 
 class CostResourceProfile(BaseModel):
@@ -146,6 +149,10 @@ def _item(
     # Serving components carry an inference count so the unit-economics metric
     # (cost per 1k inferences) has a denominator.
     usage = {"inferences": float(1000 + seed % 9000)} if component == "serving" else None
+    # GPU-backed components carry a utilization ratio for the efficiency KPI.
+    gpu_utilization = (
+        round(_unit(seed + 3, 0.3, 0.9), 3) if component in ("serving", "training") else None
+    )
     return CostItem(
         component=component,
         startTime=start.isoformat(),
@@ -160,6 +167,7 @@ def _item(
         team=team,
         businessDomain=domain,
         usage=usage,
+        gpuUtilization=gpu_utilization,
     )
 
 
