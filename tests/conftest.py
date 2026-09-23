@@ -47,6 +47,9 @@ os.environ.setdefault(
 # or pollutes the real .state/cost-ledger.json.
 os.environ.setdefault("COST_LEDGER_PATH", os.path.join(tempfile.mkdtemp(), "cost-ledger.json"))
 
+# Same reasoning again: audit.events reads AUDIT_LOG_PATH at import time.
+os.environ.setdefault("AUDIT_LOG_PATH", os.path.join(tempfile.mkdtemp(), "audit-log.json"))
+
 import idempotency  # noqa: E402
 import mlflow.pyfunc  # noqa: F401, E402
 import torch  # noqa: F401, E402

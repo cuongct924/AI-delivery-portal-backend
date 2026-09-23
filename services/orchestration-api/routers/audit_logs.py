@@ -14,6 +14,7 @@ import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from audit.events import read_audit_events
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -184,8 +185,8 @@ def _matches(record: dict[str, object], request: AuditLogsQueryRequest) -> bool:
     def any_of(values: list[str] | None, actual: object) -> bool:
         return not values or str(actual) in values
 
-    actor = record["actor"]
-    resource = record["resource"] or {}
+    actor = record.get("actor") or {}
+    resource = record.get("resource") or {}
     assert isinstance(actor, dict) and isinstance(resource, dict)
 
     if request.actor:
@@ -196,41 +197,56 @@ def _matches(record: dict[str, object], request: AuditLogsQueryRequest) -> bool:
         for key, values in request.resource.items():
             if not any_of(values, resource.get(key)):
                 return False
-    if not any_of(request.action, record["action"]):
+    # `.get` throughout: real recorded events carry fewer fields than the
+    # synthetic baseline (no request_id/source_ip/user_agent).
+    if not any_of(request.action, record.get("action")):
         return False
-    if not any_of(request.category, record["category"]):
+    if not any_of(request.category, record.get("category")):
         return False
-    if not any_of(request.result, record["result"]):
+    if not any_of(request.result, record.get("result")):
         return False
-    if not any_of(request.producer, record["producer"]):
+    if not any_of(request.producer, record.get("producer")):
         return False
-    if not any_of(request.surface, record["surface"]):
+    if not any_of(request.surface, record.get("surface")):
         return False
-    if not any_of(request.operation_id, record["operation_id"]):
+    if not any_of(request.operation_id, record.get("operation_id")):
         return False
-    if not any_of(request.request_id, record["request_id"]):
+    if not any_of(request.request_id, record.get("request_id")):
         return False
-    if not any_of(request.event_id, record["event_id"]):
+    if not any_of(request.event_id, record.get("event_id")):
         return False
-    if not any_of(request.source_ip, record["source_ip"]):
+    if not any_of(request.source_ip, record.get("source_ip")):
         return False
-    if not any_of(request.user_agent, record["user_agent"]):
+    if not any_of(request.user_agent, record.get("user_agent")):
         return False
     if request.searchPhrase:
         phrase = request.searchPhrase.lower()
         haystack = " ".join(
-            [str(record["action"]), str(actor.get("id")), str(resource.get("name"))]
+            [str(record.get("action")), str(actor.get("id")), str(resource.get("name"))]
         ).lower()
         if phrase not in haystack:
             return False
     return True
 
 
+def _real_records(start: datetime, end: datetime) -> list[dict[str, object]]:
+    """Events recorded by real golden-path runs, within the window."""
+    out: list[dict[str, object]] = []
+    for event in read_audit_events():
+        ts = _parse(str(event.get("event_time", "")), start)
+        if start <= ts <= end:
+            out.append(event)
+    return out
+
+
 def _filtered(request: AuditLogsQueryRequest) -> list[dict[str, object]]:
     now = datetime.now(UTC)
     start = _parse(request.startTime, now - timedelta(days=1))
     end = _parse(request.endTime, now)
-    records = [r for r in _generate(start, end) if _matches(r, request)]
+    # Real recorded events first, then the synthetic baseline so the page is
+    # never empty on a fresh install.
+    records = _real_records(start, end) + _generate(start, end)
+    records = [r for r in records if _matches(r, request)]
     records.sort(key=lambda r: str(r["event_time"]), reverse=request.sortOrder != "asc")
     return records
 

@@ -4,12 +4,18 @@ called directly."""
 
 from typing import Any, cast
 
+from audit.events import record_audit_event
 from routers.audit_logs import (
     AuditLogFilterValuesRequest,
     AuditLogsQueryRequest,
     query_audit_log_filter_values,
     query_audit_logs,
 )
+
+_WIDE: dict[str, Any] = {
+    "startTime": "2000-01-01T00:00:00+00:00",
+    "endTime": "2100-01-01T00:00:00+00:00",
+}
 
 _WINDOW: dict[str, Any] = {
     "startTime": "2026-07-01T00:00:00+00:00",
@@ -73,3 +79,19 @@ def test_filter_values_lists_values_with_counts() -> None:
 def test_filter_values_narrows_by_search() -> None:
     response = _filter_values(filter="action", valueSearch="deploy")
     assert all("deploy" in v["value"] for v in response["values"])
+
+
+def test_recorded_events_appear_in_the_query() -> None:
+    record_audit_event(
+        action="training.trigger",
+        resource={"name": "fraud-detection", "type": "Model"},
+    )
+    response = cast(dict[str, Any], query_audit_logs(AuditLogsQueryRequest(**_WIDE)))
+    # The synthetic baseline also has a training.trigger action, so match on the
+    # resource name only the recorded event carries.
+    match = [
+        r for r in response["records"] if r.get("resource", {}).get("name") == "fraud-detection"
+    ]
+    assert match, "expected the recorded event to appear in the trail"
+    assert match[0]["producer"] == "orchestration-api"
+    assert match[0]["action"] == "training.trigger"

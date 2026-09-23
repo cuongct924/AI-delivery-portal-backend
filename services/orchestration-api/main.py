@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
+from audit.events import record_audit_event
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp_client import McpToolRegistry
@@ -94,6 +95,52 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _audit_action(path: str) -> str | None:
+    """Map a mutating golden-path request path to its semantic audit action.
+    Returns None for paths not worth an audit line (reads, observer calls)."""
+    if path.startswith("/trigger-training"):
+        return "training.trigger"
+    if path.startswith("/models/register"):
+        return "model.register"
+    if path.startswith("/deploy-model/prepare"):
+        return "model.deploy"
+    if path.startswith("/setup-monitoring"):
+        return "monitoring.setup"
+    if path.startswith("/rag/ingest"):
+        return "rag.ingest"
+    if path.startswith("/rag/activate"):
+        return "rag.activate"
+    if path.startswith("/llm-deploy/prepare"):
+        return "llm.serve"
+    if path.startswith("/notebooks"):
+        return "notebook.create"
+    if "/promote" in path:
+        return "model.promote"
+    if "/rollback" in path:
+        return "model.rollback"
+    if path.startswith("/prompts/") and path.endswith("/activate"):
+        return "prompt.activate"
+    return None
+
+
+@app.middleware("http")
+async def audit_middleware(request, call_next):  # type: ignore[no-untyped-def]
+    """Record one audit event per mutating golden-path request, so the Audit
+    Logs page reflects real platform activity. Never blocks the request."""
+    response = await call_next(request)
+    if request.method in ("POST", "PUT", "DELETE"):
+        action = _audit_action(request.url.path)
+        if action:
+            record_audit_event(
+                action=action,
+                resource={"name": request.url.path},
+                result="success" if response.status_code < 400 else "failure",
+                metadata={"method": request.method, "path": request.url.path},
+            )
+    return response
+
 
 app.include_router(chat.router)
 app.include_router(prompts.router)
