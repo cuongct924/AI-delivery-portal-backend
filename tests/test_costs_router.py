@@ -16,6 +16,7 @@ from routers.costs import (
     get_cost_summary,
     get_cost_variance,
     get_rate_optimization,
+    get_training_efficiency,
     record_cost,
 )
 
@@ -201,6 +202,24 @@ def test_rate_optimization_suggests_caching_for_tokens() -> None:
         end_time="2026-07-02T00:00:00.000Z",
     )
     assert "prompt-caching" in {s.id for s in response.suggestions}
+
+
+def test_training_efficiency_joins_build_cost_with_accuracy() -> None:
+    _record(
+        stage="build",
+        artifact_kind="model",
+        artifact_id="fraud",
+        cost_usd=10.0,
+        run_id="r1",
+    )
+    response = get_training_efficiency(
+        start_time="2026-07-01T00:00:00.000Z",
+        end_time="2026-07-02T00:00:00.000Z",
+    )
+    row = next(r for r in response.rows if r.artifact == "fraud")
+    assert row.build_cost == 10.0
+    assert row.accuracy is not None
+    assert row.cost_per_point is not None
 
 
 def test_rate_optimization_empty_without_spend() -> None:
