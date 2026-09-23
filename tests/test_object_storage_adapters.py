@@ -4,12 +4,16 @@ MinioObjectStorageAdapter, CompositeObjectStorageAdapter)."""
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from adapters.ai_platform import object_storage
 from adapters.ai_platform.interfaces import DatasetInfo, IObjectStorageAdapter
 from adapters.ai_platform.object_storage import (
     _REPO_ROOT,
     CompositeObjectStorageAdapter,
     LocalFileObjectStorageAdapter,
     MinioObjectStorageAdapter,
+    dataset_uri_for_path,
+    read_dataset_bytes,
+    resolve_dataset_path,
 )
 
 
@@ -62,6 +66,86 @@ def test_local_adapter_returns_empty_list_when_root_missing(tmp_path: Path) -> N
     adapter = LocalFileObjectStorageAdapter(root_path=str(tmp_path / "does-not-exist"))
 
     assert adapter.list_datasets() == []
+
+
+def test_resolve_dataset_path_maps_mount_uri_to_local_data_root(
+    tmp_path: Path, monkeypatch
+) -> None:
+    # Reproduces the host-side 500: the picker hands back the training pod's
+    # own /mnt/data URI, which doesn't exist on a dev machine — the resolver
+    # must fall back to the repo's data/ (here redirected to tmp_path).
+    monkeypatch.setenv("LOCAL_DATASETS_PATH", str(tmp_path))
+    monkeypatch.setenv("DATASET_MOUNT_PATH", "/nonexistent-mount-xyz")
+    (tmp_path / "sample.csv").write_text("a,b\n1,2\n")
+
+    assert resolve_dataset_path("file:///nonexistent-mount-xyz/sample.csv") == (
+        tmp_path / "sample.csv"
+    )
+
+
+def test_resolve_dataset_path_keeps_an_existing_path(tmp_path: Path) -> None:
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("a,b\n1,2\n")
+
+    assert resolve_dataset_path(f"file://{csv_path}") == csv_path
+
+
+def test_dataset_uri_for_path_maps_local_data_root_back_to_mount_uri(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_DATASETS_PATH", str(tmp_path))
+    monkeypatch.setenv("DATASET_MOUNT_PATH", "/nonexistent-mount-xyz")
+
+    assert (
+        dataset_uri_for_path(tmp_path / "sample.csv") == "file:///nonexistent-mount-xyz/sample.csv"
+    )
+
+
+def test_dataset_uri_for_path_keeps_a_path_outside_the_data_root(tmp_path: Path) -> None:
+    assert dataset_uri_for_path(tmp_path / "elsewhere.csv") == (
+        f"file://{tmp_path / 'elsewhere.csv'}"
+    )
+
+
+def test_read_dataset_bytes_reads_local_file_when_source_is_local(tmp_path: Path) -> None:
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("a,b\n1,2\n")
+
+    assert read_dataset_bytes(f"file://{csv_path}", "local") == b"a,b\n1,2\n"
+
+
+def test_read_dataset_bytes_reads_from_minio_when_source_is_s3(tmp_path: Path, monkeypatch) -> None:
+    # The picker said this dataset lives in MinIO/S3 — the read must go to the
+    # bucket, not silently fall back to a same-named local file.
+    (tmp_path / "data.csv").write_text("local-copy")
+    monkeypatch.setenv("LOCAL_DATASETS_PATH", str(tmp_path))
+    minio = _minio_adapter()
+    minio.client.get_object.return_value = {"Body": MagicMock(read=lambda: b"from-minio")}
+    monkeypatch.setattr(object_storage, "_minio_adapter", lambda: minio)
+
+    assert read_dataset_bytes("file:///mnt/data/bucket/data.csv", "s3") == b"from-minio"
+    minio.client.get_object.assert_called_once_with(Bucket="bucket", Key="data.csv")
+
+
+def test_read_dataset_bytes_falls_back_to_local_when_minio_unreachable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("LOCAL_DATASETS_PATH", str(tmp_path))
+    monkeypatch.setenv("DATASET_MOUNT_PATH", "/nonexistent-mount-xyz")
+    (tmp_path / "data.csv").write_text("local-copy")
+    minio = _minio_adapter()
+    minio.client.get_object.side_effect = ConnectionError("MinIO unreachable")
+    monkeypatch.setattr(object_storage, "_minio_adapter", lambda: minio)
+
+    assert read_dataset_bytes("file:///nonexistent-mount-xyz/data.csv", "s3") == b"local-copy"
+
+
+def test_minio_adapter_read_dataset_parses_bucket_and_key_from_uri() -> None:
+    adapter = _minio_adapter()
+    adapter.client.get_object.return_value = {"Body": MagicMock(read=lambda: b"payload")}
+
+    assert adapter.read_dataset("file:///mnt/data/my-bucket/nested/data.csv") == b"payload"
+    adapter.client.get_object.assert_called_once_with(Bucket="my-bucket", Key="nested/data.csv")
 
 
 def _minio_adapter() -> MinioObjectStorageAdapter:
@@ -133,6 +217,11 @@ class _StubAdapter(IObjectStorageAdapter):
             raise self._error
         return self._datasets
 
+    def read_dataset(self, uri: str) -> bytes:
+        if self._error:
+            raise self._error
+        return uri.encode()
+
 
 def test_composite_merges_datasets_from_every_source() -> None:
     local = DatasetInfo(name="a.csv", uri="file:///a.csv", size_bytes=1, source="local")
@@ -149,3 +238,11 @@ def test_composite_skips_a_source_that_raises_and_keeps_the_rest() -> None:
     )
 
     assert composite.list_datasets() == [s3]
+
+
+def test_composite_read_dataset_falls_through_to_the_next_source() -> None:
+    composite = CompositeObjectStorageAdapter(
+        [_StubAdapter(error=FileNotFoundError("not local")), _StubAdapter()]
+    )
+
+    assert composite.read_dataset("file:///mnt/data/b.csv") == b"file:///mnt/data/b.csv"

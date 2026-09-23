@@ -10,7 +10,7 @@ ahead of the actual POST /llm-deploy/prepare below.
 """
 
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from auth.thunder import get_current_user, user_has_role
 from costs.events import record_cost_event
@@ -129,6 +129,51 @@ def validate_huggingface_model(
     inside a PR nobody notices is broken until merge."""
     info = huggingface_hub_adapter.get_model_info(huggingface_model_id)
     return HuggingFaceModelValidationResponse(**info)
+
+
+class HuggingFaceSearchResponse(BaseModel):
+    model_ids: list[str]
+
+
+@router.get("/llm-deploy/search-models", response_model=HuggingFaceSearchResponse)
+def search_huggingface_models(
+    q: str = "",
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+) -> HuggingFaceSearchResponse:
+    """Autocomplete for the wizard's HuggingFace model id field — a Dev picks
+    a real id instead of typing one (typo-prone)."""
+    return HuggingFaceSearchResponse(model_ids=huggingface_hub_adapter.search_models(q, limit))
+
+
+class SecretNamesResponse(BaseModel):
+    names: list[str]
+
+
+@router.get("/secrets", response_model=SecretNamesResponse)
+def list_secrets(
+    namespace: str = "default", user: dict = Depends(get_current_user)
+) -> SecretNamesResponse:
+    """K8s Secret names in the namespace — backs the HF token secret dropdown
+    so a Dev picks a real Secret instead of typing a name that leaves the pod
+    stuck pulling a gated model. Empty list when no cluster is reachable."""
+    try:
+        from kubernetes import client as k8s_client
+
+        from adapters.delivery._kube_client import load_kube_config_once
+
+        load_kube_config_once()
+        core = k8s_client.CoreV1Api()
+        secrets: Any = core.list_namespaced_secret(namespace)
+        items = getattr(secrets, "items", None) or []
+
+        def _secret_name(secret: Any) -> str | None:
+            metadata = getattr(secret, "metadata", None)
+            return getattr(metadata, "name", None)
+
+        return SecretNamesResponse(names=sorted(name for s in items if (name := _secret_name(s))))
+    except Exception:  # noqa: BLE001 — no cluster, fall back to the text field
+        return SecretNamesResponse(names=[])
 
 
 @router.get("/llm-deploy/gpu-recommendation", response_model=GpuRecommendationResponse)

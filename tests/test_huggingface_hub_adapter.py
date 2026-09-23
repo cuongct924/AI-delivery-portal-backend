@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from adapters.ai_platform.huggingface_hub_adapter import HuggingFaceHubAdapter
 
 
-def _response(status_code: int, json_body: dict | None = None) -> MagicMock:
+def _response(status_code: int, json_body: dict | list | None = None) -> MagicMock:
     response = MagicMock()
     response.status_code = status_code
     response.json.return_value = json_body or {}
@@ -115,3 +115,11 @@ def test_get_model_info_gated_with_token_reads_config() -> None:
 
     assert info["is_gated"] is True
     assert info["num_layers"] == 32
+
+
+def test_search_models_returns_matching_ids() -> None:
+    client = _mock_client({"/api/models": _response(200, [{"id": "a/b"}, {"nope": 1}])})
+    with patch("adapters.ai_platform.huggingface_hub_adapter.httpx.Client", return_value=client):
+        ids = HuggingFaceHubAdapter().search_models("a")
+
+    assert ids == ["a/b"]

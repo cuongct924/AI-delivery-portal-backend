@@ -240,6 +240,51 @@ def test_validate_huggingface_model_returns_adapter_info() -> None:
     assert response.param_count_billion == 7.25
 
 
+def test_search_huggingface_models_returns_adapter_ids() -> None:
+    from routers.llm_serving import search_huggingface_models
+
+    with patch("routers.llm_serving.huggingface_hub_adapter") as mock_adapter:
+        mock_adapter.search_models.return_value = ["a/b"]
+        response = search_huggingface_models(q="a", limit=20)
+
+    mock_adapter.search_models.assert_called_once_with("a", 20)
+    assert response.model_ids == ["a/b"]
+
+
+def test_list_secrets_returns_sorted_names() -> None:
+    from types import SimpleNamespace
+
+    from routers.llm_serving import list_secrets
+
+    items = [
+        SimpleNamespace(metadata=SimpleNamespace(name="b")),
+        SimpleNamespace(metadata=SimpleNamespace(name="a")),
+    ]
+    with (
+        patch("adapters.delivery._kube_client.load_kube_config_once"),
+        patch("kubernetes.client.CoreV1Api") as mock_core,
+    ):
+        mock_core.return_value.list_namespaced_secret.return_value = SimpleNamespace(items=items)
+        response = list_secrets(namespace="default")
+
+    assert response.names == ["a", "b"]
+
+
+def test_list_secrets_falls_back_to_empty_without_a_cluster() -> None:
+    from routers.llm_serving import list_secrets
+
+    with (
+        patch(
+            "adapters.delivery._kube_client.load_kube_config_once",
+            side_effect=Exception("nope"),
+        ),
+        patch("kubernetes.client.CoreV1Api"),
+    ):
+        response = list_secrets(namespace="default")
+
+    assert response.names == []
+
+
 def test_get_gpu_recommendation_returns_smallest_fitting_gpu() -> None:
     response = get_gpu_recommendation(
         param_count_billion=8.0,

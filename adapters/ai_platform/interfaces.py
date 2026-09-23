@@ -254,6 +254,13 @@ class IFeatureStoreAdapter(ABC):
         blind."""
         ...
 
+    @abstractmethod
+    def list_entity_ids(self) -> list[str]:
+        """Every entity id the offline store holds — lets the UI warn when a
+        dataset's chosen entity column shares no values with the store, so
+        the features would silently come back all-NaN."""
+        ...
+
 
 class NotebookSpec(TypedDict):
     """The resource profile a notebook was spawned with — cached by adapters
@@ -363,6 +370,14 @@ class IObjectStorageAdapter(ABC):
     @abstractmethod
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]: ...
 
+    @abstractmethod
+    def read_dataset(self, uri: str) -> bytes:
+        """Reads one dataset's raw bytes by the `file://` URI `list_datasets`
+        handed out — lets the preview/columns/validate endpoints show what a
+        dataset actually contains without assuming it's on this process's
+        own filesystem (MinIO/S3 objects aren't)."""
+        ...
+
 
 class HuggingFaceModelInfo(TypedDict):
     """Everything the "Serve LLM (Self-hosted)" wizard's Model Source step
@@ -393,6 +408,13 @@ class IHuggingFaceHubAdapter(ABC):
         `HuggingFaceModelInfo.exists`/`is_gated` carry that instead, so a
         routine "model not found" (a typo, most likely) surfaces as a
         normal field the caller checks, not an exception path."""
+        ...
+
+    @abstractmethod
+    def search_models(self, query: str, limit: int = 20) -> list[str]:
+        """Model ids matching `query`, most-downloaded first — backs the
+        form's autocomplete so a Dev picks a real id instead of typing one.
+        An empty query returns the most popular models."""
         ...
 
 

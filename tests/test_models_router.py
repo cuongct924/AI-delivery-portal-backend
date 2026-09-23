@@ -23,6 +23,7 @@ sys.modules.setdefault("mlflow.tracking", MagicMock())
 from routers.models import (  # noqa: E402
     ConfirmPromotionRequest,
     EnrichDatasetFeaturesRequest,
+    FeastEntityMatchRequest,
     LogPredictionRequest,
     PolicyCheckRequest,
     PrepareDeployRequest,
@@ -34,6 +35,7 @@ from routers.models import (  # noqa: E402
     ValidateDatasetRequest,
     confirm_promotion,
     enrich_dataset_features,
+    feast_entity_match,
     get_deploy_status,
     get_gate_preview,
     get_latest_version,
@@ -48,6 +50,7 @@ from routers.models import (  # noqa: E402
     log_prediction,
     policy_check,
     prepare_deploy_manifest,
+    preview_dataset,
     promote_model,
     record_deploy,
     register_model,
@@ -562,6 +565,36 @@ def test_validate_dataset_tolerates_trailing_whitespace_in_uri(tmp_path) -> None
     assert any(r.check_name == "check_missing_values" for r in results)
 
 
+def test_validate_dataset_resolves_mount_path_uri_to_local_data_root(tmp_path, monkeypatch) -> None:
+    # The dataset picker returns the training pod's /mnt/data URI; on a dev
+    # host that path doesn't exist, so validate must resolve it to the repo's
+    # data/ (redirected to tmp_path here) instead of 500ing with
+    # FileNotFoundError.
+    monkeypatch.setenv("LOCAL_DATASETS_PATH", str(tmp_path))
+    monkeypatch.setenv("DATASET_MOUNT_PATH", "/nonexistent-mount-xyz")
+    pd.DataFrame({"x": [1, 2, 3], "y": [0, 1, 0]}).to_csv(tmp_path / "data.csv", index=False)
+    request = ValidateDatasetRequest(
+        dataset_uri="file:///nonexistent-mount-xyz/data.csv",
+        task_type="classification",
+        target_column="y",
+    )
+
+    results = validate_dataset(request)
+
+    assert any(r.check_name == "check_missing_values" for r in results)
+
+
+def test_preview_dataset_forwards_source_to_the_reader() -> None:
+    # The picker knows a dataset's source; preview must pass it through so an
+    # s3 dataset is read from MinIO/S3 rather than a same-named local file.
+    with patch("routers.models.read_dataset_bytes", return_value=b"a,b\n1,2\n") as mock_read:
+        response = preview_dataset("file:///mnt/data/bucket/data.csv", limit=20, source="s3")
+
+    mock_read.assert_called_once_with("file:///mnt/data/bucket/data.csv", "s3")
+    assert response.columns == ["a", "b"]
+    assert response.rows == [{"a": 1, "b": 2}]
+
+
 def test_enrich_dataset_features_merges_feast_features_into_dataset(tmp_path) -> None:
     csv_path = tmp_path / "data.csv"
     pd.DataFrame({"transaction_id": [1001, 1002], "label": [0, 1]}).to_csv(csv_path, index=False)
@@ -607,6 +640,47 @@ def test_enrich_dataset_features_overwrites_existing_column_with_feast_value(tmp
     enriched = pd.read_csv(response.dataset_uri.removeprefix("file://"))
     assert list(enriched.columns) == ["transaction_id", "amount"]
     assert enriched["amount"].item() == 42.5
+
+
+def test_enrich_dataset_features_raises_400_for_missing_entity_column(tmp_path) -> None:
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame({"a": [1]}).to_csv(csv_path, index=False)
+    request = EnrichDatasetFeaturesRequest(
+        dataset_uri=f"file://{csv_path}",
+        entity_id_column="nope",
+        feature_names=["transaction_features:amount"],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        enrich_dataset_features(request)
+
+    assert exc_info.value.status_code == 400
+
+
+def test_feast_entity_match_counts_matching_ids(tmp_path) -> None:
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame({"transaction_id": ["1001", "1002", "9999"]}).to_csv(csv_path, index=False)
+    request = FeastEntityMatchRequest(
+        dataset_uri=f"file://{csv_path}", entity_id_column="transaction_id"
+    )
+    with patch("routers.models.feast_adapter") as mock_feast:
+        mock_feast.list_entity_ids.return_value = ["1001", "1002"]
+        response = feast_entity_match(request)
+
+    assert response.matched == 2
+    assert response.total == 3
+    assert response.sample_unmatched == ["9999"]
+
+
+def test_feast_entity_match_raises_400_for_missing_column(tmp_path) -> None:
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame({"a": [1]}).to_csv(csv_path, index=False)
+    request = FeastEntityMatchRequest(dataset_uri=f"file://{csv_path}", entity_id_column="nope")
+
+    with pytest.raises(HTTPException) as exc_info:
+        feast_entity_match(request)
+
+    assert exc_info.value.status_code == 400
 
 
 def test_list_available_features_returns_the_adapters_list() -> None:

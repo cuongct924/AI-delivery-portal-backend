@@ -24,6 +24,19 @@ _TIMEOUT_SECONDS = 10.0
 
 
 class HuggingFaceHubAdapter(IHuggingFaceHubAdapter):
+    def search_models(self, query: str, limit: int = 20) -> list[str]:
+        params: dict[str, str | int] = {
+            "limit": limit,
+            "sort": "downloads",
+            "direction": -1,
+        }
+        if query:
+            params["search"] = query
+        with httpx.Client(timeout=_TIMEOUT_SECONDS) as client:
+            response = client.get(f"{_HUB_API_BASE}/api/models", params=params)
+            response.raise_for_status()
+            return [m["id"] for m in response.json() if "id" in m]
+
     def get_model_info(self, model_id: str) -> HuggingFaceModelInfo:
         headers = (
             {"Authorization": f"Bearer {settings.huggingface_hub_token}"}

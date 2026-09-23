@@ -9,6 +9,7 @@ import contextlib
 import json
 import logging
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 from typing import Final, cast
 
@@ -31,6 +32,11 @@ from observability.dora_metrics import (
 from pydantic import BaseModel
 
 from adapters.ai_platform.interfaces import DatasetInfo
+from adapters.ai_platform.object_storage import (
+    dataset_uri_for_path,
+    read_dataset_bytes,
+    resolve_dataset_path,
+)
 from adapters.delivery.deploy_strategies import (
     BlueGreenStrategy,
     DirectStrategy,
@@ -152,6 +158,10 @@ class ValidateDatasetRequest(BaseModel):
     task_type: str
     target_column: str | None = None
     time_column: str | None = None
+    # Which IObjectStorageAdapter the picker said this dataset came from
+    # ("local" | "s3") — lets the read go to MinIO/S3 for an s3 dataset
+    # instead of assuming it's on this process's filesystem.
+    source: str | None = None
 
 
 class EnrichDatasetFeaturesRequest(BaseModel):
@@ -159,10 +169,23 @@ class EnrichDatasetFeaturesRequest(BaseModel):
     entity_id_column: str
     # Feast "<feature_view>:<feature>" references, e.g. "transaction_features:amount".
     feature_names: list[str]
+    source: str | None = None
 
 
 class EnrichDatasetFeaturesResponse(BaseModel):
     dataset_uri: str
+
+
+class FeastEntityMatchRequest(BaseModel):
+    dataset_uri: str
+    entity_id_column: str
+    source: str | None = None
+
+
+class FeastEntityMatchResponse(BaseModel):
+    matched: int
+    total: int
+    sample_unmatched: list[str]
 
 
 class CheckResultResponse(BaseModel):
@@ -503,7 +526,9 @@ def list_datasets(user: dict = Depends(get_current_user)) -> ListDatasetsRespons
 
 @router.get("/datasets/columns", response_model=DatasetColumnsResponse)
 def get_dataset_columns(
-    dataset_uri: str, user: dict = Depends(get_current_user)
+    dataset_uri: str,
+    source: str | None = Query(default=None),
+    user: dict = Depends(get_current_user),
 ) -> DatasetColumnsResponse:
     """Reads a dataset's CSV header so the Scaffolder UI can offer real column names.
 
@@ -513,8 +538,9 @@ def get_dataset_columns(
     images) legitimately fails here — the frontend falls back to a plain
     text/array input in that case.
     """
-    csv_path = Path(dataset_uri.strip().removeprefix("file://"))
-    columns = pd.read_csv(csv_path, nrows=0).columns.tolist()
+    columns = pd.read_csv(
+        BytesIO(read_dataset_bytes(dataset_uri, source)), nrows=0
+    ).columns.tolist()
     return DatasetColumnsResponse(columns=columns)
 
 
@@ -522,6 +548,7 @@ def get_dataset_columns(
 def preview_dataset(
     dataset_uri: str,
     limit: int = Query(default=20, ge=1, le=100),
+    source: str | None = Query(default=None),
     user: dict = Depends(get_current_user),
 ) -> DatasetPreviewResponse:
     """Reads a dataset's first `limit` rows so the Scaffolder UI can show what
@@ -535,8 +562,7 @@ def preview_dataset(
     JSON that `json.dumps` would happily emit anyway (non-compliant `NaN`
     tokens) and browsers' `JSON.parse` then rejects.
     """
-    csv_path = Path(dataset_uri.strip().removeprefix("file://"))
-    df = pd.read_csv(csv_path, nrows=limit)
+    df = pd.read_csv(BytesIO(read_dataset_bytes(dataset_uri, source)), nrows=limit)
     # to_json only returns None when writing to a path_or_buf, which we don't pass.
     rows = cast(list[dict[str, object]], json.loads(cast(str, df.to_json(orient="records"))))
     return DatasetPreviewResponse(columns=df.columns.tolist(), rows=rows)
@@ -546,8 +572,7 @@ def preview_dataset(
 def validate_dataset(
     request: ValidateDatasetRequest, user: dict = Depends(get_current_user)
 ) -> list[CheckResultResponse]:
-    csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
-    df = pd.read_csv(csv_path)
+    df = pd.read_csv(BytesIO(read_dataset_bytes(request.dataset_uri, request.source)))
     # A stale form value must surface as a clear 400, not a 500 KeyError.
     for column, label in (
         (request.target_column, "target_column"),
@@ -567,8 +592,15 @@ def validate_dataset(
 def enrich_dataset_features(
     request: EnrichDatasetFeaturesRequest, user: dict = Depends(get_current_user)
 ) -> EnrichDatasetFeaturesResponse:
-    csv_path = Path(request.dataset_uri.strip().removeprefix("file://"))
-    df = pd.read_csv(csv_path)
+    csv_path = resolve_dataset_path(request.dataset_uri)
+    df = pd.read_csv(BytesIO(read_dataset_bytes(request.dataset_uri, request.source)))
+    # A stale form value must surface as a clear 400, not a 500 KeyError.
+    if request.entity_id_column not in df.columns:
+        raise HTTPException(
+            400,
+            f"entity_id_column {request.entity_id_column!r} is not a column in this "
+            f"dataset — available columns: {df.columns.tolist()}",
+        )
     entity_ids = df[request.entity_id_column].astype(str).tolist()
 
     features = feast_adapter.get_offline_features(entity_ids, request.feature_names)
@@ -585,7 +617,33 @@ def enrich_dataset_features(
 
     enriched_path = csv_path.with_stem(f"{csv_path.stem}-enriched")
     enriched.to_csv(enriched_path, index=False)
-    return EnrichDatasetFeaturesResponse(dataset_uri=f"file://{enriched_path}")
+    return EnrichDatasetFeaturesResponse(dataset_uri=dataset_uri_for_path(enriched_path))
+
+
+@router.post("/datasets/feast-entity-match", response_model=FeastEntityMatchResponse)
+def feast_entity_match(
+    request: FeastEntityMatchRequest, user: dict = Depends(get_current_user)
+) -> FeastEntityMatchResponse:
+    """How many of the chosen entity column's values the Feast store actually
+    knows — the live guardrail behind the Feature Enrichment panel. A dataset
+    whose entity column shares no values with the store still enriches
+    "successfully" (every feature comes back NaN), which is easy to miss; this
+    lets the UI say so before the run instead of after."""
+    df = pd.read_csv(BytesIO(read_dataset_bytes(request.dataset_uri, request.source)))
+    if request.entity_id_column not in df.columns:
+        raise HTTPException(
+            400,
+            f"entity_id_column {request.entity_id_column!r} is not a column in this "
+            f"dataset — available columns: {df.columns.tolist()}",
+        )
+    values = df[request.entity_id_column].astype(str).tolist()
+    known = set(feast_adapter.list_entity_ids())
+    unmatched = [value for value in values if value not in known]
+    return FeastEntityMatchResponse(
+        matched=len(values) - len(unmatched),
+        total=len(values),
+        sample_unmatched=unmatched[:5],
+    )
 
 
 @router.get("/features", response_model=FeatureListResponse)

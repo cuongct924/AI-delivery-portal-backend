@@ -175,6 +175,13 @@ class MockHuggingFaceHubAdapter(IHuggingFaceHubAdapter):
     anything else, so the wizard's Model Source step and GPU sizing estimator
     work in CI/local dev without hitting the real Hub."""
 
+    def search_models(self, query: str, limit: int = 20) -> list[str]:
+        ids = list(_KNOWN_HUGGINGFACE_MODELS.keys())
+        if query:
+            needle = query.lower()
+            ids = [i for i in ids if needle in i.lower()]
+        return ids[:limit]
+
     def get_model_info(self, model_id: str) -> HuggingFaceModelInfo:
         known = _KNOWN_HUGGINGFACE_MODELS.get(model_id)
         if known is not None:
