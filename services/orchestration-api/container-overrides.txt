@@ -5,7 +5,7 @@
 # pin each time. Regenerate by diffing the two *.lock.txt files if this
 # starts failing again. Only affects this Dockerfile's build, never edit
 # the actual requirements.lock.txt files for this.
-click==8.4.2
+click==8.5.0
 gitpython==3.1.61
 graphql-core==3.2.11
 gunicorn==26.2.0
