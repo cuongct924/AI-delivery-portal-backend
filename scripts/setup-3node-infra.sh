@@ -103,6 +103,22 @@ kubectl --context "$CTX" -n ai-platform-zone rollout status deployment/minio --t
 # harmless (mc mb) if it's already there.
 kubectl --context "$CTX" -n ai-platform-zone exec deploy/minio -- \
   sh -c 'mc alias set local http://localhost:9000 minioadmin minioadmin >/dev/null && mc mb -p local/mlflow-artifacts'
+# Seed the dataset buckets through the S3 API — MinIO only serves objects
+# written that way. Directories `docker cp`'d onto its hostPath (step 2/6)
+# show up as bucket names but stay invisible to listings and reject writes,
+# so stage them aside, create real buckets, and mirror back; the plain
+# copies under /mnt/data (training pods) are untouched.
+kubectl --context "$CTX" -n ai-platform-zone exec deploy/minio -- sh -c '
+  mc alias set local http://localhost:9000 minioadmin minioadmin >/dev/null
+  mkdir -p /mnt/ai-platform-data/_staging
+  for d in /mnt/ai-platform-data/*/; do
+    b=$(basename "$d")
+    case $b in mlflow-artifacts|.minio.sys|_staging) continue;; esac
+    mv "$d" /mnt/ai-platform-data/_staging/$b
+    mc mb -p local/$b >/dev/null
+    mc mirror -q /mnt/ai-platform-data/_staging/$b local/$b
+  done
+  rm -rf /mnt/ai-platform-data/_staging'
 
 log "5/6 — data plane portal (worker1) + workflow plane pin — OpenChoreo manifests"
 # Cluster-scoped resources first (Kubernetes ClusterRole in infra/bootstrap/,

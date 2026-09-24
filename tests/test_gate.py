@@ -7,6 +7,7 @@ from evaluations.evaluate_gate import (
     MetricThreshold,
     evaluate_gate,
     evaluate_metrics_gate,
+    infer_task_type_from_metrics,
 )
 from evaluations.llm_judge import JudgeResult
 
@@ -149,6 +150,18 @@ def test_evaluate_metrics_gate_anomaly_detection_ignores_optional_precision():
 def test_evaluate_metrics_gate_rejects_unknown_task_type():
     with pytest.raises(ValueError, match="unknown task_type"):
         evaluate_metrics_gate("not-a-task-type", {})
+
+
+def test_infer_task_type_from_metrics_covers_all_task_types():
+    assert infer_task_type_from_metrics({"accuracy": 0.9, "precision": 0.8}) == "classification"
+    assert infer_task_type_from_metrics({"r2": 0.8}) == "regression"
+    assert infer_task_type_from_metrics({"silhouette_score": 0.5}) == "clustering"
+    assert infer_task_type_from_metrics({"anomaly_rate": 0.05}) == "anomaly-detection"
+
+
+def test_infer_task_type_from_metrics_returns_none_when_unknown():
+    assert infer_task_type_from_metrics({"some_unknown_metric": 1.0}) is None
+    assert infer_task_type_from_metrics({}) is None
 
 
 def test_metric_threshold_is_met_respects_minimum_and_maximum():

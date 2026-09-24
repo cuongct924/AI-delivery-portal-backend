@@ -1,16 +1,12 @@
 """Model Monitoring API — "Setup Model Monitoring" Golden Path. A separate
 router: unlike every other Golden Path, this one doesn't trigger a 1-shot
-workflow — it registers a periodic cron/WorkflowRun via
-`IWorkflowAdapter.create_cron_workflow()`.
-
-Known gap: the OpenChoreo workflow backend that replaced Argo Server (see
-docs/openchoreo-workflow-migration-plan.md) has no `CronWorkflow`
-equivalent — `OpenChoreoWorkflowAdapter.create_cron_workflow()` raises
-`NotImplementedError` until scheduled monitoring gets its own OpenChoreo
-scheduled-task design. Mocking the workflow adapter is the only way this
-endpoint works today.
+workflow — it registers a periodic Argo CronWorkflow (via
+factory.get_cron_workflow_adapter()) that runs monitor_drift.py on schedule.
+OpenChoreo has no CronWorkflow-equivalent, so the scheduled path stays on
+Argo directly even though 1-shot training moved to OpenChoreo WorkflowRuns.
 """
 
+import json
 from typing import Final
 
 from auth.thunder import get_current_user
@@ -19,11 +15,11 @@ from costs.pricing import CPU_HOUR_USD, MONITOR_RUN_HOURS
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from adapters.factory import get_workflow_adapter
+from adapters.factory import get_cron_workflow_adapter
 
 router = APIRouter(tags=["monitoring"])
 
-workflow_adapter = get_workflow_adapter()
+workflow_adapter = get_cron_workflow_adapter()
 
 MONITOR_DRIFT_TEMPLATE: Final[str] = "monitor-drift-golden-path"
 
@@ -62,8 +58,18 @@ class SetupMonitoringRequest(BaseModel):
     ground_truth_data_source: str = "managed-label-log"
     # Only required when ground_truth_data_source="custom-uri".
     ground_truth_data_uri: str | None = None
-    # Required when monitoring_type="performance-degradation".
-    metric_name: str | None = None
+    # Required when monitoring_type="performance-degradation". A list, not a
+    # single metric: one metric can hide a real regression (e.g. high
+    # accuracy on imbalanced data while recall collapses), so the Portal
+    # lets Dev pick several and degradation trips when ANY falls below the
+    # threshold.
+    metric_names: list[str] | None = None
+    # Per-metric minimum acceptable value, keyed by metric name. Preferred
+    # over min_metric_threshold when given — a regression's RMSE and a
+    # classification's F1 don't share a sensible single cutoff.
+    metric_thresholds: dict[str, float] | None = None
+    # Single fallback threshold, used for any metric not in
+    # metric_thresholds (and by an older Portal that only sends this).
     min_metric_threshold: float = 0.85
     # "alert-only" | "auto-retrain" — Dev-facing on purpose, auto-retrain
     # has real risk if the drift check false-positives.
@@ -121,8 +127,8 @@ def setup_monitoring(
 ) -> SetupMonitoringResponse:
     if request.on_drift_detected == "auto-retrain" and request.retrain_request_json is None:
         raise ValueError("retrain_request_json is required when on_drift_detected='auto-retrain'")
-    if request.monitoring_type == "performance-degradation" and request.metric_name is None:
-        raise ValueError("metric_name is required when monitoring_type='performance-degradation'")
+    if request.monitoring_type == "performance-degradation" and not request.metric_names:
+        raise ValueError("metric_names is required when monitoring_type='performance-degradation'")
 
     # Deterministic name — re-running Setup for the same model updates the
     # existing schedule/threshold instead of creating a duplicate CronWorkflow.
@@ -140,8 +146,13 @@ def setup_monitoring(
     ground_truth_data_uri = _resolve_ground_truth_data_uri(request)
     if ground_truth_data_uri is not None:
         parameters["ground-truth-data-uri"] = ground_truth_data_uri
-    if request.metric_name is not None:
-        parameters["metric-name"] = request.metric_name
+    if request.metric_names:
+        parameters["metric-names"] = ",".join(request.metric_names)
+    if request.metric_thresholds:
+        # JSON, not a comma-joined "name:value" list — metric names are
+        # already comma-joined above, so a second comma-delimited format
+        # would need its own escaping rules.
+        parameters["metric-thresholds"] = json.dumps(request.metric_thresholds)
     if request.retrain_request_json is not None:
         parameters["retrain-request-json"] = request.retrain_request_json
     if request.failure_webhook_url is not None:

@@ -1,6 +1,6 @@
 """SQLite-backed IPredictionLogAdapter — same "local file, no server to
-run" precedent as adapters/ai_platform/version_registry_adapter.py's
-JsonFileVersionRegistryAdapter, just a real table instead of one JSON
+run" precedent as adapters/ai_platform/qdrant_registry_adapter.py's
+QdrantVersionRegistryAdapter, just a real table instead of one JSON
 blob (this data is append-only and queried by model_name, which a flat
 JSON file handles far worse as it grows).
 """

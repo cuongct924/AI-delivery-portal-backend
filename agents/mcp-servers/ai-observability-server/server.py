@@ -23,11 +23,11 @@ mcp = MCPServer("ai-observability-server")
 adapter = MlflowAdapter()
 llm_gateway_adapter = LiteLLMGatewayAdapter()
 PROMETHEUS_URL: Final[str] = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
-# orchestration-api owns prompt/RAG active-version state
-# (services/orchestration-api/.state/llmops-registry.json, via
-# JsonFileVersionRegistryAdapter) — this server calls it over HTTP rather
-# than reading that file directly. It runs in its own container with no
-# shared filesystem (see docker-compose.yml), and every other real
+# orchestration-api owns prompt/RAG active-version state (prompts in MLflow's
+# Prompt Registry, RAG index versions in Qdrant — see
+# adapters/ai_platform/qdrant_registry_adapter.py) — this server calls it over
+# HTTP rather than reading those stores directly. It runs in its own container
+# with no shared filesystem (see docker-compose.yml), and every other real
 # integration here (MLflow, Prometheus, LiteLLM) is already an HTTP call
 # to another service, not a shared file — same pattern, not a new one.
 ORCHESTRATION_API_URL: Final[str] = os.getenv("ORCHESTRATION_API_URL", "http://localhost:8000")

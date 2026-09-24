@@ -27,7 +27,9 @@ from evidently.presets import DataDriftPreset
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
+    mean_absolute_error,
     precision_score,
+    r2_score,
     recall_score,
     root_mean_squared_error,
 )
@@ -85,6 +87,10 @@ def compute_metric(metric_name: str, y_true: pd.Series, y_pred: object) -> float
         )
     if metric_name == "rmse":
         return float(root_mean_squared_error(y_true, y_pred))
+    if metric_name == "mae":
+        return float(mean_absolute_error(y_true, y_pred))
+    if metric_name == "r2_score":
+        return float(r2_score(y_true, y_pred))
     raise ValueError(f"unknown metric_name {metric_name!r}")
 
 
@@ -143,25 +149,41 @@ def _run_performance_degradation(
     model_version: str,
     current: pd.DataFrame,
     ground_truth_data_uri: str,
-    metric_name: str,
+    metric_names: list[str],
+    metric_thresholds: dict[str, float],
     min_metric_threshold: float,
 ) -> tuple[bool, dict[str, object]]:
-    """Scores production data with the model, compares the metric against
-    delayed ground-truth labels (last column of the ground-truth CSV,
-    aligned by row position), and returns (detected, webhook payload)."""
+    """Scores production data with the model, compares each requested metric
+    against delayed ground-truth labels (last column of the ground-truth CSV,
+    aligned by row position), and returns (detected, webhook payload).
+
+    Degradation trips when ANY metric crosses its own threshold — watching
+    several at once is the point (a single metric can hide a real
+    regression, e.g. high accuracy on imbalanced data while recall
+    collapses). A metric with no explicit threshold falls back to
+    min_metric_threshold."""
     ground_truth = pd.read_csv(Path(ground_truth_data_uri.removeprefix("file://")))
     model = mlflow.pyfunc.load_model(f"models:/{model_name}/{model_version}")
     predictions = model.predict(current)
     y_true = ground_truth.iloc[:, -1]
-    metric_value = compute_metric(metric_name, y_true, predictions)
-    mlflow.log_metric(metric_name, metric_value)
-    mlflow.log_param("min_metric_threshold", min_metric_threshold)
-    degraded = metric_value < min_metric_threshold
+    metrics: dict[str, float] = {}
+    thresholds: dict[str, float] = {}
+    for metric_name in metric_names:
+        metric_value = compute_metric(metric_name, y_true, predictions)
+        metrics[metric_name] = metric_value
+        thresholds[metric_name] = metric_thresholds.get(metric_name, min_metric_threshold)
+        mlflow.log_metric(metric_name, metric_value)
+        mlflow.log_param(f"threshold_{metric_name}", thresholds[metric_name])
+    degraded = any(metrics[name] < thresholds[name] for name in metrics)
     mlflow.set_tag("degraded", str(degraded))
-    print(f"{metric_name}={metric_value:.3f} min={min_metric_threshold} degraded={degraded}")
+    summary = " ".join(
+        f"{name}={value:.3f}(min={thresholds[name]:.3f})" for name, value in metrics.items()
+    )
+    print(f"{summary} degraded={degraded}")
     return degraded, {
-        "metric_name": metric_name,
-        "metric_value": metric_value,
+        "metric_names": metric_names,
+        "metric_values": metrics,
+        "metric_thresholds": thresholds,
         "min_metric_threshold": min_metric_threshold,
     }
 
@@ -174,7 +196,10 @@ def main() -> None:
     monitoring_type = os.environ.get("MONITORING_TYPE", "data-drift")
     drift_threshold = float(os.environ.get("DRIFT_THRESHOLD", "0.5"))
     ground_truth_data_uri = os.environ.get("GROUND_TRUTH_DATA_URI") or None
-    metric_name = os.environ.get("METRIC_NAME") or None
+    metric_names = [
+        name.strip() for name in (os.environ.get("METRIC_NAMES") or "").split(",") if name.strip()
+    ]
+    metric_thresholds: dict[str, float] = json.loads(os.environ.get("METRIC_THRESHOLDS") or "{}")
     min_metric_threshold = float(os.environ.get("MIN_METRIC_THRESHOLD", "0.85"))
     on_drift_detected = os.environ.get("ON_DRIFT_DETECTED", "alert-only")
     retrain_request_json = os.environ.get("RETRAIN_REQUEST_JSON") or None
@@ -185,10 +210,10 @@ def main() -> None:
     if on_drift_detected == "auto-retrain" and retrain_request_json is None:
         raise RuntimeError("RETRAIN_REQUEST_JSON is required when ON_DRIFT_DETECTED=auto-retrain")
     if monitoring_type == "performance-degradation" and (
-        ground_truth_data_uri is None or metric_name is None
+        ground_truth_data_uri is None or not metric_names
     ):
         raise RuntimeError(
-            "GROUND_TRUTH_DATA_URI and METRIC_NAME are required "
+            "GROUND_TRUTH_DATA_URI and METRIC_NAMES are required "
             "when MONITORING_TYPE=performance-degradation"
         )
 
@@ -208,13 +233,14 @@ def main() -> None:
         mlflow.log_param("on_drift_detected", on_drift_detected)
 
         if monitoring_type == "performance-degradation":
-            assert ground_truth_data_uri is not None and metric_name is not None
+            assert ground_truth_data_uri is not None and metric_names
             detected, payload = _run_performance_degradation(
                 model_name,
                 model_version,
                 current,
                 ground_truth_data_uri,
-                metric_name,
+                metric_names,
+                metric_thresholds,
                 min_metric_threshold,
             )
         else:

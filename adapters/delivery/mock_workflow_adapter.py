@@ -81,9 +81,10 @@ class MockWorkflowAdapter(IWorkflowAdapter):
         self, name: str, schedule: str, workflow_template_name: str, parameters: dict[str, str]
     ) -> dict[str, object]:
         """Convenience method, not part of IWorkflowAdapter — returns an
-        Argo-style CronWorkflow resource. The mock is the only backend that
-        supports scheduled monitoring today; OpenChoreoWorkflowAdapter raises
-        NotImplementedError."""
+        Argo-style CronWorkflow resource. The mock and ArgoCronWorkflowAdapter
+        are the two backends supporting scheduled monitoring;
+        OpenChoreoWorkflowAdapter raises NotImplementedError (no
+        CronWorkflow-equivalent in openchoreo-api)."""
         cron_workflow = {
             "metadata": {"name": name},
             "spec": {

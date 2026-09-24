@@ -55,7 +55,7 @@ here is the cluster-side prerequisite below.
 
 | Runtime | ServingRuntime CR | Continuous Batching | PagedAttention | Prefix Caching | Speculative Decoding | Disaggregation | KV Offload | Pipeline Parallel |
 |---------|-------------------|---------------------|----------------|----------------|----------------------|----------------|------------|-------------------|
-| vLLM | `vllm-runtime` | ✅ Default | ✅ Default | ✅ Configurable | 🔄 Roadmap (MVP: blocked) | 🔄 Roadmap | 🔄 Roadmap | ✅ Configurable |
+| vLLM | `vllm-runtime` | ✅ Default | ✅ Default | ✅ Configurable | ✅ Configurable | 🔄 Roadmap | 🔄 Roadmap | ✅ Configurable |
 | tensorrt-llm | `tensorrt-llm-runtime` | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap |
 | triton | `triton-runtime` | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap | 🔄 Roadmap |
 
@@ -64,9 +64,9 @@ here is the cluster-side prerequisite below.
 
 **Default-on optimizations** (vLLM): continuous batching + PagedAttention are enabled by default in vLLM — no action needed by the Dev. The form's `enablePagedAttention=true` / `batchingStrategy=continuous` reflect this.
 
-**Must configure + benchmark** (vLLM): prefix caching (`enablePrefixCaching`), pipeline parallelism (`pipelineParallelSize>1`). These are exposed in the form but the Dev must test them for their specific model/workload.
+**Must configure + benchmark** (vLLM): prefix caching (`enablePrefixCaching`), pipeline parallelism (`pipelineParallelSize>1`), speculative decoding (`speculativeDecoding` = `ngram` or `draft-model`). These are exposed in the form but the Dev must test them for their specific model/workload. `ngram` uses vLLM's built-in `[ngram]` proposer (no draft model); `draft-model` requires `draftModelId` and renders `--speculative-model=<draftModelId>`.
 
-**Roadmap optimizations** (all runtimes): speculative decoding (ngram / draft-model), prefill-decode disaggregation, KV cache offload (CPU/SSD), expert/data parallelism beyond tensor-parallel. These require separate infrastructure (draft model serving, prefill/decode pools, offload storage) and are intentionally excluded from MVP.
+**Roadmap optimizations** (all runtimes): prefill-decode disaggregation, KV cache offload (CPU/SSD), expert/data parallelism beyond tensor-parallel. These require separate infrastructure (prefill/decode pools, offload storage) and are intentionally excluded from MVP.
 
 ## Why quantization/GPU compatibility is enforced in code, not just this doc
 
@@ -80,8 +80,8 @@ business logic lives in orchestration-api).
 `llm_serving/registry.py`'s `validate_runtime_optimizations()` rejects any
 optimization flag not in the runtime's supported set with a clear message:
 ```
-Optimization 'speculativeDecoding' is not supported for runtime 'vllm'
-in this MVP — supported flags for 'vllm': ['batchingStrategy', 'enablePagedAttention', 'enablePrefixCaching', 'pipelineParallelSize'].
+Optimization 'disaggregation' is not supported for runtime 'vllm'
+in this MVP — supported flags for 'vllm': ['batchingStrategy', 'draftModelId', 'enablePagedAttention', 'enablePrefixCaching', 'pipelineParallelSize', 'speculativeDecoding'].
 See infra/llm-serving/README.md for the roadmap.
 ```
 

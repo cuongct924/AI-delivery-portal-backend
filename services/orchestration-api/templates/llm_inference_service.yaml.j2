@@ -37,6 +37,9 @@ spec:
         - --disable-prefix-caching
         {% endif %}
         {% endif %}
+        {% if speculative_model is not none %}
+        - "--speculative-model={{ speculative_model }}"
+        {% endif %}
         {% if pipeline_parallel_size is not none %}
         - --pipeline-parallel-size={{ pipeline_parallel_size }}
         {% endif %}

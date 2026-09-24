@@ -274,7 +274,7 @@ version trước khi activate), không phải tầng *suy luận trong 1 lượt
 
 **Sửa lại hiểu nhầm đã có ở bản nháp trước:** MCP Prompts primitive không
 phải một hệ thống runbook tách biệt cần viết mới — Prompt Registry
-(`routers/prompts.py` + `JsonFileVersionRegistryAdapter(kind="prompt")`)
+(`routers/prompts.py` + `MlflowPromptRegistryAdapter(kind="prompt")`)
 **đã tồn tại đầy đủ** (draft → evaluate-gate → activate), và đã
 agent-accessible qua 3 tool có sẵn trong `llmops-golden-paths-server`
 (`draft_prompt`, `evaluate_prompt`, `activate_prompt`). Đây là registry
@@ -284,7 +284,7 @@ khác mục đích, nhưng nên dùng chung một registry, không tách hai h�
 
 - [ ] Thêm field phân loại vào metadata registry (`category: "persona"` vs
       `"task-template"`) — không cần bảng/adapter mới, chỉ mở rộng
-      `JsonFileVersionRegistryAdapter`'s metadata dict hiện có.
+      `MlflowPromptRegistryAdapter`'s metadata/tags hiện có.
 - [ ] Draft/evaluate/activate runbook đầu tiên (ví dụ
       `diagnose_latency_spike`) bằng **đúng 3 tool đã có sẵn** — không viết
       tool mới.
@@ -359,5 +359,5 @@ khác mục đích, nhưng nên dùng chung một registry, không tách hai h�
 - [ ] Kết quả đề xuất của agent nên hiển thị ở đâu — Backstage UI, Slack,
       hay tạo PR/ticket tự động?
 - [ ] `category: "task-template"` nên là field riêng trong metadata, hay
-      tách hẳn `kind="runbook"` mới trong `JsonFileVersionRegistryAdapter`
+      tách hẳn `kind="runbook"` mới trong registry (Qdrant)
       để không lẫn với danh sách persona ở `GET /prompts`?

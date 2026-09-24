@@ -30,10 +30,15 @@ COPY --chown=appuser:appuser adapters/ ./adapters/
 # relative path — the app can't boot without it. Frozen snapshot, not a
 # live sync with the host's own infra/feature-store/.
 COPY --chown=appuser:appuser infra/feature-store/ ./infra/feature-store/
+# RAG ingest (routers/rag.py) reads repo-relative source paths like
+# "docs/architecture-overview.md" — without this the in-cluster pod 400s on
+# every ingest. DOCS_ROOT is the repo root (contains docs/), independent of CWD.
+COPY --chown=appuser:appuser docs/ ./docs/
 COPY --chown=appuser:appuser services/orchestration-api/ .
 USER appuser
 EXPOSE 8000
 ENV PYTHONPATH=/app
+ENV DOCS_ROOT=/app
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')" || exit 1
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

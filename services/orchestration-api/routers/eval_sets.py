@@ -3,7 +3,7 @@ across prompt/RAG-index evaluation runs (routers/prompts.py, routers/rag.py),
 so two versions of the same artifact are graded against the same benchmark
 instead of whatever questions happened to be typed into that run's form.
 
-Backed by the same JsonFileVersionRegistryAdapter as routers/rag.py's
+Backed by the same QdrantVersionRegistryAdapter as routers/rag.py's
 "rag-index" kind, under kind="eval-set" — it was already designed and
 tested as a multi-kind store (see that adapter's module docstring).
 """
@@ -14,6 +14,7 @@ from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from adapters.ai_platform.interfaces import normalize_version
 from adapters.factory import get_registry_adapter
 
 router = APIRouter(prefix="/eval-sets", tags=["eval-sets"])
@@ -111,6 +112,7 @@ def draft_eval_set(
 def get_eval_set_version(
     name: str, version: str, user: dict = Depends(get_current_user)
 ) -> EvalSetVersionResponse:
+    version = normalize_version(version)
     try:
         metadata = registry_adapter.get_version(_KIND, name, version)
     except ValueError as exc:

@@ -207,6 +207,17 @@ def test_minio_adapter_returns_empty_when_no_buckets_exist() -> None:
     assert adapter.list_datasets() == []
 
 
+def test_minio_adapter_bounds_retries_and_timeouts() -> None:
+    # Regression: botocore's default backoff stalled every dataset-picker
+    # call ~8s when the MinIO port-forward was down — fail-open must be fast.
+    adapter = MinioObjectStorageAdapter(endpoint_url="http://localhost:9")
+    config = adapter.client.meta.config
+
+    assert config.retries["total_max_attempts"] == 3
+    assert config.connect_timeout == 2
+    assert config.read_timeout == 5
+
+
 class _StubAdapter(IObjectStorageAdapter):
     def __init__(self, datasets: list[DatasetInfo] | None = None, error: Exception | None = None):
         self._datasets = datasets or []

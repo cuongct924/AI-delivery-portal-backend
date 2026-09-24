@@ -11,8 +11,9 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
 from audit.events import record_audit_event
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from mcp_client import McpToolRegistry
 from observability.dora_metrics import LLM_SPEND_USD
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -34,6 +35,7 @@ from routers import (
     portal_assistant,
     prompts,
     rag,
+    security,
 )
 
 from adapters.factory import get_llm_gateway_adapter
@@ -95,6 +97,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Surface the real error instead of FastAPI's bare "Internal Server
+    Error". The Scaffolder actions' postJson only shows the response body, so
+    an opaque 500 makes a routine ValueError (e.g. an unknown version) look
+    like a crash with no clue in the task log."""
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": f"{type(exc).__name__}: {exc}"})
 
 
 def _audit_action(path: str) -> str | None:
@@ -159,6 +171,7 @@ app.include_router(mock_observer.router)
 app.include_router(costs.router)
 app.include_router(observer_costs.router)
 app.include_router(audit_logs.router)
+app.include_router(security.router)
 
 # feast (via adapters.factory) sets PROMETHEUS_MULTIPROC_DIR at import time,
 # which makes Instrumentator's /metrics read empty multiprocess .db files

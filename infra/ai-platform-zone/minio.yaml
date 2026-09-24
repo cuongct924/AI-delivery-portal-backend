@@ -3,8 +3,10 @@
 # ./data (dataset folders) `docker cp`'d onto k3d-worker2-0 by
 # scripts/setup-3node-infra.sh — same trick already used for the training
 # workflow's dataset mount (infra/openchoreo/platform-shared/cluster-workflow-templates/argo/train-register-cluster-template.yaml's
-# /mnt/data) — so every top-level folder under ./data shows up as a bucket,
-# reusing the files as-is instead of re-uploading them.
+# /mnt/data). Plain files on that hostPath are NOT servable objects on their
+# own — setup-3node-infra.sh mirrors them into real buckets through the S3
+# API after MinIO is up, so every top-level folder under ./data shows up as
+# a bucket holding the same files (plus their .dvc pointers).
 apiVersion: apps/v1
 kind: Deployment
 metadata:

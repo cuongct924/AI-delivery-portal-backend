@@ -5,8 +5,9 @@ runtime name instead of DL architecture.
 
 Runtime/Optimization Support Matrix — Implemented vs Roadmap:
 - vLLM: continuous batching (default), paged attention (default), prefix
-  caching (configurable), speculative decoding (roadmap), disaggregation
-  (roadmap), KV offload (roadmap), pipeline parallelism (configurable).
+  caching (configurable), speculative decoding (configurable: n-gram or
+  draft-model), disaggregation (roadmap), KV offload (roadmap), pipeline
+  parallelism (configurable).
 - tensorrt-llm: coming soon — runtime entry exists, but get_llm_serving_runtime
   raises a friendly error; full support in roadmap.
 - triton: coming soon — same as tensorrt-llm.
@@ -94,12 +95,50 @@ RUNTIME_OPTIMIZATION_SUPPORT: Final[dict[str, frozenset[str]]] = {
             "batchingStrategy",
             "enablePagedAttention",
             "enablePrefixCaching",
+            "speculativeDecoding",
+            "draftModelId",
             "pipelineParallelSize",
         }
     ),
     "tensorrt-llm": frozenset(),  # Roadmap — no flags supported in MVP
     "triton": frozenset(),  # Roadmap — no flags supported in MVP
 }
+
+
+# vLLM's built-in n-gram speculative proposer — no draft model to download,
+# so speculativeDecoding="ngram" needs no draftModelId.
+VLLM_SPECULATIVE_NGRAM_MODEL: Final[str] = "[ngram]"
+
+
+def vllm_speculative_model(
+    speculative_decoding: str | None, draft_model_id: str | None
+) -> str | None:
+    """Maps the form's speculativeDecoding mode to vLLM's --speculative-model
+    value.
+
+    Args:
+        speculative_decoding: "none" | "ngram" | "draft-model" | None.
+        draft_model_id: HuggingFace id of the draft model — required for
+            "draft-model", ignored otherwise.
+
+    Returns:
+        The --speculative-model value, or None when speculative decoding is off.
+
+    Raises:
+        ValueError: an unknown mode, or "draft-model" without a draft model id.
+    """
+    if speculative_decoding in (None, "none"):
+        return None
+    if speculative_decoding == "ngram":
+        return VLLM_SPECULATIVE_NGRAM_MODEL
+    if speculative_decoding == "draft-model":
+        if not draft_model_id:
+            raise ValueError("speculativeDecoding='draft-model' requires draftModelId")
+        return draft_model_id
+    raise ValueError(
+        f"unknown speculativeDecoding {speculative_decoding!r} — "
+        "must be one of ['none', 'ngram', 'draft-model']"
+    )
 
 
 def validate_gpu_quantization(gpu_type: str, quantization: str) -> None:

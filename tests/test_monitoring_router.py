@@ -110,7 +110,7 @@ def test_setup_monitoring_forwards_performance_degradation_fields() -> None:
         schedule="0 0 * * *",
         monitoring_type="performance-degradation",
         ground_truth_data_source="managed-label-log",
-        metric_name="f1_score",
+        metric_names=["f1_score", "recall"],
         min_metric_threshold=0.9,
         failure_webhook_url="http://portal.test/api/monitoring/failures",
     )
@@ -120,9 +120,27 @@ def test_setup_monitoring_forwards_performance_degradation_fields() -> None:
     parameters = mock_argo.create_cron_workflow.call_args.args[3]
     assert parameters["monitoring-type"] == "performance-degradation"
     assert parameters["ground-truth-data-uri"] == ("file:///mnt/data/fraud-detection/label-log.csv")
-    assert parameters["metric-name"] == "f1_score"
+    assert parameters["metric-names"] == "f1_score,recall"
     assert parameters["min-metric-threshold"] == "0.9"
     assert parameters["failure-webhook-url"] == "http://portal.test/api/monitoring/failures"
+
+
+def test_setup_monitoring_forwards_per_metric_thresholds() -> None:
+    request = SetupMonitoringRequest(
+        model_name="fraud-detection",
+        model_version="3",
+        reference_data_uri="file:///mnt/data/traditional-ml/fraud-detection-sample.csv",
+        production_data_uri="file:///mnt/monitoring/fraud-detection-recent.csv",
+        schedule="0 0 * * *",
+        monitoring_type="performance-degradation",
+        metric_names=["f1_score", "recall"],
+        metric_thresholds={"f1_score": 0.85, "recall": 0.7},
+    )
+    with patch("routers.monitoring.workflow_adapter") as mock_argo:
+        setup_monitoring(request)
+
+    parameters = mock_argo.create_cron_workflow.call_args.args[3]
+    assert parameters["metric-thresholds"] == '{"f1_score": 0.85, "recall": 0.7}'
 
 
 def test_setup_monitoring_requires_metric_name_for_performance_degradation() -> None:
@@ -134,7 +152,7 @@ def test_setup_monitoring_requires_metric_name_for_performance_degradation() -> 
         schedule="0 0 * * *",
         monitoring_type="performance-degradation",
     )
-    with pytest.raises(ValueError, match="metric_name is required"):
+    with pytest.raises(ValueError, match="metric_names is required"):
         setup_monitoring(request)
 
 
@@ -147,7 +165,7 @@ def test_setup_monitoring_requires_ground_truth_uri_for_custom_source() -> None:
         schedule="0 0 * * *",
         monitoring_type="performance-degradation",
         ground_truth_data_source="custom-uri",
-        metric_name="f1_score",
+        metric_names=["f1_score"],
     )
     with pytest.raises(ValueError, match="ground_truth_data_uri is required"):
         setup_monitoring(request)

@@ -80,6 +80,21 @@ class IModelRegistryAdapter(ABC):
 DEFAULT_ENVIRONMENT: Final[str] = "production"
 
 
+def normalize_version(version: str) -> str:
+    """Canonicalize a user-supplied version to the form the registry stores.
+
+    The Scaffolder UI renders versions as "v1" (OptionPickerField's
+    formatOption) while every registry stores them as "1" — a user who types
+    the displayed form would otherwise miss every lookup (and a bare
+    `int(version)` would raise). Strips a single leading "v"/"V" only when
+    what follows is all digits, so a genuinely non-numeric version is left
+    untouched.
+    """
+    if len(version) > 1 and version[0] in ("v", "V") and version[1:].isdigit():
+        return version[1:]
+    return version
+
+
 class IVersionRegistryAdapter(ABC):
     """Tracks versions of an artifact that isn't a trained model (prompt
     text, RAG index pointer) and which one is currently active *per
@@ -165,11 +180,16 @@ class IVectorStoreAdapter(ABC):
         vectors: list[list[float]],
         payloads: Sequence[Mapping[str, object]],
         collection: str | None = None,
+        index_version: str | None = None,
     ) -> UpsertResult: ...
 
     @abstractmethod
     def search(
-        self, query_vector: list[float], top_k: int = 5, collection: str | None = None
+        self,
+        query_vector: list[float],
+        top_k: int = 5,
+        collection: str | None = None,
+        index_version: str | None = None,
     ) -> list[SearchHit]: ...
 
 

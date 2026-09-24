@@ -71,9 +71,73 @@ def test_compute_metric_supports_classification_and_regression() -> None:
     assert compute_metric("rmse", pd.Series([1.0, 2.0]), [1.0, 4.0]) == pytest.approx(2**0.5)
 
 
+def test_compute_metric_supports_mae_and_r2() -> None:
+    y_true = pd.Series([1.0, 2.0, 3.0])
+    y_pred = [1.0, 2.0, 4.0]
+
+    assert compute_metric("mae", y_true, y_pred) == pytest.approx(1 / 3)
+    assert compute_metric("r2_score", y_true, y_pred) == pytest.approx(0.5)
+
+
 def test_compute_metric_rejects_unknown_name() -> None:
     with pytest.raises(ValueError, match="unknown metric_name"):
         compute_metric("nope", pd.Series([1]), [1])
+
+
+@patch("monitor_drift.mlflow")
+@patch("monitor_drift.pd.read_csv")
+def test_run_performance_degradation_uses_per_metric_thresholds(
+    mock_read_csv: MagicMock, mock_mlflow: MagicMock
+) -> None:
+    from monitor_drift import _run_performance_degradation
+
+    # Ground truth is the last column; predictions come from the model.
+    mock_read_csv.return_value = pd.DataFrame({"feature": [0, 1, 0, 1], "label": [1, 0, 1, 1]})
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [1, 0, 0, 1]
+    mock_mlflow.pyfunc.load_model.return_value = mock_model
+
+    # accuracy=0.75, recall=0.75. A 0.9 threshold on accuracy trips it even
+    # though recall's 0.5 threshold would not.
+    detected, payload = _run_performance_degradation(
+        "m",
+        "1",
+        pd.DataFrame({"feature": [0, 1, 0, 1]}),
+        "file:///labels.csv",
+        ["accuracy", "recall"],
+        {"accuracy": 0.9, "recall": 0.5},
+        0.85,
+    )
+
+    assert detected is True
+    assert payload["metric_thresholds"] == {"accuracy": 0.9, "recall": 0.5}
+
+
+@patch("monitor_drift.mlflow")
+@patch("monitor_drift.pd.read_csv")
+def test_run_performance_degradation_falls_back_to_scalar_threshold(
+    mock_read_csv: MagicMock, mock_mlflow: MagicMock
+) -> None:
+    from monitor_drift import _run_performance_degradation
+
+    mock_read_csv.return_value = pd.DataFrame({"feature": [0, 1, 0, 1], "label": [1, 0, 1, 1]})
+    mock_model = MagicMock()
+    mock_model.predict.return_value = [1, 0, 0, 1]
+    mock_mlflow.pyfunc.load_model.return_value = mock_model
+
+    # No explicit threshold for accuracy -> falls back to 0.5, so 0.75 passes.
+    detected, payload = _run_performance_degradation(
+        "m",
+        "1",
+        pd.DataFrame({"feature": [0, 1, 0, 1]}),
+        "file:///labels.csv",
+        ["accuracy"],
+        {},
+        0.5,
+    )
+
+    assert detected is False
+    assert payload["metric_thresholds"] == {"accuracy": 0.5}
 
 
 @patch("monitor_drift.httpx.post")

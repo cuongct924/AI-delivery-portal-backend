@@ -23,6 +23,7 @@ from llm_serving.registry import (
     get_llm_serving_runtime,
     validate_gpu_quantization,
     validate_runtime_optimizations,
+    vllm_speculative_model,
 )
 from pydantic import BaseModel
 
@@ -267,6 +268,7 @@ def prepare_llm_deploy_manifest(
     validate_gpu_quantization(request.gpu_type, request.quantization)
     runtime_spec = get_llm_serving_runtime(request.runtime)
     vllm_quantization = VLLM_QUANTIZATION_ARGS.get(request.quantization)
+    speculative_model = vllm_speculative_model(request.speculativeDecoding, request.draftModelId)
 
     optimizations = {
         "batchingStrategy": request.batchingStrategy,
@@ -313,6 +315,7 @@ def prepare_llm_deploy_manifest(
         batching_strategy=request.batchingStrategy,
         enable_paged_attention=request.enablePagedAttention,
         enable_prefix_caching=request.enablePrefixCaching,
+        speculative_model=speculative_model,
         pipeline_parallel_size=request.pipelineParallelSize,
     )
     # Only "dev" + "instant" writes for real (checked above); a PR-gated

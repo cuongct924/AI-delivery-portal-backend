@@ -68,7 +68,17 @@ def test_trigger_training_sets_mode_finetune_when_base_model_uri_given() -> None
         algorithm="LogisticRegression",
         base_model_uri="models:/fraud-detection/1",
     )
-    with patch("routers.models.workflow_adapter") as mock_argo:
+    with (
+        patch("routers.models.workflow_adapter") as mock_argo,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "1",
+            "run_id": "run-1",
+            "tags": {"task_type": "classification"},
+            "metrics": {"accuracy": 0.9},
+            "status": "READY",
+        }
         mock_argo.trigger_workflow.return_value = {"metadata": {"name": "wf-123"}}
         response = trigger_training(request)
 
@@ -114,6 +124,32 @@ def test_trigger_training_sets_mode_train_without_base_model_uri() -> None:
         },
     )
     assert response.workflow_name == "wf-456"
+
+
+def test_trigger_training_rejects_base_model_with_different_task_type() -> None:
+    request = TriggerTrainingRequest(
+        model_name="revenue-forecast",
+        dataset_uri="file:///mnt/data/revenue.csv",
+        task_type="regression",
+        base_model_uri="models:/fraud-detection/1",
+    )
+    with (
+        patch("routers.models.workflow_adapter") as mock_workflow,
+        patch("routers.models.mlflow_adapter") as mock_mlflow,
+    ):
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "1",
+            "run_id": "run-1",
+            "tags": {"task_type": "classification"},
+            "metrics": {"accuracy": 0.9},
+            "status": "READY",
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            trigger_training(request)
+
+    assert exc_info.value.status_code == 400
+    assert "base model fraud-detection:1 is classification" in exc_info.value.detail
+    mock_workflow.trigger_workflow.assert_not_called()
 
 
 def test_trigger_training_strips_trailing_whitespace_from_dataset_uri() -> None:
@@ -441,8 +477,66 @@ def test_policy_check_fails_and_tags_gate_passed_false_below_threshold() -> None
     )
 
 
-def test_policy_check_raises_400_when_model_has_no_task_type_tag() -> None:
+def test_policy_check_raises_400_when_task_type_uninferrable() -> None:
     request = PolicyCheckRequest(model_name="fraud-detection", model_version="3")
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "3",
+            "run_id": "run-1",
+            "tags": {},
+            "metrics": {"some_unknown_metric": 1.0},
+            "status": "READY",
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            policy_check(request)
+
+    assert exc_info.value.status_code == 400
+    assert "task_type" in exc_info.value.detail
+
+
+def test_policy_check_infers_task_type_for_legacy_version_and_backfills_tag() -> None:
+    request = PolicyCheckRequest(model_name="fraud-detection", model_version="1")
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "1",
+            "run_id": "run-1",
+            "tags": {},
+            "metrics": {"accuracy": 0.92, "precision": 0.85, "recall": 0.8, "f1": 0.82},
+            "status": "READY",
+        }
+        result = policy_check(request)
+
+    assert result["passed"] is True
+    mock_mlflow.set_model_version_tag.assert_any_call(
+        "fraud-detection", "1", "task_type", "classification"
+    )
+    mock_mlflow.set_model_version_tag.assert_any_call("fraud-detection", "1", "gate_passed", "True")
+
+
+def test_policy_check_prefers_explicit_task_type_hint_over_inference() -> None:
+    request = PolicyCheckRequest(
+        model_name="fraud-detection", model_version="1", task_type="anomaly-detection"
+    )
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "1",
+            "run_id": "run-1",
+            "tags": {},
+            "metrics": {"anomaly_rate": 0.05},
+            "status": "READY",
+        }
+        result = policy_check(request)
+
+    assert result["passed"] is True
+    mock_mlflow.set_model_version_tag.assert_any_call(
+        "fraud-detection", "1", "task_type", "anomaly-detection"
+    )
+
+
+def test_policy_check_raises_400_for_unknown_task_type() -> None:
+    request = PolicyCheckRequest(
+        model_name="fraud-detection", model_version="3", task_type="not-a-task"
+    )
     with patch("routers.models.mlflow_adapter") as mock_mlflow:
         mock_mlflow.get_model_version_details.return_value = {
             "version": "3",
@@ -455,7 +549,7 @@ def test_policy_check_raises_400_when_model_has_no_task_type_tag() -> None:
             policy_check(request)
 
     assert exc_info.value.status_code == 400
-    assert "task_type" in exc_info.value.detail
+    assert "not-a-task" in exc_info.value.detail
 
 
 def test_policy_check_raises_404_when_model_version_does_not_exist() -> None:
@@ -547,6 +641,24 @@ def test_validate_dataset_returns_check_results(tmp_path) -> None:
     assert "check_missing_values" in names
     assert "check_duplicate_rows" in names
     assert all(r.severity in ("blocking", "warning", "info") for r in results)
+
+
+def test_validate_dataset_rejects_id_column_missing_from_dataset(tmp_path) -> None:
+    csv_path = tmp_path / "revenue.csv"
+    pd.DataFrame({"date": ["2026-01-01"], "revenue": [42.0]}).to_csv(csv_path, index=False)
+    request = ValidateDatasetRequest(
+        dataset_uri=f"file://{csv_path}",
+        task_type="regression",
+        target_column="revenue",
+        id_columns=["transaction_id"],
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        validate_dataset(request)
+
+    assert exc_info.value.status_code == 400
+    assert "id_columns 'transaction_id'" in exc_info.value.detail
+    assert "available columns: ['date', 'revenue']" in exc_info.value.detail
 
 
 def test_validate_dataset_tolerates_trailing_whitespace_in_uri(tmp_path) -> None:
@@ -716,12 +828,38 @@ def test_get_model_version_summary_reads_task_type_tag() -> None:
             "metrics": {"r2": 0.8},
             "status": "READY",
         }
+        mock_mlflow.get_dataset_lineage.return_value = [
+            {
+                "name": "house-price-sample.csv",
+                "digest": "abc123",
+                "source": "file:///mnt/data/regression-house-price-prediction/house-price-sample.csv",
+            }
+        ]
         response = get_model_version_summary("house-price", "3")
 
     assert response.name == "house-price"
     assert response.version == "3"
     assert response.task_type == "regression"
     assert response.metrics == {"r2": 0.8}
+    assert (
+        response.dataset_uri
+        == "file:///mnt/data/regression-house-price-prediction/house-price-sample.csv"
+    )
+
+
+def test_get_model_version_summary_returns_no_dataset_uri_when_run_logged_no_inputs() -> None:
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_model_version_details.return_value = {
+            "version": "3",
+            "run_id": "run-1",
+            "tags": {"task_type": "regression"},
+            "metrics": {"r2": 0.8},
+            "status": "READY",
+        }
+        mock_mlflow.get_dataset_lineage.return_value = []
+        response = get_model_version_summary("house-price", "3")
+
+    assert response.dataset_uri is None
 
 
 def test_get_model_version_summary_raises_404_when_model_version_does_not_exist() -> None:
@@ -789,6 +927,21 @@ def test_get_latest_version_returns_name_and_version() -> None:
 
     assert response.name == "fraud-detection"
     assert response.version == "5"
+
+
+def test_get_latest_version_raises_404_when_model_has_no_versions() -> None:
+    # Split-brain guard: the training workflow registers through the
+    # in-cluster API while the Portal reads through the local one — an
+    # unknown name here is routine input, not a server fault.
+    with patch("routers.models.mlflow_adapter") as mock_mlflow:
+        mock_mlflow.get_latest_version.side_effect = ValueError(
+            "Model fraud-detection-demo has no registered versions"
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            get_latest_version("fraud-detection-demo")
+
+    assert exc_info.value.status_code == 404
+    assert "fraud-detection-demo" in exc_info.value.detail
 
 
 def test_prepare_deploy_manifest_renders_registry_uri_into_template() -> None:

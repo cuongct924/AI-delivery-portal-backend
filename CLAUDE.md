@@ -20,17 +20,27 @@ make lock       # regenerate all *.lock.txt — run after editing any requiremen
 make check      # lint + format-check + typecheck + test (what CI runs)
 make run-orchestration-api / run-ai-observability-mcp / run-llmops-golden-paths-mcp \
      / run-golden-path-guide-mcp / run-mlops-golden-paths-mcp
+make port-forward-ai-platform   # Qdrant/MLflow/LiteLLM/MinIO/Feast -> localhost (own terminal)
 ```
+
+The host-run orchestration-api reaches the AI Platform zone (worker2) through
+`make port-forward-ai-platform` — their ClusterIPs aren't routable from the
+host, and `.env`'s `*_URL` defaults all point at `localhost`.
 
 `make test`/`make check` need a real MLflow reachable at `MLFLOW_TRACKING_URI`
 (default `http://localhost:5000`) — `routers/prompts.py` seeds its default
 personas via a live Prompt Registry at *import* time, before any test can
 mock it. CI starts a throwaway container for this (`.github/workflows/ci.yml`);
 do the same locally before running tests (the 3-node cluster's MLflow, on
-worker2, isn't reachable at `localhost:5000`):
+worker2, isn't reachable at `localhost:5000`). Port `5001`, not `5000` —
+`localhost:5000` is reserved for a `kubectl port-forward` to the cluster's
+real MLflow when running the Portal end to end, and the two must never share
+a port (the API can't tell a stale test container apart from the real
+registry — same URL, different data):
 ```bash
-docker run -d --name mlflow-test -p 5000:5000 ghcr.io/mlflow/mlflow:v3.15.1 \
+docker run -d --name mlflow-test -p 5001:5000 ghcr.io/mlflow/mlflow:v3.15.1 \
   mlflow server --host 0.0.0.0 --port 5000
+MLFLOW_TRACKING_URI=http://localhost:5001 make check
 ```
 
 Local infra runs on a 3-node k3d cluster (`k3d-openchoreo-quick-start`), not

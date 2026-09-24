@@ -9,6 +9,14 @@ model_list:
     litellm_params:
       model: voyage/voyage-3
       api_key: os.environ/VOYAGE_API_KEY
+  # Free, local, no API key — embedding fallback so RAG ingest/evaluate works
+  # when VOYAGE_API_KEY is unset (same rationale as the local chat fallbacks
+  # below). NOTE: 768-dim vs voyage-3's 1024 — a collection must stay on one
+  # backend, since Qdrant fixes the vector size at creation.
+  - model_name: nomic-embed-local
+    litellm_params:
+      model: ollama/nomic-embed-text
+      api_base: http://host.docker.internal:11434
   # Free, local, no API key — for testing when ANTHROPIC_API_KEY has no
   # credit. "ollama_chat/" (not "ollama/") is required for tool-calling:
   # it hits Ollama's /api/chat endpoint, which supports `tools`; the
@@ -38,3 +46,4 @@ general_settings:
 litellm_settings:
   fallbacks:
     - claude-sonnet-5: ["qwen2.5-local"]
+    - voyage-3: ["nomic-embed-local"]

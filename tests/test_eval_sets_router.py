@@ -1,7 +1,8 @@
 """services/orchestration-api/routers/eval_sets.py — backed by a real
-JsonFileVersionRegistryAdapter (same registry file as rag-index, different
-`kind`) — tests/conftest.py redirects LLMOPS_REGISTRY_PATH to a fresh temp
-file before any router module imports, same as tests/test_rag_router.py.
+QdrantVersionRegistryAdapter (same Qdrant registry collection as rag-index,
+different `kind`) — tests/conftest.py points QDRANT_REGISTRY_COLLECTION at a
+fresh collection before any router module imports, same as
+tests/test_rag_router.py.
 """
 
 import pytest

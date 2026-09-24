@@ -13,8 +13,10 @@ from routers.rag import (
     RagEvaluateRequest,
     RagIngestRequest,
     _chunk_text,
+    _resolve_source_path,
     list_rag_collection_versions,
     list_rag_collections,
+    list_rag_sources,
     rag_activate,
     rag_evaluate,
     rag_ingest,
@@ -23,6 +25,22 @@ from routers.rag import (
 
 def test_chunk_text_slides_with_overlap() -> None:
     assert _chunk_text("0123456789", chunk_size=4, chunk_overlap=1) == ["0123", "3456", "6789", "9"]
+
+
+def test_resolve_source_path_returns_absolute_unchanged(tmp_path) -> None:
+    doc = tmp_path / "doc.md"
+    doc.write_text("x")
+    assert _resolve_source_path(str(doc)) == doc
+
+
+def test_resolve_source_path_falls_back_to_repo_root(tmp_path, monkeypatch) -> None:
+    # `make run-orchestration-api` runs with CWD=services/orchestration-api, so
+    # a template's "docs/architecture-overview.md" must still resolve via the
+    # __file__-derived repo root rather than only the process CWD.
+    monkeypatch.chdir(tmp_path)
+    resolved = _resolve_source_path("docs/architecture-overview.md")
+    assert resolved.is_file()
+    assert resolved.name == "architecture-overview.md"
 
 
 def test_chunk_text_guards_against_zero_step() -> None:
@@ -56,7 +74,9 @@ def test_rag_ingest_embeds_chunks_and_registers_version(tmp_path) -> None:
     assert len(upsert_args.args[0]) == 4  # ids
     assert upsert_args.args[1] == [[0.1, 0.2]] * 4  # vectors
     assert all(p["source"] == str(doc) for p in upsert_args.args[2])  # payloads
-    assert upsert_args.kwargs == {"collection": "smoke-test"}
+    # The version is registered first, then stamped onto every point so
+    # search can filter to it.
+    assert upsert_args.kwargs == {"collection": "smoke-test", "index_version": "1"}
     mock_registry.register_version.assert_called_once_with(
         "rag-index", "smoke-test", {"chunks_ingested": 4, "source_paths": [str(doc)]}
     )
@@ -100,6 +120,10 @@ def test_rag_evaluate_computes_pass_rate_and_forwards_model() -> None:
     # The judge must see the same retrieved context the answer was generated
     # from — otherwise it can't score faithfulness (see llm_judge.py).
     mock_judge.assert_any_call("q1", "an answer", "context chunk")
+    # Retrieval is scoped to the evaluated version, not the whole collection.
+    mock_vector_store.search.assert_any_call(
+        [0.1], top_k=5, collection="smoke-test", index_version="1"
+    )
 
 
 def test_rag_evaluate_reports_none_cost_when_model_has_no_pricing() -> None:
@@ -137,6 +161,13 @@ def test_list_rag_collections_returns_names_from_registry() -> None:
 
     mock_registry.list_names.assert_called_once_with("rag-index")
     assert response.names == ["idp-docs", "smoke-test"]
+
+
+def test_list_rag_sources_returns_repo_relative_docs() -> None:
+    response = list_rag_sources()
+
+    assert "docs/architecture-overview.md" in response.sources
+    assert all(source.startswith("docs/") for source in response.sources)
 
 
 def test_list_rag_collection_versions_returns_sorted_versions() -> None:

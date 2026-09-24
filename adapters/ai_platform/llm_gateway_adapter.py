@@ -26,7 +26,11 @@ class LiteLLMGatewayAdapter(ILLMGatewayAdapter):
             f"{self.base_url}/chat/completions",
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={"model": model, "messages": messages, **kwargs},
-            timeout=30,
+            # Generous: when the primary model errors (e.g. Anthropic out of
+            # credit), LiteLLM falls back to a local model that can take a
+            # while on a long RAG context — 30s was too tight and surfaced as
+            # a 500 on /chat.
+            timeout=120,
         )
         response.raise_for_status()
         result = response.json()

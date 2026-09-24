@@ -1,6 +1,6 @@
 """adapters/ai_platform/cost_adapter.py — exercises JsonFileCostLedgerAdapter
 against a real file on tmp_path (no SDK to mock, same convention as
-test_version_registry_adapter.py)."""
+test_qdrant_registry_adapter.py)."""
 
 from adapters.ai_platform.cost_adapter import JsonFileCostLedgerAdapter
 from adapters.ai_platform.interfaces import CostLedgerEntry

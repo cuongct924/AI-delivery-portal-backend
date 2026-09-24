@@ -2,6 +2,7 @@
 
 ## MLOps Lifecycle
 
+### Full Version
 ```mermaid
 sequenceDiagram
     actor Dev
@@ -46,6 +47,41 @@ sequenceDiagram
     Inference-->>EndUser: Trả kết quả prediction
 ```
 
+### Short Version
+
+```mermaid
+sequenceDiagram
+    actor Dev
+    participant FS as Feature Store
+    participant Notebook as AI Notebook
+    participant FT as Model Fine-tuned
+    participant Garden as Model Garden
+    participant Infer as AI Inference
+    actor User as End User
+
+    Dev->>FS: Get training features
+
+    alt ML/DL
+        Dev->>Notebook: Train model
+        Notebook->>Garden: Log experiment
+        Notebook->>Garden: Register model
+    else LLM Fine-tune
+        Dev->>FT: Fine-tune model
+        FT->>Garden: Log experiment
+        FT->>Garden: Register model
+    end
+
+    Dev->>Infer: Deploy model
+
+    User->>Infer: Prediction request
+    alt Need online features
+        Infer->>FS: Get features
+    else Direct input
+        Infer->>Infer: Use request data
+    end
+
+    Infer-->>User: Prediction
+```
 
 ## Platform Architecture
 

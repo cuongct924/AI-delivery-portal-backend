@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
 
-from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT
+from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT, normalize_version
 from adapters.factory import (
     get_deployment_event_store,
     get_eval_result_adapter,
@@ -200,6 +200,9 @@ def draft_prompt(
 def evaluate_prompt(
     name: str, request: EvaluatePromptRequest, user: dict = Depends(get_current_user)
 ) -> EvaluatePromptResponse:
+    # The UI shows versions as "v1" while the registry stores "1" — accept
+    # either so a typed "v1" doesn't 500 on the lookup below.
+    request.version = normalize_version(request.version)
     metadata = registry_adapter.get_version("prompt", name, request.version)
     system_prompt = metadata["content"]
 
@@ -280,6 +283,7 @@ def evaluate_prompt(
 def activate_prompt(
     name: str, request: ActivatePromptRequest, user: dict = Depends(get_current_user)
 ) -> ActivatePromptResponse:
+    request.version = normalize_version(request.version)
     registry_adapter.set_active_version("prompt", name, request.version, request.environment)
 
     event_type = "rollback" if request.is_rollback else "deploy"

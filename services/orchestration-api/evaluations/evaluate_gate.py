@@ -112,6 +112,25 @@ class MetricsGateResult(TypedDict):
     thresholds: list[MetricThresholdDict]
 
 
+def infer_task_type_from_metrics(metrics: dict[str, float]) -> str | None:
+    """Guess a legacy model version's task type from its logged metrics.
+
+    Versions registered before task-type tagging have no `task_type` tag,
+    so policy-check would otherwise 400 on them forever. Metric names are
+    distinct enough per task type to recover it without caller input.
+    Returns None when nothing matches — the caller still 400s then.
+    """
+    if "anomaly_rate" in metrics and "accuracy" not in metrics:
+        return "anomaly-detection"
+    if "accuracy" in metrics or ("precision" in metrics and "recall" in metrics):
+        return "classification"
+    if "r2" in metrics or "mean_absolute_percentage_error" in metrics:
+        return "regression"
+    if "silhouette_score" in metrics:
+        return "clustering"
+    return None
+
+
 def evaluate_metrics_gate(task_type: str, metrics: dict[str, float]) -> MetricsGateResult:
     """Compares a model version's metrics against its task type's thresholds.
 

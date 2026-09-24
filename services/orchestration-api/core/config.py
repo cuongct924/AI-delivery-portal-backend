@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     litellm_master_key: str = ""
     qdrant_url: str = "http://localhost:6333"
 
+    # Repo root the RAG ingest resolves repo-relative source paths against
+    # (routers/rag.py) — i.e. the directory that CONTAINS docs/, not docs/
+    # itself. Unset falls back to the repo root derived from __file__; the
+    # Docker image sets it to /app, where docs/ is copied.
+    docs_root: str = ""
+
     backstage_base_url: str = "http://localhost:7007"
     # Must match a secret in app-config.yaml's backend.auth.externalAccess.
     backstage_service_token: str = ""

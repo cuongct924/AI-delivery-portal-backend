@@ -7,7 +7,7 @@ stage it belongs to. The dashboard then aggregates by stage/dimension instead
 of by K8s topology, which is what makes "what did this model version cost to
 produce" answerable at all.
 
-File-backed for the same reason JsonFileVersionRegistryAdapter is: a demo
+File-backed for the same reason the version registry used to be: a demo
 needs the ledger to survive a restart without standing up a database, and the
 write volume is tiny (one entry per template run, not per request). Swapping
 to Postgres later is one new class implementing ICostAdapter.

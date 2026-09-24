@@ -8,6 +8,7 @@ Path (Train -> Track -> Register) and (Register -> Deploy) drive.
 import contextlib
 import json
 import logging
+import re
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -19,7 +20,11 @@ from costs.events import record_cost_event
 from costs.pricing import CPU_HOUR_USD, train_estimate_hours
 from data_quality.checks import CheckResult
 from data_quality.registry import run_checks
-from evaluations.evaluate_gate import MetricsGateResult, evaluate_metrics_gate
+from evaluations.evaluate_gate import (
+    MetricsGateResult,
+    evaluate_metrics_gate,
+    infer_task_type_from_metrics,
+)
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from idempotency import get_or_compute
 from jinja2 import Environment, FileSystemLoader
@@ -29,7 +34,7 @@ from observability.dora_metrics import (
     INCIDENT_RECOVERY,
     record_workflow_completion,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from adapters.ai_platform.interfaces import DatasetInfo
 from adapters.ai_platform.object_storage import (
@@ -158,6 +163,7 @@ class ValidateDatasetRequest(BaseModel):
     task_type: str
     target_column: str | None = None
     time_column: str | None = None
+    id_columns: list[str] = Field(default_factory=list)
     # Which IObjectStorageAdapter the picker said this dataset came from
     # ("local" | "s3") — lets the read go to MinIO/S3 for an s3 dataset
     # instead of assuming it's on this process's filesystem.
@@ -251,6 +257,10 @@ class ModelVersionSummaryResponse(BaseModel):
     task_type: str | None
     metrics: dict[str, float]
     tags: dict[str, str]
+    # Training dataset URI from MLflow dataset lineage (logged via
+    # mlflow.log_input at train time) — lets the monitoring template
+    # auto-attach reference data. None for runs that never logged inputs.
+    dataset_uri: str | None = None
 
 
 class LatestVersionResponse(BaseModel):
@@ -265,6 +275,8 @@ class ModelVersionsResponse(BaseModel):
 class PolicyCheckRequest(BaseModel):
     model_name: str
     model_version: str
+    # Optional override for versions registered before task-type tagging.
+    task_type: str | None = None
 
 
 class PrepareDeployRequest(BaseModel):
@@ -380,6 +392,37 @@ def trigger_training(
     WorkflowRun from a timestamp, so a naive retry would never collide on
     its own. Sending the Scaffolder task's own `ctx.taskId` as the key
     makes retries of the same task idempotent (see mlopsActions.ts)."""
+    if request.base_model_uri is not None:
+        match = re.fullmatch(r"models:/([^/]+)/([^/]+)", request.base_model_uri)
+        if match is None:
+            raise HTTPException(
+                400,
+                "base_model_uri must use the models:/<name>/<version> format",
+            )
+        base_model_name, base_model_version = match.groups()
+        try:
+            base_model = mlflow_adapter.get_model_version_details(
+                base_model_name, base_model_version
+            )
+        except ValueError as e:
+            raise HTTPException(404, str(e)) from e
+        base_task_type = base_model["tags"].get("task_type") or infer_task_type_from_metrics(
+            base_model["metrics"]
+        )
+        if base_task_type is None:
+            raise HTTPException(
+                400,
+                f"base model {base_model_name}:{base_model_version} has no task_type tag "
+                "and its task type cannot be inferred from metrics",
+            )
+        if base_task_type != request.task_type:
+            raise HTTPException(
+                400,
+                f"base model {base_model_name}:{base_model_version} is "
+                f"{base_task_type}, but the training task is {request.task_type}; "
+                "choose a base model with the same task type or train from scratch",
+            )
+
     parameters = {
         "model-name": request.model_name,
         "dataset-uri": request.dataset_uri.strip(),
@@ -577,6 +620,7 @@ def validate_dataset(
     for column, label in (
         (request.target_column, "target_column"),
         (request.time_column, "time_column"),
+        *((column, "id_columns") for column in request.id_columns),
     ):
         if column is not None and column not in df.columns:
             raise HTTPException(
@@ -674,12 +718,20 @@ def get_model_version_summary(
         details = mlflow_adapter.get_model_version_details(name, version)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
+    # Lineage is advisory for the monitoring form's auto-attach — a run
+    # that never logged inputs (older training image) just yields None
+    # and the form falls back to its manual dataset picker.
+    try:
+        lineage = mlflow_adapter.get_dataset_lineage(name, version)
+    except ValueError:
+        lineage = []
     return ModelVersionSummaryResponse(
         name=name,
         version=details["version"],
         task_type=details["tags"].get("task_type"),
         metrics=details["metrics"],
         tags=details["tags"],
+        dataset_uri=lineage[0]["source"] if lineage else None,
     )
 
 
@@ -708,7 +760,12 @@ def list_models(user: dict = Depends(get_current_user)) -> list[ModelSummary]:
 
 @router.get("/models/{name}/latest-version", response_model=LatestVersionResponse)
 def get_latest_version(name: str, user: dict = Depends(get_current_user)) -> LatestVersionResponse:
-    return LatestVersionResponse(name=name, version=mlflow_adapter.get_latest_version(name))
+    # ValueError means "no registered versions" — routine caller input (a
+    # model name the registry doesn't know), so a clean 404 beats a 500.
+    try:
+        return LatestVersionResponse(name=name, version=mlflow_adapter.get_latest_version(name))
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from e
 
 
 @router.get("/models/{name}/versions", response_model=ModelVersionsResponse)
@@ -723,7 +780,12 @@ def list_model_versions(name: str, user: dict = Depends(get_current_user)) -> Mo
     return ModelVersionsResponse(versions=mlflow_adapter.list_model_versions(name))
 
 
-def _compute_gate_result(model_name: str, model_version: str) -> MetricsGateResult:
+def _compute_gate_result(
+    model_name: str,
+    model_version: str,
+    task_type_hint: str | None = None,
+    persist_resolved_tag: bool = False,
+) -> MetricsGateResult:
     # Classical ML has ground-truth metrics — no LLM-as-judge. Both failure
     # modes below are routine caller input, so a clean 404/400 beats a 500.
     # Shared by policy_check (persists tags) and get_gate_preview (pure read).
@@ -731,21 +793,38 @@ def _compute_gate_result(model_name: str, model_version: str) -> MetricsGateResu
         details = mlflow_adapter.get_model_version_details(model_name, model_version)
     except ValueError as e:
         raise HTTPException(404, str(e)) from e
-    task_type = details["tags"].get("task_type")
+    task_type = details["tags"].get("task_type") or task_type_hint
+    if task_type is None:
+        # Legacy version from before task-type tagging — recover from metrics.
+        task_type = infer_task_type_from_metrics(details["metrics"])
     if task_type is None:
         raise HTTPException(
             400,
             f"model version {model_name}:{model_version} has no task_type tag "
-            "— it was registered before task-type tagging was added",
+            "and it cannot be inferred from its metrics "
+            f"({sorted(details['metrics'])}); re-run policy-check with "
+            "an explicit task_type or re-register the version",
         )
-    return evaluate_metrics_gate(task_type, details["metrics"])
+    # Self-heal legacy versions — preview stays read-only, only policy_check
+    # persists so repeated form typing never writes tags.
+    if persist_resolved_tag and details["tags"].get("task_type") is None:
+        mlflow_adapter.set_model_version_tag(model_name, model_version, "task_type", task_type)
+    try:
+        return evaluate_metrics_gate(task_type, details["metrics"])
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @router.post("/policy-check")
 def policy_check(
     request: PolicyCheckRequest, user: dict = Depends(get_current_user)
 ) -> MetricsGateResult:
-    gate_result = _compute_gate_result(request.model_name, request.model_version)
+    gate_result = _compute_gate_result(
+        request.model_name,
+        request.model_version,
+        request.task_type,
+        persist_resolved_tag=True,
+    )
 
     # MLflow tags are strings — stringify every value before persisting.
     mlflow_adapter.set_model_version_tag(
@@ -769,7 +848,10 @@ def policy_check(
 
 @router.get("/models/{name}/{version}/gate-preview")
 def get_gate_preview(
-    name: str, version: str, user: dict = Depends(get_current_user)
+    name: str,
+    version: str,
+    task_type: str | None = Query(default=None),
+    user: dict = Depends(get_current_user),
 ) -> MetricsGateResult:
     """Read-only preview of what POST /policy-check would compute — same
     thresholds, no tag-writing side effect, safe to call repeatedly while
@@ -779,7 +861,7 @@ def get_gate_preview(
     gate_passed/gate_<metric> tags then — this is advisory only, same
     "advisory, the real gate is elsewhere" contract as
     ModelVersionCheckPanel/VersionComparisonPanel's own live panels."""
-    return _compute_gate_result(name, version)
+    return _compute_gate_result(name, version, task_type)
 
 
 @router.post("/deploy-model/prepare", response_model=PrepareDeployResponse)

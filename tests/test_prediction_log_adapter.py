@@ -1,6 +1,6 @@
 """adapters/ai_platform/prediction_log_adapter.py — exercises SqlitePredictionLogAdapter
 against a real sqlite file on tmp_path (no SDK to mock — same convention as
-tests/test_version_registry_adapter.py's JsonFileVersionRegistryAdapter)."""
+tests/test_qdrant_registry_adapter.py's QdrantVersionRegistryAdapter)."""
 
 from adapters.ai_platform.prediction_log_adapter import SqlitePredictionLogAdapter
 

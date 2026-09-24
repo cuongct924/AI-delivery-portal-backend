@@ -5,13 +5,27 @@ infra/ai-platform-zone/qdrant.yaml.
 Note: this only accepts pre-computed vectors — the embedding step (Voyage AI
 or self-hosted) happens at the layer calling this adapter, see
 infra/vector-dbs/README.md.
+
+Versioning: every point carries an `index_version` payload field (set by
+`upsert`), and `search` can filter to one version. That is what makes a RAG
+index version a real retrieval boundary — activating a version changes which
+points a query sees, instead of every version's points being mixed in one
+collection. The version *catalog* (which versions exist, which is active per
+environment) lives in Qdrant too, see qdrant_registry_adapter.py.
 """
 
 import os
 from collections.abc import Mapping, Sequence
 
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 from adapters.ai_platform.interfaces import IVectorStoreAdapter, SearchHit, UpsertResult
 
@@ -36,19 +50,34 @@ class QdrantAdapter(IVectorStoreAdapter):
         vectors: list[list[float]],
         payloads: Sequence[Mapping[str, object]],
         collection: str | None = None,
+        index_version: str | None = None,
     ) -> UpsertResult:
-        points = [
-            PointStruct(id=i, vector=v, payload=dict(p))
-            for i, v, p in zip(ids, vectors, payloads, strict=True)
-        ]
+        points = []
+        for i, v, p in zip(ids, vectors, payloads, strict=True):
+            payload = dict(p)
+            if index_version is not None:
+                payload["index_version"] = index_version
+            points.append(PointStruct(id=i, vector=v, payload=payload))
         result = self.client.upsert(collection_name=collection or self.collection, points=points)
         return {"status": str(result.status)}
 
     def search(
-        self, query_vector: list[float], top_k: int = 5, collection: str | None = None
+        self,
+        query_vector: list[float],
+        top_k: int = 5,
+        collection: str | None = None,
+        index_version: str | None = None,
     ) -> list[SearchHit]:
+        query_filter = None
+        if index_version is not None:
+            query_filter = Filter(
+                must=[FieldCondition(key="index_version", match=MatchValue(value=index_version))]
+            )
         hits = self.client.query_points(
-            collection_name=collection or self.collection, query=query_vector, limit=top_k
+            collection_name=collection or self.collection,
+            query=query_vector,
+            limit=top_k,
+            query_filter=query_filter,
         ).points
         # IDs are strings throughout this interface, though qdrant-client also allows int/UUID.
         return [SearchHit(id=str(h.id), score=h.score, payload=h.payload or {}) for h in hits]

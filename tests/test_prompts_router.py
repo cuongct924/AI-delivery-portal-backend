@@ -1,9 +1,9 @@
 """services/orchestration-api/routers/prompts.py — calls the route functions
 directly, no need for a FastAPI TestClient since we're not testing the HTTP/
-routing layer. Backed by a real JsonFileVersionRegistryAdapter — tests/
-conftest.py redirects LLMOPS_REGISTRY_PATH to a fresh temp file before any
-router module imports, so _seed_default_prompts() (run at import time)
-always starts from a clean slate for this test session."""
+routing layer. Backed by a real MlflowPromptRegistryAdapter — tests/
+conftest.py points MLFLOW_TRACKING_URI at a live MLflow before any router
+module imports, so _seed_default_prompts() (run at import time) always starts
+from a clean slate for this test session."""
 
 import uuid
 from unittest.mock import patch
@@ -23,6 +23,24 @@ from routers.prompts import (
     list_prompt_names,
     list_prompt_versions,
 )
+
+from adapters.ai_platform.interfaces import normalize_version
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("1", "1"),
+        ("v1", "1"),
+        ("V2", "2"),
+        ("v10", "10"),
+        # Non-numeric versions are left untouched.
+        ("v2-beta", "v2-beta"),
+        ("v", "v"),
+    ],
+)
+def test_normalize_version(raw, expected):
+    assert normalize_version(raw) == expected
 
 
 def test_list_prompt_names_returns_seeded_prompts():
@@ -124,6 +142,42 @@ def test_evaluate_prompt_computes_pass_rate_and_forwards_model():
             {"role": "user", "content": "q1"},
         ],
     )
+
+
+def test_evaluate_prompt_accepts_ui_v_prefixed_version():
+    # The Scaffolder UI renders versions as "v1" (OptionPickerField's
+    # formatOption) while the registry stores "1" — a user typing the
+    # displayed form must not 500 on the lookup.
+    draft_prompt(DraftPromptRequest(name="v-prefix-target", persona="V", content="sys"))
+    request = EvaluatePromptRequest(
+        version="v1",
+        eval_cases=[PromptEvalCase(question="q1")],
+        model="llama-3-8b-self-hosted",
+    )
+    with (
+        patch("routers.prompts.llm_gateway_adapter") as mock_gateway,
+        patch("routers.prompts.judge_response") as mock_judge,
+        patch("routers.prompts.evaluate_gate") as mock_gate,
+    ):
+        mock_gateway.chat_completion.return_value = {
+            "choices": [{"message": {"content": "an answer"}}],
+            "usage": {"total_tokens": 10},
+            "response_cost_usd": 0.001,
+        }
+        mock_judge.return_value = {"safety": 9, "correctness": 9, "relevance": 9}
+        mock_gate.return_value = {"passed": True}
+        response = evaluate_prompt("v-prefix-target", request)
+
+    assert response.passed is True
+    # Normalized in place so downstream cost/judge logging uses the stored form.
+    assert request.version == "1"
+
+
+def test_activate_prompt_accepts_ui_v_prefixed_version():
+    draft_prompt(DraftPromptRequest(name="v-prefix-activate", persona="V", content="sys"))
+    activate_prompt("v-prefix-activate", ActivatePromptRequest(version="v1"))
+
+    assert get_prompt_active_version("v-prefix-activate").active_version == "1"
 
 
 def test_activate_prompt_raises_for_unregistered_version():

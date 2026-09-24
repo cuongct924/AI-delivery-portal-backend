@@ -1,0 +1,153 @@
+# JupyterHub (AI Notebook) — the interactive counterpart to Golden Path #1's
+# declarative Argo training. Deployed via the upstream jupyterhub/jupyterhub
+# Helm chart (no hand-rolled manifests — the chart owns the hub/proxy/spawner
+# wiring, and KubeSpawner is what adapters/ai_platform/notebook_adapter.py
+# talks to through JupyterHub's own REST API).
+#
+# Install (see infra/jupyterhub/README.md for the full runbook):
+#   helm repo add jupyterhub https://hub.jupyter.org/helm-chart/
+#   helm upgrade --install jupyterhub jupyterhub/jupyterhub \
+#     -n jupyterhub --create-namespace -f infra/jupyterhub/values.yaml
+#
+# Pinned onto worker2 (the AI Platform zone) like every other AI service, so
+# spawned notebook pods land next to MLflow/MinIO and can reach them over
+# in-cluster Service DNS.
+
+# The one service token orchestration-api authenticates with. `admin: true`
+# is required — the adapter's list_notebooks() calls /hub/api/users, an
+# admin-only endpoint. Value must match JUPYTERHUB_API_TOKEN on the API.
+hub:
+  services:
+    orchestration-api:
+      admin: true
+      apiToken: "orchestration-api-jupyter-token"
+  nodeSelector:
+    plane.viettel.vn: ai-platform-workflow
+  tolerations:
+    - key: dedicated.viettel.vn
+      operator: Equal
+      value: ai-platform-workflow
+      effect: NoSchedule
+  db:
+    type: sqlite-pvc
+    pvc:
+      storageClassName: local-path
+      storage: 1Gi
+
+proxy:
+  service:
+    type: ClusterIP
+  chp:
+    nodeSelector:
+      plane.viettel.vn: ai-platform-workflow
+    tolerations:
+      - key: dedicated.viettel.vn
+        operator: Equal
+        value: ai-platform-workflow
+        effect: NoSchedule
+
+# Auto-shutdown idle servers — the adapter's idle_timeout_minutes is a
+# per-spawn profile option, but culling itself is hub-level config.
+cull:
+  enabled: true
+  timeout: 3600
+  every: 600
+
+singleuser:
+  # Base image; each `environment` profile option overrides it. scipy-notebook
+  # ships pandas/scikit-learn so a Dev can train + log to MLflow out of the
+  # box (pip install mlflow inside the notebook).
+  image:
+    name: jupyter/scipy-notebook
+    tag: latest
+  storage:
+    type: dynamic
+    dynamic:
+      storageClass: local-path
+      pvcNameTemplate: claim-{username}-{servername}
+      volumeNameTemplate: volume-{username}-{servername}
+      storageAccessModes: [ReadWriteOnce]
+  cpu:
+    limit: 4
+    guarantee: 1
+  memory:
+    limit: 8G
+    guarantee: 1G
+  nodeSelector:
+    plane.viettel.vn: ai-platform-workflow
+  extraTolerations:
+    - key: dedicated.viettel.vn
+      operator: Equal
+      value: ai-platform-workflow
+      effect: NoSchedule
+  # Every key the adapter sends in `profile_options` must exist here, or the
+  # spawn API rejects the request. Numeric ones use string choice keys to
+  # match what the adapter stringifies.
+  profileList:
+    - display_name: AI Notebook
+      slug: ai-notebook
+      description: Pick the environment and resources for this notebook.
+      default: true
+      profile_options:
+        environment:
+          display_name: Environment
+          choices:
+            pytorch-cuda:
+              display_name: PyTorch + CUDA
+              kubespawner_override:
+                image: jupyter/scipy-notebook:latest
+            tensorflow-cuda:
+              display_name: TensorFlow + CUDA
+              kubespawner_override:
+                image: jupyter/tensorflow-notebook:latest
+            pytorch-cpu:
+              display_name: PyTorch (CPU)
+              kubespawner_override:
+                image: jupyter/scipy-notebook:latest
+            tensorflow-cpu:
+              display_name: TensorFlow (CPU)
+              kubespawner_override:
+                image: jupyter/tensorflow-notebook:latest
+            sklearn-cpu:
+              display_name: scikit-learn (CPU)
+              kubespawner_override:
+                image: jupyter/scipy-notebook:latest
+        cpu_cores:
+          display_name: CPU cores
+          choices:
+            "1": { kubespawner_override: { cpu_limit: 1, cpu_guarantee: 0.5 } }
+            "2": { kubespawner_override: { cpu_limit: 2, cpu_guarantee: 1 } }
+            "4": { kubespawner_override: { cpu_limit: 4, cpu_guarantee: 2 } }
+            "8": { kubespawner_override: { cpu_limit: 8, cpu_guarantee: 4 } }
+        ram_gb:
+          display_name: RAM (GB)
+          choices:
+            "4": { kubespawner_override: { mem_limit: 4G, mem_guarantee: 1G } }
+            "8": { kubespawner_override: { mem_limit: 8G, mem_guarantee: 2G } }
+            "16": { kubespawner_override: { mem_limit: 16G, mem_guarantee: 4G } }
+            "32": { kubespawner_override: { mem_limit: 32G, mem_guarantee: 8G } }
+        gpu_type:
+          display_name: GPU
+          choices:
+            none: { default: true, kubespawner_override: { extra_resource_limits: {} } }
+            t4: { kubespawner_override: { extra_resource_limits: { "nvidia.com/gpu": "1" } } }
+            a100: { kubespawner_override: { extra_resource_limits: { "nvidia.com/gpu": "1" } } }
+        gpu_count:
+          display_name: GPU count
+          choices:
+            "0": { kubespawner_override: {} }
+            "1": { kubespawner_override: {} }
+            "2": { kubespawner_override: { extra_resource_limits: { "nvidia.com/gpu": "2" } } }
+        storage_gb:
+          display_name: Storage (GB)
+          choices:
+            "10": { kubespawner_override: { storage_capacity: 10Gi } }
+            "20": { kubespawner_override: { storage_capacity: 20Gi } }
+            "50": { kubespawner_override: { storage_capacity: 50Gi } }
+        idle_timeout_minutes:
+          display_name: Auto-shutdown (minutes idle)
+          choices:
+            "0": { kubespawner_override: {} }
+            "30": { kubespawner_override: {} }
+            "60": { kubespawner_override: {} }
+            "120": { kubespawner_override: {} }

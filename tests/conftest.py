@@ -17,31 +17,29 @@ call either way, but `pyfunc_wrapper.GenericPyfuncWrapper` subclasses
 `mlflow.pyfunc.PythonModel` — a mocked, non-type attribute can't be
 subclassed correctly, so it needs the real module loaded first.
 
-Setting LLMOPS_REGISTRY_PATH before anything imports routers.prompts/
-routers.rag/routers.chat, for a similar reason: each of those constructs a
-module-level JsonFileVersionRegistryAdapter() singleton at import time,
-which reads this env var in __init__. Left unset, all 3 would default to
-the same real `.state/llmops-registry.json` relative to whatever the test
-run's cwd happens to be — a file that outlives the test run and pollutes
-the next one (tests/test_prompts_router.py's seeded-prompt assertions
-would silently start reading stale state from a previous run instead of a
-fresh seed). Redirecting to a fresh temp file gives every test run a clean
-slate; not cleaned up afterwards since it's outside the repo entirely."""
+Setting QDRANT_REGISTRY_COLLECTION before anything imports routers.prompts/
+routers.rag/routers.chat/routers.eval_sets, for a similar reason: each of
+those constructs a module-level QdrantVersionRegistryAdapter() singleton at
+import time, which reads this env var in __init__. Left unset, all of them
+would share the real `_llmops_registry` collection — which, unlike the old
+JSON file, persists across runs and would pollute the next one
+(tests/test_eval_sets_router.py's empty-registry assertion would silently
+start reading stale state). A unique collection per test session gives every
+run a clean slate; not cleaned up afterwards since it's outside the repo."""
 
 import importlib.util
 import os
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from types import ModuleType
 
 import pytest
 
-os.environ.setdefault(
-    "LLMOPS_REGISTRY_PATH", os.path.join(tempfile.mkdtemp(), "llmops-registry.json")
-)
+os.environ.setdefault("QDRANT_REGISTRY_COLLECTION", f"_llmops_registry_test_{uuid.uuid4().hex[:8]}")
 
-# Same reasoning as LLMOPS_REGISTRY_PATH above: routers.costs constructs a
+# Same reasoning as QDRANT_REGISTRY_COLLECTION above: routers.costs constructs a
 # module-level JsonFileCostLedgerAdapter() at import time, which reads this env
 # var in __init__. Redirect it to a fresh temp file so a test run never reads
 # or pollutes the real .state/cost-ledger.json.

@@ -49,8 +49,9 @@ from adapters.ai_platform.object_storage import (
 )
 from adapters.ai_platform.prediction_log_adapter import SqlitePredictionLogAdapter
 from adapters.ai_platform.prompt_registry_adapter import MlflowPromptRegistryAdapter
+from adapters.ai_platform.qdrant_registry_adapter import QdrantVersionRegistryAdapter
 from adapters.ai_platform.vector_db_adapter import QdrantAdapter
-from adapters.ai_platform.version_registry_adapter import JsonFileVersionRegistryAdapter
+from adapters.delivery.argo_cron_workflow_adapter import ArgoCronWorkflowAdapter
 from adapters.delivery.deployment_event_store import SqliteDeploymentEventStore
 from adapters.delivery.gpu_inference_adapter import GpuKServeInferenceAdapter
 from adapters.delivery.interfaces import (
@@ -129,10 +130,12 @@ def get_huggingface_hub_adapter() -> IHuggingFaceHubAdapter:
 
 @lru_cache
 def get_registry_adapter() -> IVersionRegistryAdapter:
-    """Backs kind="rag-index" (routers/rag.py). kind="prompt" moved to
-    get_prompt_registry_adapter() below — see that adapter's docstring for
-    why the two kinds don't share one backend."""
-    return JsonFileVersionRegistryAdapter()
+    """Backs kind="rag-index" (routers/rag.py) and kind="eval-set"
+    (routers/eval_sets.py) — both live in Qdrant, alongside the RAG index's
+    own embeddings, so a version and its vectors can't drift apart.
+    kind="prompt" moved to get_prompt_registry_adapter() below — see that
+    adapter's docstring for why the two kinds don't share one backend."""
+    return QdrantVersionRegistryAdapter()
 
 
 @lru_cache
@@ -189,6 +192,18 @@ def get_workflow_adapter() -> MockWorkflowAdapter | OpenChoreoWorkflowAdapter:
                 "was removed when Golden Paths #1/#3 moved to OpenChoreo. Set it to "
                 "'openchoreo' (real) or 'mock'."
             )
+
+
+@lru_cache
+def get_cron_workflow_adapter() -> MockWorkflowAdapter | ArgoCronWorkflowAdapter:
+    """Scheduled monitoring (routers/monitoring.py) — Argo owns it directly
+    (ArgoCronWorkflowAdapter creates real CronWorkflows), because OpenChoreo
+    has no CronWorkflow-equivalent. Mock only when the workflow backend is
+    mocked (tests/CI without a cluster) — same USE_MOCK_WORKFLOW flag as
+    get_workflow_adapter, so the two never disagree about real-vs-mock."""
+    if _backend_mode("USE_MOCK_WORKFLOW", real_default="openchoreo") == "mock":
+        return MockWorkflowAdapter()
+    return ArgoCronWorkflowAdapter()
 
 
 @lru_cache

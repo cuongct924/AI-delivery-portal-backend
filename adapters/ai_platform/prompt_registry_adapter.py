@@ -2,8 +2,8 @@
 MLflow's native Prompt Registry (mlflow.genai.*), not the Model Registry (a
 prompt is text, not a trained artifact); see routers/prompts.py's docstring
 for why this is a separate getter. Scoped to kind="prompt" only —
-routers/rag.py's "rag-index" kind keeps JsonFileVersionRegistryAdapter, since
-a RAG index pointer has no MLflow Prompt Registry equivalent.
+routers/rag.py's "rag-index" kind uses QdrantVersionRegistryAdapter, so a
+RAG index's version lives next to its embeddings.
 """
 
 from collections.abc import Mapping

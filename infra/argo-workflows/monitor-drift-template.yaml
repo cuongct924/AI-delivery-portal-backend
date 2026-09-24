@@ -30,7 +30,7 @@ spec:
       # Only used when monitoring-type=performance-degradation.
       - name: ground-truth-data-uri
         value: ""
-      - name: metric-name
+      - name: metric-names
         value: ""
       - name: min-metric-threshold
         value: "0.85"
@@ -55,7 +55,7 @@ spec:
           - name: monitoring-type
           - name: drift-threshold
           - name: ground-truth-data-uri
-          - name: metric-name
+          - name: metric-names
           - name: min-metric-threshold
           - name: on-drift-detected
           - name: retrain-request-json
@@ -81,8 +81,8 @@ spec:
             value: '{{inputs.parameters.drift-threshold}}'
           - name: GROUND_TRUTH_DATA_URI
             value: '{{inputs.parameters.ground-truth-data-uri}}'
-          - name: METRIC_NAME
-            value: '{{inputs.parameters.metric-name}}'
+          - name: METRIC_NAMES
+            value: '{{inputs.parameters.metric-names}}'
           - name: MIN_METRIC_THRESHOLD
             value: '{{inputs.parameters.min-metric-threshold}}'
           - name: ON_DRIFT_DETECTED

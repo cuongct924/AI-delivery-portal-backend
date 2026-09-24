@@ -29,7 +29,7 @@ SERVICE_REQS := requirements-dev.txt \
 .PHONY: venv install lock hooks lint format format-check typecheck test check \
 	gitleaks checkov trivy security \
 	run-orchestration-api run-ai-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
-	run-mlops-golden-paths-mcp \
+	run-mlops-golden-paths-mcp port-forward-ai-platform \
 	dvc-pull dvc-push \
 	clean-venv
 
@@ -106,7 +106,14 @@ trivy:
 security: gitleaks checkov trivy
 
 run-orchestration-api:
-	cd services/orchestration-api && PYTHONPATH=$(CURDIR) FEAST_REPO_PATH=$(CURDIR)/infra/feature-store $(CURDIR)/$(PY) -m uvicorn main:app --reload
+	@set -a; [ -f .env ] && . ./.env; set +a; \
+	cd services/orchestration-api && PYTHONPATH=$(CURDIR) FEAST_REPO_PATH=$(CURDIR)/infra/feature-store $(CURDIR)/$(PY) -m uvicorn main:app --reload --reload-dir $(CURDIR)
+
+## Forwards the AI Platform zone services (Qdrant/MLflow/LiteLLM/MinIO/Feast,
+## worker2) to localhost for the host-run orchestration-api. Run in its own
+## terminal. For a subset, call the script directly with service names.
+port-forward-ai-platform:
+	bash scripts/port-forward-ai-platform.sh
 
 run-ai-observability-mcp:
 	bash scripts/run-mcp-local.sh ai-observability

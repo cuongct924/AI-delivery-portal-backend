@@ -40,6 +40,7 @@ from routers.monitoring import SetupMonitoringRequest
 from routers.notebooks import CreateNotebookRequest
 from routers.prompts import ActivatePromptRequest, DraftPromptRequest, EvaluatePromptRequest
 from routers.rag import RagActivateRequest, RagEvaluateRequest, RagIngestRequest
+from routers.security import SecurityScanRequest
 
 # (action id, request model, exact body the frontend action sends)
 CONTRACTS: list[tuple[str, type[BaseModel], dict[str, object]]] = [
@@ -81,6 +82,7 @@ CONTRACTS: list[tuple[str, type[BaseModel], dict[str, object]]] = [
             "dataset_uri": "file:///mnt/data/telco-fraud-detection-sample.csv",
             "task_type": "classification",
             "target_column": "is_fraud",
+            "id_columns": ["customer_id"],
             "time_column": "event_time",
         },
     ),
@@ -184,7 +186,8 @@ CONTRACTS: list[tuple[str, type[BaseModel], dict[str, object]]] = [
             "drift_threshold": 0.5,
             "ground_truth_data_uri": "file:///mnt/monitoring/fraud-detection-labels.csv",
             "ground_truth_data_source": "managed-label-log",
-            "metric_name": "f1_score",
+            "metric_names": ["f1_score", "recall"],
+            "metric_thresholds": {"f1_score": 0.85, "recall": 0.7},
             "min_metric_threshold": 0.85,
             "on_drift_detected": "alert-only",
             "retrain_request_json": '{"model_name": "fraud-detection"}',
@@ -262,6 +265,16 @@ CONTRACTS: list[tuple[str, type[BaseModel], dict[str, object]]] = [
         "orchestration:draft-eval-set",
         DraftEvalSetRequest,
         {"name": "support-eval", "questions": ["What is the refund policy?"]},
+    ),
+    (
+        "orchestration:security-scan",
+        SecurityScanRequest,
+        {
+            "golden_path": "llm-serve-deploy",
+            "stage": "run",
+            "artifact": "llama-3-8b",
+            "params": {"inputGuardrails": True, "auditLogging": True},
+        },
     ),
     (
         "orchestration:create-notebook",

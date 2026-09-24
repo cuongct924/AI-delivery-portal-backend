@@ -92,6 +92,16 @@ jobs:
             curl -sf -o /dev/null http://localhost:5000 && break
             sleep 1
           done
+      # tests/test_qdrant_registry_adapter.py and tests/test_eval_sets_router.py
+      # need a live Qdrant (QDRANT_URL, default http://localhost:6333) — the
+      # RAG index version registry now lives there, next to the embeddings.
+      - name: Start Qdrant (RAG index version registry)
+        run: |
+          docker run -d --name qdrant-test -p 6333:6333 qdrant/qdrant:v1.19.0
+          for _ in $(seq 1 30); do
+            curl -sf -o /dev/null http://localhost:6333/collections && break
+            sleep 1
+          done
       - run: .venv/bin/pytest --cov-report=xml --junitxml=report.xml
       - uses: actions/upload-artifact@v4
         if: ${{ always() && !env.ACT }}

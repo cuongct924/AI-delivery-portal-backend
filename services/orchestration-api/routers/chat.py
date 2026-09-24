@@ -17,13 +17,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from persona_tool_scope import allowed_tools_for
 from pydantic import BaseModel
 
-from adapters.factory import get_llm_gateway_adapter, get_registry_adapter, get_vector_store_adapter
+from adapters.factory import (
+    get_llm_gateway_adapter,
+    get_prompt_registry_adapter,
+    get_registry_adapter,
+    get_vector_store_adapter,
+)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 llm_gateway_adapter = get_llm_gateway_adapter()
 vector_store_adapter = get_vector_store_adapter()
-registry_adapter = get_registry_adapter()
+# Prompts live in MLflow's Prompt Registry; RAG index versions live in Qdrant
+# (see factory.py) — two different backends, so two adapters.
+prompt_registry_adapter = get_prompt_registry_adapter()
+rag_registry_adapter = get_registry_adapter()
 
 EMBEDDING_MODEL: Final[str] = "voyage-3"
 
@@ -62,24 +70,30 @@ class ChatResponse(BaseModel):
 async def send_message(
     chat_request: ChatRequest, http_request: Request, user: dict = Depends(get_current_user)
 ) -> ChatResponse:
-    active_version = registry_adapter.get_active_version("prompt", chat_request.persona)
+    active_version = prompt_registry_adapter.get_active_version("prompt", chat_request.persona)
     if active_version is None:
         raise HTTPException(404, f"no active prompt version for persona {chat_request.persona!r}")
-    system_prompt = registry_adapter.get_version("prompt", chat_request.persona, active_version)[
-        "content"
-    ]
+    system_prompt = prompt_registry_adapter.get_version(
+        "prompt", chat_request.persona, active_version
+    )["content"]
 
     rag_version: str | None = None
     if chat_request.use_rag:
         if chat_request.rag_collection is None:
             raise HTTPException(400, "rag_collection is required when use_rag=True")
-        rag_version = registry_adapter.get_active_version("rag-index", chat_request.rag_collection)
+        rag_version = rag_registry_adapter.get_active_version(
+            "rag-index", chat_request.rag_collection
+        )
         if rag_version is None:
             raise HTTPException(
                 400, f"no active RAG index for collection {chat_request.rag_collection!r}"
             )
         query_vector = llm_gateway_adapter.embed(EMBEDDING_MODEL, [chat_request.message])[0]
-        hits = vector_store_adapter.search(query_vector, collection=chat_request.rag_collection)
+        # Filter to the active version — otherwise every version's points in
+        # the collection would be retrieved together.
+        hits = vector_store_adapter.search(
+            query_vector, collection=chat_request.rag_collection, index_version=rag_version
+        )
         context = "\n\n".join(str(hit["payload"]["text"]) for hit in hits)
         system_prompt = f"Context:\n\n{context}\n\n{system_prompt}"
 

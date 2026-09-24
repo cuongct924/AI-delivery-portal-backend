@@ -68,6 +68,61 @@ def test_prepare_llm_deploy_manifest_renders_quantization_arg() -> None:
     assert "--quantization=fp8" in response.content
 
 
+def test_prepare_llm_deploy_manifest_omits_speculative_model_when_none() -> None:
+    # The frontend always sends speculativeDecoding="none" + a default
+    # draftModelId — neither must render an arg, and neither may 500.
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        speculativeDecoding="none",
+        draftModelId="meta-llama/Llama-3.2-1B-Instruct",
+    )
+
+    response = prepare_llm_deploy_manifest(request)
+
+    assert "--speculative-model" not in response.content
+
+
+def test_prepare_llm_deploy_manifest_renders_ngram_speculative_model() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        speculativeDecoding="ngram",
+    )
+
+    response = prepare_llm_deploy_manifest(request)
+
+    assert "--speculative-model=[ngram]" in response.content
+
+
+def test_prepare_llm_deploy_manifest_renders_draft_model_speculative_model() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        speculativeDecoding="draft-model",
+        draftModelId="meta-llama/Llama-3.2-1B-Instruct",
+    )
+
+    response = prepare_llm_deploy_manifest(request)
+
+    assert "--speculative-model=meta-llama/Llama-3.2-1B-Instruct" in response.content
+
+
+def test_prepare_llm_deploy_manifest_draft_model_without_draft_id_raises() -> None:
+    request = PrepareLlmDeployRequest(
+        model_name="llama-3-8b",
+        huggingface_model_id="meta-llama/Llama-3.1-8B-Instruct",
+        gpu_type="H100",
+        speculativeDecoding="draft-model",
+    )
+
+    with pytest.raises(ValueError, match="requires draftModelId"):
+        prepare_llm_deploy_manifest(request)
+
+
 def test_prepare_llm_deploy_manifest_blue_green_renders_a_100_percent_cutover() -> None:
     request = PrepareLlmDeployRequest(
         model_name="llama-3-8b",

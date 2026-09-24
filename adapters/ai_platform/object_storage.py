@@ -10,6 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 
 from adapters.ai_platform.interfaces import DatasetInfo, IObjectStorageAdapter
 
@@ -144,11 +145,16 @@ class MinioObjectStorageAdapter(IObjectStorageAdapter):
     def __init__(self, endpoint_url: str | None = None, mount_path: str = "/mnt/data"):
         self.endpoint_url = endpoint_url or os.getenv("MINIO_ENDPOINT_URL", "http://localhost:9000")
         self.mount_path = mount_path
+        # Bounded retries/timeouts — without these, botocore's default
+        # backoff stalls every dataset-picker call ~8s when the MinIO
+        # port-forward is down, before Composite's fail-open can serve
+        # the local listing.
         self.client = boto3.client(
             "s3",
             endpoint_url=self.endpoint_url,
             aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID", "minioadmin"),
             aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin"),
+            config=Config(connect_timeout=2, read_timeout=5, retries={"max_attempts": 2}),
         )
 
     def list_datasets(self, prefix: str = "") -> list[DatasetInfo]:
