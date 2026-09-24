@@ -20,6 +20,7 @@ import os
 from functools import lru_cache
 from typing import Literal, cast
 
+from adapters.ai_platform.chat_session_store import SqliteChatSessionStore
 from adapters.ai_platform.cost_adapter import JsonFileCostLedgerAdapter
 from adapters.ai_platform.feature_store_adapter import FeastAdapter
 from adapters.ai_platform.huggingface_hub_adapter import HuggingFaceHubAdapter
@@ -147,6 +148,12 @@ def get_prompt_registry_adapter() -> IVersionRegistryAdapter:
 def get_prediction_log_adapter() -> IPredictionLogAdapter:
     # No mock/real split — SQLite has no external service to fake out.
     return SqlitePredictionLogAdapter()
+
+
+@lru_cache
+def get_chat_session_store() -> SqliteChatSessionStore:
+    # No mock/real split — SQLite has no external service to fake out.
+    return SqliteChatSessionStore()
 
 
 @lru_cache

@@ -228,6 +228,16 @@ def _read_nlp_hyperparameters() -> dict[str, object]:
     return hyperparameters
 
 
+def _skops_trusted_types(model: Any) -> list[str]:
+    """skops refuses to load a model that references types it ships no
+    trusted default for — LocalOutlierFactor's KDTree/EuclideanDistance64,
+    for one. Dump once to discover them, then hand the list to log_model so
+    the artifact records what it needs to load."""
+    import skops.io
+
+    return skops.io.get_untrusted_types(data=skops.io.dumps(model))
+
+
 def main() -> None:
     dataset_uri = os.environ["DATASET_URI"]
     task_type = os.environ["TASK_TYPE"]
@@ -358,7 +368,9 @@ def main() -> None:
                 metrics = compute_metrics(task_type, test_labels, predictions)
             for metric_name, value in metrics.items():
                 mlflow.log_metric(metric_name, value)
-            mlflow_sklearn.log_model(model, artifact_path="model")
+            mlflow_sklearn.log_model(
+                model, artifact_path="model", skops_trusted_types=_skops_trusted_types(model)
+            )
         elif is_nlp:
             # Validated non-None above (TEXT_COLUMN/TARGET_COLUMN both
             # required for ARCHITECTURE=nlp). df is None only for is_cv.

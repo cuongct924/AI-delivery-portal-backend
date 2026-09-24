@@ -368,3 +368,43 @@ def test_main_anomaly_detection_runs_without_a_target_column(
     mock_mlflow_sklearn.log_model.assert_called_once()
     logged_metric_names = {call.args[0] for call in mock_mlflow.log_metric.call_args_list}
     assert logged_metric_names == {"anomaly_rate"}
+
+
+@patch("train.mlflow_sklearn")
+@patch("train.mlflow_data")
+@patch("train.mlflow")
+def test_main_logs_skops_trusted_types_for_kdtree_models(
+    mock_mlflow: MagicMock,
+    mock_mlflow_data: MagicMock,
+    mock_mlflow_sklearn: MagicMock,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # LocalOutlierFactor's KDTree/EuclideanDistance64 aren't in skops'
+    # trusted defaults — log_model must be told to trust them or the run
+    # dies at serialization (the bug this guards). Needs >~50 rows: below
+    # that LOF's algorithm="auto" picks brute force and builds no KDTree.
+    csv_path = tmp_path / "data.csv"
+    pd.DataFrame(
+        {
+            "f1": [float(i) for i in range(60)],
+            "f2": [float(60 - i) for i in range(60)],
+        }
+    ).to_csv(csv_path, index=False)
+    (tmp_path / "data.csv.dvc").write_text("outs:\n- md5: deadbeef\n  path: data.csv\n")
+    mock_mlflow.start_run.return_value.__enter__.return_value.info.run_id = "run-lof"
+    _set_env(
+        monkeypatch,
+        csv_path,
+        tmp_path,
+        TASK_TYPE="anomaly-detection",
+        TARGET_COLUMN="",
+        ALGORITHM="LocalOutlierFactor",
+    )
+
+    import train
+
+    train.main()
+
+    trusted = mock_mlflow_sklearn.log_model.call_args.kwargs["skops_trusted_types"]
+    assert "sklearn.neighbors._kd_tree.KDTree" in trusted

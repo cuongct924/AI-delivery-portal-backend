@@ -8,7 +8,13 @@ from unittest.mock import patch
 
 import pytest
 from fastapi import HTTPException
-from routers.golden_paths import get_golden_path, list_golden_paths
+from routers.golden_paths import (
+    GoldenPathDraftRequest,
+    get_golden_path,
+    get_golden_path_schema_endpoint,
+    list_golden_paths,
+    propose_golden_path_draft,
+)
 
 
 def test_list_golden_paths_returns_catalog_templates() -> None:
@@ -59,3 +65,48 @@ def test_get_golden_path_raises_404_when_not_found() -> None:
         get_golden_path("does-not-exist", user={})
 
     assert exc_info.value.status_code == 404
+
+
+def test_get_golden_path_schema_returns_raw_schema() -> None:
+    raw = [{"required": ["modelName"], "properties": {"modelName": {"type": "string"}}}]
+    with patch("routers.golden_paths.get_golden_path_schema", return_value=raw):
+        assert get_golden_path_schema_endpoint("train-track-register", user={}) == raw
+
+
+def test_get_golden_path_schema_raises_404_when_not_found() -> None:
+    with (
+        patch("routers.golden_paths.get_golden_path_schema", return_value=None),
+        pytest.raises(HTTPException) as exc_info,
+    ):
+        get_golden_path_schema_endpoint("does-not-exist", user={})
+
+    assert exc_info.value.status_code == 404
+
+
+def test_propose_draft_reports_missing_required_field() -> None:
+    schema = [
+        {
+            "required": ["modelName"],
+            "properties": {"modelName": {"type": "string"}, "gpuType": {"type": "string"}},
+        }
+    ]
+    with patch("routers.golden_paths.get_golden_path_schema", return_value=schema):
+        result = propose_golden_path_draft(
+            "train-track-register", GoldenPathDraftRequest(values={"gpuType": "A100"}), user={}
+        )
+
+    assert result.ok is False
+    assert result.missing == ["modelName"]
+    assert result.form_data == {"gpuType": "A100"}
+
+
+def test_propose_draft_ok_when_all_required_present() -> None:
+    schema = [{"required": ["modelName"], "properties": {"modelName": {"type": "string"}}}]
+    with patch("routers.golden_paths.get_golden_path_schema", return_value=schema):
+        result = propose_golden_path_draft(
+            "train-track-register", GoldenPathDraftRequest(values={"modelName": "fraud"}), user={}
+        )
+
+    assert result.ok is True
+    assert result.missing == []
+    assert result.errors == []

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from catalog_client import (
     discover_mcp_servers,
+    get_golden_path_schema,
     get_golden_path_template,
     list_golden_path_templates,
 )
@@ -161,6 +162,37 @@ def test_get_golden_path_template_extracts_parameters_and_steps() -> None:
         ],
         "steps": [{"name": "Train", "action": "orchestration:trigger-training"}],
     }
+
+
+def test_get_golden_path_schema_returns_raw_parameters() -> None:
+    raw = [
+        {
+            "required": ["modelName"],
+            "properties": {"modelName": {"type": "string", "default": "foo"}},
+            "allOf": [{"if": {"properties": {"x": {"const": "y"}}}, "then": {"required": ["z"]}}],
+        }
+    ]
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "metadata": {"name": "train-track-register", "tags": ["mlops"]},
+        "spec": {"parameters": raw},
+    }
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        schema = get_golden_path_schema("train-track-register")
+
+    assert schema == raw
+
+
+def test_get_golden_path_schema_returns_none_for_wrong_tag() -> None:
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "metadata": {"name": "create-openchoreo-clustertrait", "tags": ["platform"]},
+        "spec": {"parameters": []},
+    }
+    with patch("catalog_client.httpx.get", return_value=mock_response):
+        assert get_golden_path_schema("create-openchoreo-clustertrait") is None
 
 
 def test_get_golden_path_template_returns_none_for_wrong_tag() -> None:

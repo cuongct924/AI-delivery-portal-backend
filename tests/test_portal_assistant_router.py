@@ -23,7 +23,7 @@ def _http_request(mcp_registry: MagicMock | None = None) -> MagicMock:
 
 
 async def _collect(chat_request: PortalAssistantChatRequest, request: MagicMock) -> list[dict]:
-    return [json.loads(line) async for line in _stream_reply(request, chat_request)]
+    return [json.loads(line) async for line in _stream_reply(request, chat_request, "dev")]
 
 
 @pytest.mark.asyncio
@@ -121,6 +121,80 @@ async def test_non_destructive_tool_call_emits_tool_call_event_then_final_reply(
 
 
 @pytest.mark.asyncio
+async def test_propose_draft_emits_template_draft_event_and_persists() -> None:
+    chat_request = PortalAssistantChatRequest(
+        messages=[ChatMessage(role="user", content="create a fraud model")],
+        session_id="s1",
+    )
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = [{"type": "function", "function": {"name": "t"}}]
+    mock_registry.is_destructive.return_value = False
+    mock_registry.call_tool = AsyncMock(
+        return_value=json.dumps(
+            {"ok": True, "form_data": {"modelName": "fraud"}, "missing": [], "errors": []}
+        )
+    )
+
+    first_response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "propose_golden_path_draft",
+                                "arguments": json.dumps(
+                                    {
+                                        "name": "train-track-register",
+                                        "values": {"modelName": "fraud"},
+                                    }
+                                ),
+                            },
+                        }
+                    ],
+                }
+            }
+        ]
+    }
+    second_response = {"choices": [{"message": {"content": "Filled it in."}}]}
+
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+        patch("routers.portal_assistant.session_store") as mock_store,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion.side_effect = [first_response, second_response]
+        mock_store.merge_draft.return_value = {
+            "template": "train-track-register",
+            "form_data": {"modelName": "fraud"},
+            "updated_at": "now",
+        }
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    draft_events = [event for event in events if event["type"] == "template_draft"]
+    assert draft_events == [
+        {
+            "type": "template_draft",
+            "template": "train-track-register",
+            "formData": {"modelName": "fraud"},
+            "missing": [],
+            "complete": True,
+        }
+    ]
+    mock_store.merge_draft.assert_called_once_with(
+        "s1", "dev", "train-track-register", {"modelName": "fraud"}
+    )
+    mock_store.append_messages.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_destructive_tool_call_is_refused_without_executing() -> None:
     chat_request = PortalAssistantChatRequest(
         messages=[ChatMessage(role="user", content="activate the new prompt")]
@@ -161,9 +235,8 @@ async def test_destructive_tool_call_is_refused_without_executing() -> None:
 
         events = await _collect(chat_request, _http_request(mock_registry))
 
-    assert len(events) == 1
-    assert events[0]["type"] == "done"
-    assert "read-only" in events[0]["message"]
+    assert [event["type"] for event in events] == ["message_chunk", "done"]
+    assert "read-only" in events[-1]["message"]
     mock_registry.call_tool.assert_not_awaited()
     mock_gateway.chat_completion.assert_called_once()
 

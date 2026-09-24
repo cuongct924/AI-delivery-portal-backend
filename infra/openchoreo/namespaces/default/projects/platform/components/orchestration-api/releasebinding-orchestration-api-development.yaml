@@ -38,7 +38,14 @@ spec:
         hostPath: {path: /mnt/data, type: Directory}
       - name: docs
         hostPath: {path: /mnt/docs, type: Directory}
+      # Writable: the SQLite state files (chat sessions, cost ledger,
+      # prediction log) live under /app/.state and must survive a pod
+      # restart. DirectoryOrCreate so a fresh node doesn't need a manual
+      # mkdir first.
+      - name: state
+        hostPath: {path: /mnt/state, type: DirectoryOrCreate}
     extraVolumeMounts:
       - {name: dataset, mountPath: /app/data, readOnly: true}
       - {name: dataset, mountPath: /mnt/data, readOnly: true}
       - {name: docs, mountPath: /app/docs, readOnly: true}
+      - {name: state, mountPath: /app/.state}

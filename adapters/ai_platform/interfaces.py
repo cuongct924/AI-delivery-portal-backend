@@ -505,6 +505,57 @@ class CostLedgerEntry(TypedDict):
     run_id: str
 
 
+class ChatDraft(TypedDict):
+    """An agent-proposed set of Golden Path form values, accumulated across
+    turns. `template` is the golden path name; `form_data` is the flat
+    field->value map the frontend seeds the Scaffolder form with."""
+
+    template: str
+    form_data: dict[str, object]
+    updated_at: str
+
+
+class ChatSession(TypedDict):
+    """One chat conversation's server-side state: the message history (for
+    reload coherence) plus the current template draft (if any). Keyed by a
+    client-generated `session_id`; `user_ref` scopes reads to the owner."""
+
+    session_id: str
+    user_ref: str
+    messages: list[dict[str, str]]
+    draft: ChatDraft | None
+    updated_at: str
+
+
+class IChatSessionStore(ABC):
+    """Server-side store for chat sessions — message history + template
+    draft, so a reload restores both. Local-file backed (SQLite) for the
+    same reason the cost ledger is: a demo needs it to survive a restart
+    without standing up a database; swapping to Postgres later is one new
+    class implementing this interface."""
+
+    @abstractmethod
+    def get(self, session_id: str) -> ChatSession | None: ...
+
+    @abstractmethod
+    def append_messages(
+        self, session_id: str, user_ref: str, messages: Sequence[Mapping[str, str]]
+    ) -> None:
+        """Append turns to the session, creating it if absent."""
+        ...
+
+    @abstractmethod
+    def merge_draft(
+        self, session_id: str, user_ref: str, template: str, patch: Mapping[str, object]
+    ) -> ChatDraft:
+        """Merge `patch` into the session's draft (not a blind overwrite),
+        switching `template` if it changed. Returns the merged draft."""
+        ...
+
+    @abstractmethod
+    def clear(self, session_id: str) -> None: ...
+
+
 class ICostAdapter(ABC):
     """Append-only cost ledger + aggregation, backing the Cost Insights page.
 

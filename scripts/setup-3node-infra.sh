@@ -59,7 +59,7 @@ docker exec "$WORKER2" mkdir -p /mnt/ai-platform-data /mnt/feature-store /mnt/da
 docker cp "$REPO_ROOT/data/." "$WORKER2:/mnt/ai-platform-data/"
 docker cp "$REPO_ROOT/infra/feature-store/." "$WORKER2:/mnt/feature-store/"
 docker cp "$REPO_ROOT/data/." "$WORKER2:/mnt/data/"
-docker exec "$WORKER1" mkdir -p /mnt/data /mnt/docs
+docker exec "$WORKER1" mkdir -p /mnt/data /mnt/docs /mnt/state
 docker cp "$REPO_ROOT/data/." "$WORKER1:/mnt/data/"
 docker cp "$REPO_ROOT/docs/." "$WORKER1:/mnt/docs/"
 

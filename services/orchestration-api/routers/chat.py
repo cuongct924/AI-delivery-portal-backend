@@ -1,23 +1,24 @@
 """Chat API — sends a message to the persona's active prompt via the LLM
 Gateway, optionally with RAG context or MCP tool-calling.
 
-use_tools=True lets the Agent call Golden Path tools, bounded to one tool
-call per turn, filtered to the persona's allowed set (persona_tool_scope.py).
-Destructive tools (activate_prompt, rag_activate) are only proposed via
-ChatResponse.pending_tool_call, never auto-executed — the caller resubmits
-it verbatim as ChatRequest.confirmed_tool_call only after a human approves,
-which is the only path that ever executes one.
+use_tools=True lets the Agent call Golden Path tools via the shared bounded
+loop (tool_loop.py), filtered to the persona's allowed set
+(persona_tool_scope.py). Destructive tools (activate_prompt, rag_activate)
+are only proposed via ChatResponse.pending_tool_call, never auto-executed —
+the caller resubmits it verbatim as ChatRequest.confirmed_tool_call only
+after a human approves, which is the only path that ever executes one.
 """
 
-import json
-from typing import Final, cast
+from typing import Final
 
 from auth.thunder import get_current_user
 from fastapi import APIRouter, Depends, HTTPException, Request
 from persona_tool_scope import allowed_tools_for
 from pydantic import BaseModel
+from tool_loop import last_text, run_tool_loop
 
 from adapters.factory import (
+    get_chat_session_store,
     get_llm_gateway_adapter,
     get_prompt_registry_adapter,
     get_registry_adapter,
@@ -32,6 +33,7 @@ vector_store_adapter = get_vector_store_adapter()
 # (see factory.py) — two different backends, so two adapters.
 prompt_registry_adapter = get_prompt_registry_adapter()
 rag_registry_adapter = get_registry_adapter()
+session_store = get_chat_session_store()
 
 EMBEDDING_MODEL: Final[str] = "voyage-3"
 
@@ -128,60 +130,59 @@ async def send_message(
 
     if chat_request.use_tools:
         registry = http_request.app.state.mcp_registry
-        response = llm_gateway_adapter.chat_completion(
+        result = await run_tool_loop(
+            llm_gateway_adapter,
+            registry,
+            messages,
             model=chat_request.model,
-            messages=messages,
-            tools=registry.list_tools(allowed_tools_for(chat_request.persona)),
+            allowed_tools=allowed_tools_for(chat_request.persona),
         )
-        message = response["choices"][0]["message"]
-        tool_calls = message.get("tool_calls") or []
-
-        if tool_calls:
-            call = tool_calls[0]  # bounded to 1 tool call per turn
-            tool_name = call["function"]["name"]
-            tool_args = json.loads(call["function"]["arguments"])
-            # Only the confirmed_tool_call branch may pass "confirm" — never the model.
-            tool_args.pop("confirm", None)
-
-            if registry.is_destructive(tool_name):
-                pending_confirmation = (
-                    f"I'd like to call '{tool_name}' with {tool_args} — this "
-                    "changes live state and needs your explicit confirmation "
-                    "before I execute it."
-                )
-                pending_usage = response.get("usage")
-                return ChatResponse(
-                    reply=pending_confirmation,
-                    persona_version=active_version,
-                    rag_index_version=rag_version,
-                    tokens=pending_usage["total_tokens"] if pending_usage is not None else 0,
-                    cost_usd=response.get("response_cost_usd"),
-                    tools_used=[],
-                    pending_confirmation=pending_confirmation,
-                    pending_tool_call={"name": tool_name, "arguments": tool_args},
-                )
-
-            tool_result = await registry.call_tool(tool_name, tool_args)
-            tools_used.append(tool_name)
-            # cast: TypedDict isn't statically assignable to dict[str, object],
-            # though it's a plain dict at runtime.
-            messages.append(cast(dict[str, object], message))
-            messages.append({"role": "tool", "tool_call_id": call["id"], "content": tool_result})
-            response = llm_gateway_adapter.chat_completion(
-                model=chat_request.model, messages=messages
+        if result.pending is not None:
+            tool_name = str(result.pending["name"])
+            tool_args = result.pending["arguments"]
+            pending_confirmation = (
+                f"I'd like to call '{tool_name}' with {tool_args} — this "
+                "changes live state and needs your explicit confirmation "
+                "before I execute it."
             )
+            pending_usage = result.usage
+            return ChatResponse(
+                reply=pending_confirmation,
+                persona_version=active_version,
+                rag_index_version=rag_version,
+                tokens=pending_usage["total_tokens"] if pending_usage is not None else 0,
+                cost_usd=result.cost_usd,
+                tools_used=[],
+                pending_confirmation=pending_confirmation,
+                pending_tool_call=result.pending,
+            )
+        reply = last_text(result.message)
+        tools_used = result.tool_calls
+        usage = result.usage
+        cost_usd = result.cost_usd
     else:
         response = llm_gateway_adapter.chat_completion(model=chat_request.model, messages=messages)
+        reply = response["choices"][0]["message"]["content"] or ""
+        usage = response.get("usage")
+        cost_usd = response.get("response_cost_usd")
 
-    reply = response["choices"][0]["message"]["content"] or ""
-    usage = response.get("usage")
+    if chat_request.session_id is not None:
+        session_store.append_messages(
+            chat_request.session_id,
+            str(user.get("sub") or user.get("preferred_username") or "unknown"),
+            [
+                {"role": "user", "content": chat_request.message},
+                {"role": "assistant", "content": reply},
+            ],
+        )
+
     tokens = usage["total_tokens"] if usage is not None else 0
     return ChatResponse(
         reply=reply,
         persona_version=active_version,
         rag_index_version=rag_version,
         tokens=tokens,
-        cost_usd=response.get("response_cost_usd"),
+        cost_usd=cost_usd,
         tools_used=tools_used,
         pending_confirmation=pending_confirmation,
     )

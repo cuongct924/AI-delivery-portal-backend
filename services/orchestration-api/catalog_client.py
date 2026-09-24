@@ -129,6 +129,38 @@ def list_golden_path_templates() -> list[GoldenPathSummary]:
     return summaries
 
 
+def get_golden_path_schema(name: str) -> list[dict[str, object]] | None:
+    """One Golden Path template's RAW `spec.parameters` JSON schema — the
+    full RJSF schema (types, enums, defaults, allOf/if branching), not the
+    flattened name/title/description list `get_golden_path_template`
+    returns. This is what an agent needs to fill the form: the flattened
+    list loses the structure that decides which fields exist per branch.
+
+    Returns None when the entity doesn't exist, isn't tagged mlops/llmops,
+    or the Catalog is unreachable."""
+    try:
+        response = httpx.get(
+            f"{settings.backstage_base_url}/api/catalog/entities/by-name/template/default/{name}",
+            headers=_auth_headers(),
+            timeout=10,
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        entity = response.json()
+    except Exception:
+        logger.warning("Backstage Catalog unreachable — golden path schema skipped", exc_info=True)
+        return None
+
+    metadata = entity.get("metadata", {})
+    tags = metadata.get("tags", [])
+    if not _GOLDEN_PATH_TAGS.intersection(tags):
+        return None
+
+    parameters = entity.get("spec", {}).get("parameters", [])
+    return list(parameters) if isinstance(parameters, list) else []
+
+
 def get_golden_path_template(name: str) -> GoldenPathDetail | None:
     """One Golden Path template's full parameter/step spec, straight from
     its live Catalog entity — always in sync with the actual

@@ -80,6 +80,35 @@ def get_golden_path_guide(name: str) -> GoldenPathGuide:
 
 
 @mcp.tool(annotations=READ_ONLY)
+def get_golden_path_schema(name: str) -> list[dict[str, object]]:
+    """The raw JSON schema of one Golden Path template's input parameters —
+    types, enums, defaults and allOf/if branching. Use this (not
+    get_golden_path_guide, which flattens the fields) when you need to fill
+    the form: it tells you exactly which fields exist per branch. `name` is
+    a value from list_golden_paths, e.g. "train-track-register"."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/golden-paths/{name}/schema", timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool(annotations=READ_ONLY)
+def propose_golden_path_draft(name: str, values: dict[str, object]) -> dict[str, object]:
+    """Validate a set of form values you filled for a Golden Path template
+    against its live schema. Pure — nothing is submitted. Returns
+    {ok, form_data, missing, errors}: `missing` lists required fields you
+    left out (fill them and call again), `errors` lists schema violations.
+    `name` is a value from list_golden_paths; `values` is a flat object of
+    field name -> value."""
+    response = httpx.post(
+        f"{ORCHESTRATION_API_URL}/golden-paths/{name}/draft",
+        json={"values": values},
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+@mcp.tool(annotations=READ_ONLY)
 def estimate_golden_path_cost(
     golden_path: str,
     stage: str,
