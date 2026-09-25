@@ -32,6 +32,13 @@ class Settings(BaseSettings):
     # back to manual GPU sizing input for gated models.
     huggingface_hub_token: str = ""
 
+    # LiteLLM model_list name (infra/ai-platform-zone/litellm-config.yaml)
+    # portal_assistant.py's chat loop calls. Override to a local Ollama
+    # model (e.g. "qwen2.5-local") to test the tool-calling flow without
+    # spending Anthropic credit — llama3.1-local doesn't reliably emit
+    # tool_calls, see that config file's own note.
+    portal_assistant_model: str = "claude-sonnet-5"
+
     # extra="ignore": .env carries vars other tooling uses that this
     # service doesn't declare.
     model_config = SettingsConfigDict(env_file="../../.env", extra="ignore")

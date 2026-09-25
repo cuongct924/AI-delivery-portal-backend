@@ -1,12 +1,20 @@
 """services/orchestration-api/routers/chat.py — patches the module-level
 adapter singletons, same pattern as tests/test_rag_router.py. `send_message`
 is async; tests without tools pass a bare mock for `http_request`.
+
+Only the `use_tools=True` path goes through `run_tool_loop` (and so through
+`llm_gateway_adapter.chat_completion_stream`, mocked via
+`conftest.make_stream`) — the plain-chat and RAG paths call
+`chat_completion` directly and keep the old mock shape unchanged, which is
+the point: this router's contract must not change just because
+portal_assistant.py's chat now streams.
 """
 
 import json
 from unittest.mock import MagicMock, patch
 
 import pytest
+from conftest import make_stream
 from fastapi import HTTPException
 from persona_tool_scope import allowed_tools_for
 from routers.chat import ChatRequest, send_message
@@ -133,17 +141,29 @@ async def test_send_message_use_tools_calls_auto_executable_tool() -> None:
 
     mock_mcp_registry.call_tool = fake_call_tool
 
-    tool_call_message = {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {"name": "draft_prompt", "arguments": json.dumps({"name": "x"})},
-            }
-        ],
-    }
+    first_round = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "draft_prompt",
+                                    "arguments": json.dumps({"name": "x"}),
+                                },
+                            }
+                        ]
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 10},
+        }
+    ]
+    second_round = [{"choices": [{"delta": {"content": "done"}}], "usage": {"total_tokens": 20}}]
 
     with (
         patch("routers.chat.prompt_registry_adapter") as mock_registry,
@@ -151,18 +171,15 @@ async def test_send_message_use_tools_calls_auto_executable_tool() -> None:
     ):
         mock_registry.get_active_version.return_value = "1"
         mock_registry.get_version.return_value = {"content": "system prompt"}
-        mock_gateway.chat_completion.side_effect = [
-            {"choices": [{"message": tool_call_message}], "usage": {"total_tokens": 10}},
-            {"choices": [{"message": {"content": "done"}}], "usage": {"total_tokens": 20}},
-        ]
+        mock_gateway.chat_completion_stream.side_effect = make_stream(first_round, second_round)
 
         response = await send_message(request, _http_request(mock_mcp_registry))
 
     assert response.reply == "done"
     assert response.tools_used == ["draft_prompt"]
     assert response.pending_confirmation is None
-    assert mock_gateway.chat_completion.call_count == 2
-    second_call_messages = mock_gateway.chat_completion.call_args_list[1].kwargs["messages"]
+    assert mock_gateway.chat_completion_stream.call_count == 2
+    second_call_messages = mock_gateway.chat_completion_stream.call_args_list[1].kwargs["messages"]
     assert second_call_messages[-1] == {
         "role": "tool",
         "tool_call_id": "call_1",
@@ -181,20 +198,28 @@ async def test_send_message_use_tools_gates_destructive_tool_behind_confirmation
     mock_mcp_registry.is_destructive.return_value = True
     mock_mcp_registry.call_tool = MagicMock(side_effect=AssertionError("must not be called"))
 
-    tool_call_message = {
-        "role": "assistant",
-        "content": None,
-        "tool_calls": [
-            {
-                "id": "call_1",
-                "type": "function",
-                "function": {
-                    "name": "activate_prompt",
-                    "arguments": json.dumps({"name": "mlops", "version": "2"}),
-                },
-            }
-        ],
-    }
+    first_round = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "activate_prompt",
+                                    "arguments": json.dumps({"name": "mlops", "version": "2"}),
+                                },
+                            }
+                        ]
+                    }
+                }
+            ],
+            "usage": {"total_tokens": 10},
+        }
+    ]
 
     with (
         patch("routers.chat.prompt_registry_adapter") as mock_registry,
@@ -202,17 +227,14 @@ async def test_send_message_use_tools_gates_destructive_tool_behind_confirmation
     ):
         mock_registry.get_active_version.return_value = "1"
         mock_registry.get_version.return_value = {"content": "system prompt"}
-        mock_gateway.chat_completion.return_value = {
-            "choices": [{"message": tool_call_message}],
-            "usage": {"total_tokens": 10},
-        }
+        mock_gateway.chat_completion_stream.side_effect = make_stream(first_round)
 
         response = await send_message(request, _http_request(mock_mcp_registry))
 
     assert response.tools_used == []
     assert response.pending_confirmation is not None
     assert "activate_prompt" in response.pending_confirmation
-    assert mock_gateway.chat_completion.call_count == 1  # no follow-up call
+    assert mock_gateway.chat_completion_stream.call_count == 1  # no follow-up call
     assert response.pending_tool_call == {
         "name": "activate_prompt",
         "arguments": {"name": "mlops", "version": "2"},
@@ -233,9 +255,9 @@ async def test_send_message_use_tools_scopes_tool_list_to_persona() -> None:
     ):
         mock_registry.get_active_version.return_value = "1"
         mock_registry.get_version.return_value = {"content": "system prompt"}
-        mock_gateway.chat_completion.return_value = {
-            "choices": [{"message": {"content": "all good", "tool_calls": None}}]
-        }
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "all good"}}]}]
+        )
 
         await send_message(request, _http_request(mock_mcp_registry))
 

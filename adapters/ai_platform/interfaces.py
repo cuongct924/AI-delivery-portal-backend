@@ -8,7 +8,7 @@ touching code that already depends on the interface.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import datetime
 from typing import Final, NotRequired, TypedDict
 
@@ -230,11 +230,66 @@ class ChatCompletionResponse(TypedDict):
     response_cost_usd: NotRequired[float | None]
 
 
+class DeltaToolCallFunction(TypedDict):
+    # Both fragments, not the full value — `name` usually lands whole on the
+    # first delta for a given tool call; `arguments` may be split across
+    # many deltas for a long call (e.g. propose_golden_path_draft's
+    # multi-field `values`) and must be concatenated by the caller.
+    name: NotRequired[str]
+    arguments: NotRequired[str]
+
+
+class DeltaToolCall(TypedDict):
+    # `index` is the only field guaranteed on every delta for this call —
+    # it's what a caller accumulates fragments by, standard OpenAI-style
+    # tool-call streaming.
+    index: int
+    id: NotRequired[str]
+    type: NotRequired[str]
+    function: NotRequired[DeltaToolCallFunction]
+
+
+class ChatCompletionDelta(TypedDict):
+    role: NotRequired[str]
+    content: NotRequired[str | None]
+    # A reasoning model's "thinking" tokens, streamed before it produces
+    # `content` or decides to call a tool — see ChatCompletionChunk.
+    reasoning_content: NotRequired[str]
+    tool_calls: NotRequired[list[DeltaToolCall]]
+
+
+class ChatCompletionChunkChoice(TypedDict):
+    index: int
+    delta: ChatCompletionDelta
+    finish_reason: str | None
+
+
+class ChatCompletionChunk(TypedDict):
+    id: NotRequired[str]
+    model: NotRequired[str]
+    choices: list[ChatCompletionChunkChoice]
+    # Only populated on the final chunk, and only when the request asked
+    # for it (`stream_options: {"include_usage": true}`) — see
+    # LiteLLMGatewayAdapter.chat_completion_stream.
+    usage: NotRequired[ChatCompletionUsage]
+
+
 class ILLMGatewayAdapter(ABC):
     @abstractmethod
     def chat_completion(
         self, model: str, messages: Sequence[Mapping[str, object]], **kwargs: object
     ) -> ChatCompletionResponse: ...
+
+    @abstractmethod
+    def chat_completion_stream(
+        self, model: str, messages: Sequence[Mapping[str, object]], **kwargs: object
+    ) -> AsyncIterator[ChatCompletionChunk]:
+        """Same call as `chat_completion`, but yields incremental deltas
+        (reasoning/content/tool_calls) as the model produces them, instead
+        of blocking for the full response. Additive — `chat_completion`
+        stays for callers that don't need progressive output (prompts.py,
+        rag.py, llm_judge.py, chat.py's non-tool-loop branch)."""
+        ...
 
     @abstractmethod
     def list_models(self) -> list[dict[str, object]]: ...

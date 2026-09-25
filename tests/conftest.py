@@ -32,6 +32,7 @@ import os
 import sys
 import tempfile
 import uuid
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 
@@ -60,6 +61,38 @@ def _clear_idempotency_store() -> None:
     point of an Idempotency-Key is to collide on purpose) would leak a
     cached response from one test into another."""
     idempotency._store.clear()
+
+
+def make_stream(
+    *rounds: Sequence[Mapping[str, object]],
+) -> Callable[..., AsyncIterator[Mapping[str, object]]]:
+    """Builds a `side_effect`-ready factory for a mocked
+    `ILLMGatewayAdapter.chat_completion_stream`, replacing the
+    non-streaming `mock_gateway.chat_completion.side_effect = [resp1, resp2]`
+    pattern (a plain list doesn't work here: `chat_completion_stream` must
+    return something `async for`-able per call, not a dict, and Mock's
+    list-of-return-values semantics returns each element as-is rather than
+    calling it).
+
+    One or more rounds, each a list of delta-chunk dicts; the Nth call to
+    the mocked method yields round N's chunks as a fresh async generator
+    (clamped to the last round if called more times than rounds given —
+    tests only need this when a round DOESN'T end the loop, i.e. it made a
+    tool call and a further round follows).
+
+    Usage: `mock_gateway.chat_completion_stream.side_effect =
+    make_stream(round1_chunks, round2_chunks)`.
+    """
+    call_count = 0
+
+    async def _gen(*args: object, **kwargs: object) -> AsyncIterator[Mapping[str, object]]:
+        nonlocal call_count
+        chunks = rounds[min(call_count, len(rounds) - 1)]
+        call_count += 1
+        for chunk in chunks:
+            yield chunk
+
+    return _gen
 
 
 def load_module_from_path(alias: str, file_path: Path) -> ModuleType:

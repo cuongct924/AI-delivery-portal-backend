@@ -12,12 +12,20 @@ Bounded by `max_rounds` so a model that keeps calling tools can't spin
 forever. A destructive call stops the loop and is returned as `pending`
 (never auto-executed) — the caller decides the wording and, for chat.py,
 resubmits it as a confirmed call.
+
+Streams the model call per round (ILLMGatewayAdapter.chat_completion_stream)
+instead of blocking for a full response — `on_delta`, if given, is called
+with each reasoning/content fragment as it arrives, which is what lets
+portal_assistant.py show live "thinking" progress instead of a static
+indicator for the 15-45s a reasoning model can take. chat.py doesn't pass
+`on_delta` and reads the same `LoopResult.usage`/`cost_usd` shape as
+before, so it needs no changes for this.
 """
 
 import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from mcp_client import McpToolRegistry
 
@@ -29,6 +37,13 @@ DEFAULT_MAX_ROUNDS = 5
 # streaming caller (portal_assistant) emit an event per call.
 ToolCallHook = Callable[[str, dict[str, Any], str], Awaitable[None]]
 
+# Called per streamed fragment as the model produces it, before a round
+# finishes — "reasoning" is a reasoning model's thinking tokens (not the
+# visible reply), "content" is the visible reply itself (which can arrive
+# on a non-final round too, e.g. preamble text before a tool call).
+DeltaKind = Literal["reasoning", "content"]
+OnDeltaHook = Callable[[DeltaKind, str], Awaitable[None]]
+
 
 @dataclass
 class LoopResult:
@@ -39,6 +54,10 @@ class LoopResult:
     # Set when a destructive tool was proposed but not executed.
     pending: dict[str, Any] | None = None
     usage: dict[str, Any] | None = None
+    # Always None today — LiteLLMGatewayAdapter.chat_completion_stream has
+    # no cost source (see its own docstring: the response-cost header this
+    # deployment was expected to send doesn't exist, streaming or not, a
+    # pre-existing gap this loop doesn't attempt to fix).
     cost_usd: float | None = None
 
 
@@ -51,6 +70,7 @@ async def run_tool_loop(
     allowed_tools: frozenset[str] | None = None,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     on_tool_call: ToolCallHook | None = None,
+    on_delta: OnDeltaHook | None = None,
 ) -> LoopResult:
     """Run the model with `tools` until it answers or `max_rounds` is hit.
 
@@ -65,10 +85,51 @@ async def run_tool_loop(
     cost_usd: float | None = None
 
     for _ in range(max_rounds):
-        response = llm.chat_completion(model=model, messages=messages, tools=tools)
-        message = cast(dict[str, Any], response["choices"][0]["message"])
-        usage = cast(dict[str, Any] | None, response.get("usage"))
-        cost_usd = cast(float | None, response.get("response_cost_usd"))
+        content_parts: list[str] = []
+        # Accumulated by delta index, standard OpenAI-style tool-call
+        # streaming — `function.arguments` is a fragment on every delta,
+        # not the full string, so it's concatenated as it arrives.
+        tool_call_parts: dict[int, dict[str, Any]] = {}
+
+        async for chunk in llm.chat_completion_stream(model=model, messages=messages, tools=tools):
+            choices = chunk.get("choices") or []
+            if choices:
+                delta = choices[0].get("delta") or {}
+                reasoning = delta.get("reasoning_content")
+                if reasoning and on_delta is not None:
+                    await on_delta("reasoning", reasoning)
+                text = delta.get("content")
+                if text:
+                    content_parts.append(text)
+                    if on_delta is not None:
+                        await on_delta("content", text)
+                for tc in delta.get("tool_calls") or []:
+                    slot = tool_call_parts.setdefault(
+                        tc["index"],
+                        {"id": "", "type": "function", "function": {"name": "", "arguments": ""}},
+                    )
+                    if "id" in tc:
+                        slot["id"] = tc["id"]
+                    if "type" in tc:
+                        slot["type"] = tc["type"]
+                    fn = tc.get("function") or {}
+                    if "name" in fn:
+                        slot["function"]["name"] += fn["name"]
+                    if "arguments" in fn:
+                        slot["function"]["arguments"] += fn["arguments"]
+            chunk_usage = chunk.get("usage")
+            if chunk_usage is not None:
+                usage = cast(dict[str, Any], chunk_usage)
+
+        # Reconstructed to the exact shape ChatCompletionMessage already
+        # had — every line below this point (destructive check, tool
+        # execution, messages.append) is unchanged from the pre-streaming
+        # version and doesn't know the message was assembled from deltas.
+        message = {"role": "assistant", "content": "".join(content_parts) or None}
+        ordered_calls = [tool_call_parts[i] for i in sorted(tool_call_parts)]
+        if ordered_calls:
+            message["tool_calls"] = ordered_calls
+
         calls = message.get("tool_calls") or []
         if not calls:
             return LoopResult(
