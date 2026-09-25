@@ -58,6 +58,12 @@ class CostEstimate(TypedDict):
     breakdown: dict[str, float]
 
 
+class RegisteredModel(TypedDict):
+    name: str
+    version: str
+    tags: dict[str, str]
+
+
 @mcp.tool(annotations=READ_ONLY)
 def list_golden_paths() -> list[GoldenPathSummary]:
     """List every mlops/llmops Golden Path Scaffolder template — name,
@@ -133,6 +139,79 @@ def estimate_golden_path_cost(
         "currency": body.get("currency", "USD"),
         "breakdown": body.get("breakdown", {}),
     }
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_registered_models() -> list[RegisteredModel]:
+    """Every model currently in the Model Registry, with its latest version
+    and tags. Call this before filling a `modelName` field that picks an
+    EXISTING model (evaluate-deploy-model, setup-model-monitoring — the
+    schema's `modelNamePicker: true` fields) and use one of the `name`
+    values returned here. propose_golden_path_draft only checks the field's
+    type against the JSON schema, not whether the value is a real,
+    registered model — a plausible-looking but invented name still comes
+    back `ok: true`, so this is the only way to actually catch that before
+    the user sees a "complete" draft that would fail at submit time.
+    Not relevant for train-track-register's `modelName`, which names a NEW
+    model about to be created, not an existing one to pick."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/models", timeout=10)
+    response.raise_for_status()
+    return [
+        {"name": m["name"], "version": m["version"], "tags": m.get("tags", {})}
+        for m in response.json()
+    ]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_rag_collections() -> list[str]:
+    """Every RAG collection name in the RAG Registry. Call this before
+    filling a `collectionName` field (llm-evaluate-activate,
+    llm-draft-ingest's `ragCollectionPicker: true` fields) — same reasoning
+    as list_registered_models: schema validation alone can't tell a real
+    collection name from an invented one."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/rag/collections", timeout=10)
+    response.raise_for_status()
+    return response.json()["names"]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_prompts() -> list[str]:
+    """Every drafted prompt persona name in the Prompt Registry (active or
+    not). Call this before filling a `promptName` field (llm-evaluate-
+    activate, llm-draft-ingest's `promptNamePicker`/`promptNameCombo`
+    fields)."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/prompts", timeout=10)
+    response.raise_for_status()
+    return response.json()["names"]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def list_secrets(namespace: str = "default") -> list[str]:
+    """K8s Secret names in `namespace` (default: "default"). Call this
+    before filling an `hfTokenSecretRef` field (llm-serve-deploy) — an
+    invented Secret name leaves the serving pod stuck pulling a gated model
+    at deploy time instead of catching it now. Empty list when no cluster
+    is reachable (fails soft, same as the form's own dropdown)."""
+    response = httpx.get(
+        f"{ORCHESTRATION_API_URL}/secrets", params={"namespace": namespace}, timeout=10
+    )
+    response.raise_for_status()
+    return response.json()["names"]
+
+
+@mcp.tool(annotations=READ_ONLY)
+def search_huggingface_models(query: str = "", limit: int = 20) -> list[str]:
+    """Search HuggingFace Hub model ids matching `query` (blank returns
+    popular defaults). Call this before filling a `huggingFaceModelId`
+    field (llm-serve-deploy) — a typo'd or nonexistent id fails at deploy
+    time instead of form-fill time otherwise."""
+    response = httpx.get(
+        f"{ORCHESTRATION_API_URL}/llm-deploy/search-models",
+        params={"q": query, "limit": limit},
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json()["model_ids"]
 
 
 if __name__ == "__main__":

@@ -27,3 +27,60 @@ def test_estimate_golden_path_cost_posts_and_shapes_the_response() -> None:
     _, kwargs = post.call_args
     assert kwargs["json"]["golden_path"] == "llm-serve-deploy"
     assert kwargs["json"]["params"] == {"gpuType": "H100"}
+
+
+def test_list_registered_models_shapes_the_response() -> None:
+    response = MagicMock()
+    response.json.return_value = [
+        {"name": "fraud-detection", "version": "3", "metrics": {}, "tags": {"team": "mlops"}},
+    ]
+    with patch.object(server.httpx, "get", return_value=response) as get:
+        result = server.list_registered_models()
+
+    assert result == [{"name": "fraud-detection", "version": "3", "tags": {"team": "mlops"}}]
+    args, _ = get.call_args
+    assert args[0].endswith("/models")
+
+
+def test_list_rag_collections_returns_names() -> None:
+    response = MagicMock()
+    response.json.return_value = {"names": ["support-docs", "product-faqs"]}
+    with patch.object(server.httpx, "get", return_value=response) as get:
+        result = server.list_rag_collections()
+
+    assert result == ["support-docs", "product-faqs"]
+    args, _ = get.call_args
+    assert args[0].endswith("/rag/collections")
+
+
+def test_list_prompts_returns_names() -> None:
+    response = MagicMock()
+    response.json.return_value = {"names": ["mlops", "llmops"]}
+    with patch.object(server.httpx, "get", return_value=response) as get:
+        result = server.list_prompts()
+
+    assert result == ["mlops", "llmops"]
+    args, _ = get.call_args
+    assert args[0].endswith("/prompts")
+
+
+def test_list_secrets_passes_namespace_and_returns_names() -> None:
+    response = MagicMock()
+    response.json.return_value = {"names": ["hf-token"]}
+    with patch.object(server.httpx, "get", return_value=response) as get:
+        result = server.list_secrets("llm-serving")
+
+    assert result == ["hf-token"]
+    _, kwargs = get.call_args
+    assert kwargs["params"] == {"namespace": "llm-serving"}
+
+
+def test_search_huggingface_models_passes_query_and_limit() -> None:
+    response = MagicMock()
+    response.json.return_value = {"model_ids": ["meta-llama/Llama-3-8B"]}
+    with patch.object(server.httpx, "get", return_value=response) as get:
+        result = server.search_huggingface_models("llama", limit=5)
+
+    assert result == ["meta-llama/Llama-3-8B"]
+    _, kwargs = get.call_args
+    assert kwargs["params"] == {"q": "llama", "limit": 5}
