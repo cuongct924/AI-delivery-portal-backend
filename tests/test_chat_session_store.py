@@ -25,22 +25,6 @@ def test_append_messages_creates_then_extends(tmp_path) -> None:
     ]
 
 
-def test_merge_draft_accumulates_across_calls(tmp_path) -> None:
-    store = _store(tmp_path)
-    store.merge_draft("s1", "dev", "train-track-register", {"modelName": "fraud"})
-    merged = store.merge_draft("s1", "dev", "train-track-register", {"gpuType": "A100"})
-
-    assert merged["form_data"] == {"modelName": "fraud", "gpuType": "A100"}
-
-
-def test_merge_draft_resets_when_template_changes(tmp_path) -> None:
-    store = _store(tmp_path)
-    store.merge_draft("s1", "dev", "train-track-register", {"modelName": "fraud"})
-    merged = store.merge_draft("s1", "dev", "llm-serve-deploy", {"gpuType": "A100"})
-
-    assert merged["form_data"] == {"gpuType": "A100"}
-
-
 def test_clear_removes_session(tmp_path) -> None:
     store = _store(tmp_path)
     store.append_messages("s1", "dev", [{"role": "user", "content": "hi"}])

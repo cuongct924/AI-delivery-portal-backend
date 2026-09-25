@@ -95,20 +95,21 @@ def _combined_schema(groups: list[dict[str, object]]) -> dict[str, Any]:
     return combined
 
 
-@router.post("/{name}/draft", response_model=GoldenPathDraftResponse)
-def propose_golden_path_draft(
-    name: str, request: GoldenPathDraftRequest, user: dict = Depends(get_current_user)
-) -> GoldenPathDraftResponse:
-    """Validate an agent-proposed set of form values against the template's
-    live schema. Pure — no side effect, no submit. `missing` lists required
-    fields the proposal left out (branch-aware, derived from the validator's
-    own `required` errors) so the agent can fill them on the next turn."""
-    del user
+def validate_golden_path_draft(name: str, values: dict[str, Any]) -> GoldenPathDraftResponse | None:
+    """Validate a set of form values against a template's live schema. Pure —
+    no side effect, no submit. `missing` lists required fields the proposal
+    left out (branch-aware, derived from the validator's own `required`
+    errors) so a caller can fill them on the next turn. Backs the `/draft`
+    endpoint the golden-path-guide-server MCP tool calls. (Session-restore
+    revalidation used to be a second caller here too — moved to the
+    portal-assistant-backend Node plugin's own DraftService, frontend repo,
+    once it became the draft's sole owner.) Returns None when the template
+    doesn't exist."""
     groups = get_golden_path_schema(name)
     if groups is None:
-        raise HTTPException(404, f"no golden path template named {name!r}")
+        return None
 
-    form_data = dict(request.values)
+    form_data = dict(values)
     validator = Draft7Validator(_combined_schema(groups))
     errors = sorted(validator.iter_errors(form_data), key=lambda e: list(e.path))
 
@@ -125,6 +126,21 @@ def propose_golden_path_draft(
         missing=sorted(missing),
         errors=[error.message for error in errors],
     )
+
+
+@router.post("/{name}/draft", response_model=GoldenPathDraftResponse)
+def propose_golden_path_draft(
+    name: str, request: GoldenPathDraftRequest, user: dict = Depends(get_current_user)
+) -> GoldenPathDraftResponse:
+    """Validate an agent-proposed set of form values against the template's
+    live schema. Pure — no side effect, no submit. `missing` lists required
+    fields the proposal left out (branch-aware, derived from the validator's
+    own `required` errors) so the agent can fill them on the next turn."""
+    del user
+    result = validate_golden_path_draft(name, request.values)
+    if result is None:
+        raise HTTPException(404, f"no golden path template named {name!r}")
+    return result
 
 
 @router.get("/{name}", response_model=GoldenPathDetailResponse)

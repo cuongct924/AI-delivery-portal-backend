@@ -560,34 +560,29 @@ class CostLedgerEntry(TypedDict):
     run_id: str
 
 
-class ChatDraft(TypedDict):
-    """An agent-proposed set of Golden Path form values, accumulated across
-    turns. `template` is the golden path name; `form_data` is the flat
-    field->value map the frontend seeds the Scaffolder form with."""
-
-    template: str
-    form_data: dict[str, object]
-    updated_at: str
-
-
 class ChatSession(TypedDict):
-    """One chat conversation's server-side state: the message history (for
-    reload coherence) plus the current template draft (if any). Keyed by a
-    client-generated `session_id`; `user_ref` scopes reads to the owner."""
+    """One chat conversation's server-side state: the message history, so a
+    reload restores it. Keyed by a client-generated `session_id`; `user_ref`
+    scopes reads to the owner.
+
+    Used to also carry the session's current Golden Path template draft, but
+    that ownership moved to the portal-assistant-backend Node plugin's own
+    DraftService/DraftStore (frontend repo) — the one place that already had
+    draftId/revision/run-status, so a second, independently-merged copy here
+    was a sync hazard rather than a safety net (see git history for the
+    removal)."""
 
     session_id: str
     user_ref: str
     messages: list[dict[str, str]]
-    draft: ChatDraft | None
     updated_at: str
 
 
 class IChatSessionStore(ABC):
-    """Server-side store for chat sessions — message history + template
-    draft, so a reload restores both. Local-file backed (SQLite) for the
-    same reason the cost ledger is: a demo needs it to survive a restart
-    without standing up a database; swapping to Postgres later is one new
-    class implementing this interface."""
+    """Server-side store for chat message history, so a reload restores it.
+    Local-file backed (SQLite) for the same reason the cost ledger is: a demo
+    needs it to survive a restart without standing up a database; swapping to
+    Postgres later is one new class implementing this interface."""
 
     @abstractmethod
     def get(self, session_id: str) -> ChatSession | None: ...
@@ -597,14 +592,6 @@ class IChatSessionStore(ABC):
         self, session_id: str, user_ref: str, messages: Sequence[Mapping[str, str]]
     ) -> None:
         """Append turns to the session, creating it if absent."""
-        ...
-
-    @abstractmethod
-    def merge_draft(
-        self, session_id: str, user_ref: str, template: str, patch: Mapping[str, object]
-    ) -> ChatDraft:
-        """Merge `patch` into the session's draft (not a blind overwrite),
-        switching `template` if it changed. Returns the merged draft."""
         ...
 
     @abstractmethod

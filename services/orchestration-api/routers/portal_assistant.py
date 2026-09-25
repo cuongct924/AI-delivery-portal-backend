@@ -10,22 +10,42 @@ those.
 Beyond plain chat, this surface lets the agent fill a Golden Path
 template: it calls `list_golden_paths` / `get_golden_path_schema` /
 `propose_golden_path_draft` (golden-path-guide-server MCP), and each
-`propose_golden_path_draft` result is merged into the session's draft and
-streamed to the drawer as a `template_draft` event. The drawer seeds the
-Scaffolder form with it; the user reviews and submits — the agent never
-submits. Message history + draft are persisted per `session_id` so a
-reload restores both.
+`propose_golden_path_draft` result is streamed to the drawer as-is, as a
+`template_draft` event. The drawer seeds the Scaffolder form with it; the
+user reviews and submits — the agent never submits.
+
+Only message history is persisted per `session_id` here (so a reload
+restores the conversation) — the draft itself is NOT tracked on this side
+any more. It used to be (merged turn-by-turn via
+adapters.ai_platform.chat_session_store's old `merge_draft`), but that was
+a second, independently-updated copy of state the frontend's
+portal-assistant-backend Node plugin already owned more completely
+(draftId/revision/run-status, none of which existed here) — two stores
+drifting out of sync was the actual bug, not a redundancy worth keeping.
+Each `template_draft` event below now carries only the current turn's raw
+tool result; accumulating fields across turns is the Node
+DraftService.upsertFromEvent's job now, not this router's.
+
+`tool_loop.run_tool_loop`'s `on_delta` hook streams the model's own
+reasoning/content tokens as they're produced (a reasoning model like the
+one behind PORTAL_ASSISTANT_MODEL can take 15-45s across several tool
+rounds; without this the drawer had nothing to show but a static
+"Thinking…" the whole time) — reasoning becomes a `reasoning_chunk` event,
+content becomes incremental `message_chunk` events instead of one blob at
+the very end.
 """
 
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from auth.thunder import get_current_user
+from catalog_client import get_golden_path_schema
+from core.config import settings
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from tool_loop import last_text, run_tool_loop
 
 from adapters.factory import (
@@ -42,9 +62,18 @@ registry_adapter = get_prompt_registry_adapter()
 session_store = get_chat_session_store()
 
 PERSONA: Final[str] = "mlops"
-MODEL: Final[str] = "claude-sonnet-5"
 # The tool whose result becomes a `template_draft` event.
 DRAFT_TOOL: Final[str] = "propose_golden_path_draft"
+
+# Human-readable progress label per tool, streamed as a `tool_call` event's
+# `activeForm`. The drawer falls back to "Running <tool>…" for anything not
+# listed, so a new tool needs no change here to keep working.
+TOOL_ACTIVE_FORM: Final[dict[str, str]] = {
+    "list_golden_paths": "Đang tìm quy trình phù hợp…",
+    "get_golden_path_guide": "Đang đọc hướng dẫn quy trình…",
+    "get_golden_path_schema": "Đang đọc cấu hình biểu mẫu…",
+    "propose_golden_path_draft": "Đang điền form…",
+}
 
 
 class ChatMessage(BaseModel):
@@ -64,7 +93,14 @@ class ChatScope(BaseModel):
 class PortalAssistantChatRequest(BaseModel):
     messages: list[ChatMessage]
     scope: ChatScope | None = None
-    session_id: str | None = None
+    # The frontend's ChatRequest serialises this as camelCase `sessionId`
+    # (matching `scope.currentTemplate`); accept the snake_case form too so
+    # both wire shapes work. Without this the agent saw session_id=None and
+    # skipped the `template_draft` event entirely (on_tool_call returns
+    # early when there's no session_id to scope the event to).
+    session_id: str | None = Field(
+        default=None, validation_alias=AliasChoices("sessionId", "session_id")
+    )
 
 
 def _sse_line(event: dict[str, Any]) -> bytes:
@@ -86,10 +122,30 @@ async def _stream_reply(
             else "You are the MLOps assistant for the AI Delivery Portal."
         )
         if chat_request.scope and chat_request.scope.currentTemplate:
-            system_prompt += (
-                f"\n\nThe user currently has the Golden Path template "
-                f"'{chat_request.scope.currentTemplate}' open."
-            )
+            template = chat_request.scope.currentTemplate
+            # Fetch the schema ourselves instead of letting the model spend
+            # a full reasoning round deciding to call list_golden_paths/
+            # get_golden_path_schema for a template we already know by name
+            # — each round trip is model-latency-bound (10-20s+ for a
+            # reasoning model), while this catalog lookup is a single sub-
+            # second HTTP call. Best-effort: a catalog hiccup or unknown
+            # name just falls back to the pre-existing behavior (the model
+            # looks it up itself via MCP).
+            schema = await asyncio.to_thread(get_golden_path_schema, template)
+            if schema is not None:
+                system_prompt += (
+                    f"\n\nThe user currently has the Golden Path template "
+                    f"'{template}' open. Its schema (spec.parameters, same "
+                    "shape get_golden_path_schema returns) is:\n"
+                    f"{json.dumps(schema)}\n"
+                    "Do NOT call list_golden_paths or get_golden_path_schema for "
+                    f"this template — you already have it. Go straight to "
+                    "propose_golden_path_draft."
+                )
+            else:
+                system_prompt += (
+                    f"\n\nThe user currently has the Golden Path template '{template}' open."
+                )
 
         messages: list[dict[str, object]] = [
             {"role": "system", "content": system_prompt},
@@ -101,7 +157,10 @@ async def _stream_reply(
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
         async def on_tool_call(name: str, args: dict[str, Any], result: str) -> None:
-            await queue.put({"type": "tool_call", "tool": name, "args": json.dumps(args)})
+            event: dict[str, Any] = {"type": "tool_call", "tool": name, "args": json.dumps(args)}
+            if name in TOOL_ACTIVE_FORM:
+                event["activeForm"] = TOOL_ACTIVE_FORM[name]
+            await queue.put(event)
             if name != DRAFT_TOOL or session_id is None:
                 return
             try:
@@ -112,16 +171,19 @@ async def _stream_reply(
             form_data = payload.get("form_data", {})
             if not template or not isinstance(form_data, dict):
                 return
-            merged = session_store.merge_draft(session_id, user_ref, template, form_data)
             await queue.put(
                 {
                     "type": "template_draft",
                     "template": template,
-                    "formData": merged["form_data"],
+                    "formData": form_data,
                     "missing": payload.get("missing", []),
                     "complete": bool(payload.get("ok")),
                 }
             )
+
+        async def on_delta(kind: Literal["reasoning", "content"], text: str) -> None:
+            event_type = "reasoning_chunk" if kind == "reasoning" else "message_chunk"
+            await queue.put({"type": event_type, "content": text})
 
         async def run() -> None:
             try:
@@ -129,8 +191,9 @@ async def _stream_reply(
                     llm_gateway_adapter,
                     registry,
                     messages,
-                    model=MODEL,
+                    model=settings.portal_assistant_model,
                     on_tool_call=on_tool_call,
+                    on_delta=on_delta,
                 )
                 if result.pending is not None:
                     reply = (
@@ -139,13 +202,19 @@ async def _stream_reply(
                         "is read-only and can't execute changes — please use the "
                         "corresponding Golden Path template instead."
                     )
+                    # Synthesized here, after the loop ended — never streamed
+                    # as deltas, so (unlike the normal reply) this needs an
+                    # explicit message_chunk or the drawer shows nothing.
+                    await queue.put({"type": "message_chunk", "content": reply})
                 else:
+                    # Already streamed incrementally via on_delta above — a
+                    # second, full-blob message_chunk here would just
+                    # duplicate everything the drawer already rendered.
                     reply = last_text(result.message)
                 if session_id is not None:
                     turns = [{"role": m.role, "content": m.content} for m in chat_request.messages]
                     turns.append({"role": "assistant", "content": reply})
                     session_store.append_messages(session_id, user_ref, turns)
-                await queue.put({"type": "message_chunk", "content": reply})
                 await queue.put({"type": "done", "message": reply})
             except Exception as exc:  # noqa: BLE001 - surfaced as a StreamEvent
                 await queue.put({"type": "error", "message": str(exc)})
@@ -177,12 +246,19 @@ async def portal_assistant_chat(
 
 @router.get("/sessions/{session_id}")
 def get_session(session_id: str, user: dict = Depends(get_current_user)) -> dict[str, Any]:
-    """Restore a session's message history + draft after a reload. Scoped to
-    the owner — a guessed id can't read someone else's draft."""
+    """Restore a session's message history after a reload. Scoped to the
+    owner — a guessed id can't read someone else's messages.
+
+    No draft in the response any more — that's the portal-assistant-backend
+    Node plugin's `GET /drafts/by-session/{id}` now (frontend repo), which
+    the drawer already calls separately and treats as authoritative. This
+    endpoint used to also re-derive `missing`/`complete` against the live
+    schema and return a `draft` key; both are gone since there's no draft
+    state left here to derive them from."""
     session = session_store.get(session_id)
     if session is None or session["user_ref"] != _user_ref(user):
-        return {"messages": [], "draft": None}
-    return {"messages": session["messages"], "draft": session["draft"]}
+        return {"messages": []}
+    return {"messages": session["messages"]}
 
 
 @router.delete("/sessions/{session_id}")
