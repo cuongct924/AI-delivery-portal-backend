@@ -1,7 +1,7 @@
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 pydantic-settings==2.15.0
-mcp==2.0.0
+mcp==2.2.0
 httpx==0.28.1
 python-jose[cryptography]==3.5.0
 prometheus-fastapi-instrumentator==8.1.0
