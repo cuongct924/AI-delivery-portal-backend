@@ -24,6 +24,7 @@ make port-forward-ai-platform   # Qdrant/MLflow/LiteLLM/MinIO/Feast -> localhost
 make port-forward-mcp-servers   # golden-path-guide/llmops/mlops/observability MCP servers -> localhost (own terminal)
 make port-forward-dev           # both of the above in one terminal — self-healing, reconnects a dropped forward on its own
 make port-forward-orchestration-api  # alternative: use the IN-CLUSTER orchestration-api instead of a host-run one (forwarded to localhost:8000)
+make test-portal-assistant-scenarios # smoke-test the chat endpoint against a real LLM (needs the port-forward above + Backstage on :7007) — see the script's own docstring
 ```
 
 The host-run orchestration-api reaches the AI Platform zone (worker2) through
@@ -50,12 +51,23 @@ template-fill feature has nothing to stream.
 Alternatively, skip the host-run API entirely: `make port-forward-orchestration-api`
 forwards the in-cluster one (worker1) to `localhost:8000`, and it reaches the
 AI Platform zone and MCP servers over cluster DNS — no other forwards or
-`/etc/hosts` entries needed. Two catches: code changes only land after
+`/etc/hosts` entries needed. Three catches: code changes only land after
 rebuilding + `k3d image import`ing its image (setup script step 3/6) and
-deleting its pod (same tag), and it reads the in-cluster MLflow's Prompt
+deleting its pod (same tag); it reads the in-cluster MLflow's Prompt
 Registry, so a prompt change in `routers/prompts.py` must be drafted +
-activated there too (the seed only runs when no version is active). Its env
-comes from `workload-orchestration-api.yaml`, not `.env`.
+activated there too (the seed only runs when no version is active); and —
+easy to miss, cost real debugging time once — **Backstage still has to be
+running on the host** even for this in-cluster path. `BACKSTAGE_BASE_URL`
+in `workload-orchestration-api.yaml` points at
+`http://host.docker.internal:7007` regardless of where orchestration-api
+itself runs, and both `McpToolRegistry.connect_all()`'s discovery and
+`catalog_client.get_golden_path_schema()` go through it — Backstage down
+means MCP discovery silently degrades to zero tools (by design, never
+raises) and the model has nothing to call but may still *try* the tool
+names it knows from its own system prompt, failing with "Unknown tool".
+`curl -s -o /dev/null -w '%{http_code}' http://localhost:7007/api/catalog/entities`
+returning anything other than a fast `401`/`200` (vs. `000`/timeout) is
+the tell. Its env comes from `workload-orchestration-api.yaml`, not `.env`.
 
 `make test`/`make check` need a real MLflow reachable at `MLFLOW_TRACKING_URI`
 (default `http://localhost:5000`) — `routers/prompts.py` seeds its default

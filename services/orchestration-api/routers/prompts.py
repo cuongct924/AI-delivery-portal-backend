@@ -13,6 +13,7 @@ from evaluations.llm_judge import judge_response
 from fastapi import APIRouter, Depends, HTTPException
 from observability.dora_metrics import DEPLOYMENT_EVENTS, GATE_EVALUATIONS, INCIDENT_RECOVERY
 from pydantic import BaseModel
+from training_presets import render_training_presets
 
 from adapters.ai_platform.interfaces import DEFAULT_ENVIRONMENT, normalize_version
 from adapters.factory import (
@@ -141,15 +142,28 @@ def _seed_default_prompts() -> None:
             "actually states or clearly implies — a field's own schema `description` "
             'may say "Default: X"; that is a hint for someone filling the form by '
             "hand, never permission for you to pick it silently on the user's behalf. "
+            "\n\n"
+            "Exception: train-track-register's `useCase` has known presets — once "
+            "the user's `useCase` matches one below, its other fields listed here "
+            "are ALREADY settled (same defaults the Scaffolder form itself would "
+            "silently fill in for that use case) — don't ask about them, and don't "
+            "guess a different value for one:\n"
+            f"{render_training_presets()}\n"
+            "A `useCase` outside this list has no preset — fall back to the normal "
+            "ask-or-infer rule above for its other fields, same as always.\n\n"
             "If the user's request leaves one or more business-defining fields "
             'unresolved — including a fully generic "run this template for me" with '
-            "no specifics at all — do NOT call propose_golden_path_draft yet: ask the "
-            "user to choose, in this same reply, listing the schema's available "
-            "options by their `title` (never the `const`) in plain language, then "
-            "wait for their answer before drafting anything. A generic request should "
-            "never silently produce a draft for whichever option happens to be the "
-            "schema's first/default one — that's a random guess wearing a default's "
-            "clothing.\n\n"
+            "no specifics at all — do NOT call propose_golden_path_draft yet: ask "
+            "first, then wait for their answer before drafting anything. A generic "
+            "request should never silently produce a draft for whichever option "
+            "happens to be the schema's first/default one — that's a random guess "
+            "wearing a default's clothing. For a field whose schema constrains it to "
+            "a fixed set of options (`oneOf`/`enum`), call the ask_user tool instead "
+            "of asking in prose — one question at a time, its `options` the field's "
+            "`const` (value) and `title` (label) verbatim; the drawer renders these as "
+            "clickable choices the user picks from instead of retyping. For a "
+            "free-text field (a name, a URI, ...) ask normally in your reply instead — "
+            "ask_user is only for fields with real, fixed options.\n\n"
             "Separately, some fields must reference something that already exists in "
             "a registry rather than being freely chosen — the schema alone can't tell "
             "you this, but the field NAME does: `modelName` when it picks an EXISTING "
@@ -167,16 +181,22 @@ def _seed_default_prompts() -> None:
             "reasonable match for what the user described, say so and ask them to "
             "confirm or pick one — don't fall back to guessing a name that sounds "
             "right.\n\n"
-            "Once every business-defining field is settled from the user's own words "
-            "(this turn or an earlier one), call propose_golden_path_draft with every "
-            "value you can now fill. For any field with a `oneOf` or `enum`, submit "
-            'the machine-readable `const` value (e.g. "traditional-ml"), never the '
-            'human-readable `title` shown next to it (e.g. "Traditional ML") — '
-            "validation checks against `const`, not `title`, and a title fails with "
-            "an enum error. If `missing` comes back non-empty, ask the user for just "
-            "those remaining fields (do not guess a value you weren't given or can't "
-            "infer) and call propose_golden_path_draft again once they answer. If "
-            "`errors` comes back non-empty instead, that's your own mistake (wrong "
+            "Fill the draft PROGRESSIVELY, not only once everything is settled: the "
+            "first time any business-defining field becomes known — this turn or an "
+            "earlier one, from the user's own words or a matched preset above — call "
+            "propose_golden_path_draft right then with every value you can fill so "
+            "far, even while others remain unresolved. Call it again after every turn "
+            "that resolves another one. Each call streams its result to the user as a "
+            "draft card, so this is what makes the card visibly fill in as the "
+            "conversation goes instead of appearing once at the very end. For any "
+            "field with a `oneOf` or `enum`, submit the machine-readable `const` value "
+            '(e.g. "traditional-ml"), never the human-readable `title` shown next to '
+            'it (e.g. "Traditional ML") — validation checks against `const`, not '
+            "`title`, and a title fails with an enum error. `missing` is exactly what "
+            "still needs asking — ask_user for one with fixed options, plain prose "
+            "otherwise, same rule as above — and call propose_golden_path_draft again "
+            "once the user answers. If `errors` comes back non-empty instead, that's "
+            "your own mistake (wrong "
             "const, wrong type) — fix it yourself against the schema and call "
             "propose_golden_path_draft again in the same turn; don't just report the "
             "error back to the user unless it needs information only they can supply. "

@@ -56,10 +56,11 @@ class McpToolRegistry:
         `LiteLLMGatewayAdapter.chat_completion(tools=...)` expects.
 
         `allowed_tool_names=None` returns every tool from every connected
-        server — used by portal_assistant.py, which has no persona concept.
-        `chat.py` always passes a concrete (possibly empty) set, scoped by
-        persona (see persona_tool_scope.py) — a persona must never see a
-        tool it isn't allowed to call.
+        server. Both callers now always pass a concrete set —
+        portal_assistant.py its own fixed scope
+        (persona_tool_scope.PORTAL_ASSISTANT_TOOLS), chat.py one scoped by
+        persona (persona_tool_scope.allowed_tools_for) — a persona must
+        never see a tool it isn't allowed to call.
         """
         tools = (
             self._tools.values()

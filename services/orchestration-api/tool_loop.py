@@ -11,7 +11,10 @@ Parameterising the policy here keeps one loop instead of two copies.
 Bounded by `max_rounds` so a model that keeps calling tools can't spin
 forever. A destructive call stops the loop and is returned as `pending`
 (never auto-executed) — the caller decides the wording and, for chat.py,
-resubmits it as a confirmed call.
+resubmits it as a confirmed call. A call to one of `local_tools` (a
+synthetic tool not backed by any MCP server, e.g. ask_user_tool.py) stops
+it the same way and comes back as `local_call` instead — portal_assistant.py
+is the one caller today.
 
 Streams the model call per round (ILLMGatewayAdapter.chat_completion_stream)
 instead of blocking for a full response — `on_delta`, if given, is called
@@ -27,11 +30,11 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
-from mcp_client import McpToolRegistry
+from mcp_client import McpToolRegistry, ToolSchema
 
 from adapters.ai_platform.interfaces import ILLMGatewayAdapter
 
-DEFAULT_MAX_ROUNDS = 5
+DEFAULT_MAX_ROUNDS = 8
 
 # Called after each executed tool with (name, args, result) — lets a
 # streaming caller (portal_assistant) emit an event per call.
@@ -53,6 +56,16 @@ class LoopResult:
     tool_calls: list[str] = field(default_factory=list)
     # Set when a destructive tool was proposed but not executed.
     pending: dict[str, Any] | None = None
+    # Set when a `local_tools` entry (e.g. ask_user_tool.ASK_USER_TOOL) was
+    # called — its raw arguments, never dispatched through the MCP
+    # registry. Mutually exclusive with `pending`: the loop returns on the
+    # first of either kind of call it hits in a round.
+    local_call: dict[str, Any] | None = None
+    # True only when the loop ran out of `max_rounds` while the model was
+    # still mid-flow (its last round emitted more tool_calls, never a
+    # final answer) — the caller's cue to say so explicitly rather than
+    # show nothing or a truncated `message` with no clear explanation.
+    exhausted: bool = False
     usage: dict[str, Any] | None = None
     # Always None today — LiteLLMGatewayAdapter.chat_completion_stream has
     # no cost source (see its own docstring: the response-cost header this
@@ -68,6 +81,7 @@ async def run_tool_loop(
     *,
     model: str,
     allowed_tools: frozenset[str] | None = None,
+    local_tools: dict[str, ToolSchema] | None = None,
     max_rounds: int = DEFAULT_MAX_ROUNDS,
     on_tool_call: ToolCallHook | None = None,
     on_delta: OnDeltaHook | None = None,
@@ -76,9 +90,13 @@ async def run_tool_loop(
 
     `messages` is mutated in place (assistant + tool turns appended) so a
     caller can keep the transcript. `allowed_tools=None` exposes every
-    tool; a concrete set scopes to a persona.
+    tool; a concrete set scopes to a persona. `local_tools` (name ->
+    schema) are offered alongside the MCP ones but never dispatched
+    through `registry` — a call to one of them stops the loop and comes
+    back as `LoopResult.local_call` instead of being executed (see
+    ask_user_tool.py for the one caller uses today).
     """
-    tools = registry.list_tools(allowed_tools)
+    tools = registry.list_tools(allowed_tools) + list((local_tools or {}).values())
     tool_calls_made: list[str] = []
     message: dict[str, Any] = {}
     usage: dict[str, Any] | None = None
@@ -143,6 +161,15 @@ async def run_tool_loop(
             # Only a confirmed resubmission may pass "confirm" — never the model.
             args.pop("confirm", None)
 
+            if local_tools and name in local_tools:
+                return LoopResult(
+                    message=message,
+                    tool_calls=tool_calls_made,
+                    local_call={"name": name, "arguments": args},
+                    usage=usage,
+                    cost_usd=cost_usd,
+                )
+
             if registry.is_destructive(name):
                 return LoopResult(
                     message=message,
@@ -158,7 +185,13 @@ async def run_tool_loop(
                 await on_tool_call(name, args, result)
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
 
-    return LoopResult(message=message, tool_calls=tool_calls_made, usage=usage, cost_usd=cost_usd)
+    # Only reachable by exhausting every round in range(max_rounds) — every
+    # earlier iteration returned above (no tool_calls, a local_tools call,
+    # or a destructive one), so getting here means the model was still
+    # calling tools on the very last round with no final answer in hand.
+    return LoopResult(
+        message=message, tool_calls=tool_calls_made, exhausted=True, usage=usage, cost_usd=cost_usd
+    )
 
 
 def last_text(message: dict[str, Any]) -> str:

@@ -61,3 +61,37 @@ PERSONA_ALLOWED_TOOLS: dict[str, ToolScope] = {
 def allowed_tools_for(persona: str) -> ToolScope:
     """Deny-by-default: a persona not registered above gets no tools."""
     return PERSONA_ALLOWED_TOOLS.get(persona, frozenset())
+
+
+# agents/mcp-servers/golden-path-guide-server/server.py — the only server
+# routers/portal_assistant.py's system prompt ever tells the model to call
+# (see routers/prompts.py's "mlops" persona content: every tool it names —
+# list_golden_paths, get_golden_path_schema, propose_golden_path_draft,
+# list_registered_models, list_rag_collections, list_prompts, list_secrets,
+# search_huggingface_models — lives here). All read-only.
+#
+# Deliberately excludes ai-observability/llmops/mlops-golden-paths tools
+# (chat.py's "mlops" persona scope above, which DOES execute the
+# NEEDS_CONFIRMATION tools) — portal_assistant.py never calls those; its own
+# docstring says a destructive tool is only ever described, never called,
+# and the system prompt already tells the model their names in plain text
+# ("Do NOT call an execution tool (trigger_training, register_model, ...)"),
+# so omitting their JSON schemas here costs nothing: the model was never
+# going to call them, and `result.pending`'s echo-back is a backstop for the
+# model ignoring that instruction, not the primary UX path. Measured
+# saving: 33 tools/~6.1k tok -> these 10/~1.5k tok, 75% off every round's
+# tool-definition cost.
+PORTAL_ASSISTANT_TOOLS: ToolScope = frozenset(
+    {
+        "list_golden_paths",
+        "get_golden_path_guide",
+        "get_golden_path_schema",
+        "propose_golden_path_draft",
+        "estimate_golden_path_cost",
+        "list_registered_models",
+        "list_rag_collections",
+        "list_prompts",
+        "list_secrets",
+        "search_huggingface_models",
+    }
+)

@@ -15,14 +15,27 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from ask_user_tool import ASK_USER_TOOL
 from conftest import make_stream
 from core.config import settings
+from routers import portal_assistant
 from routers.portal_assistant import (
     ChatMessage,
+    ChatScope,
     PortalAssistantChatRequest,
     _stream_reply,
     portal_assistant_warmup,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_portal_assistant_caches() -> None:
+    # The prompt/schema TTL caches are module-level singletons (real ones
+    # deliberately outlive a single request — see ttl_cache.py's docstring)
+    # so a value one test's mock leaves behind would otherwise leak into
+    # the next test that expects a different mocked return.
+    portal_assistant._system_prompt_cache.clear()
+    portal_assistant._schema_summary_cache.clear()
 
 
 def _http_request(mcp_registry: MagicMock | None = None) -> MagicMock:
@@ -71,7 +84,10 @@ async def test_reply_without_tool_call_emits_message_chunk_then_done() -> None:
             {"role": "system", "content": "system prompt"},
             {"role": "user", "content": "hi"},
         ],
-        tools=[],
+        # ask_user (local_tools) is always offered alongside whatever the
+        # MCP registry returns — this test's mock_registry.list_tools
+        # returns [], so it's the only entry.
+        tools=[ASK_USER_TOOL],
     )
 
 
@@ -391,6 +407,71 @@ async def test_destructive_tool_call_is_refused_without_executing() -> None:
     assert [event["type"] for event in events] == ["message_chunk", "done"]
     assert "read-only" in events[-1]["message"]
     mock_registry.call_tool.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ask_user_call_emits_clarifying_question_not_a_real_tool_call() -> None:
+    chat_request = PortalAssistantChatRequest(
+        messages=[ChatMessage(role="user", content="run train-track-register for me")]
+    )
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = [{"type": "function", "function": {"name": "t"}}]
+    mock_registry.is_destructive.return_value = False
+    mock_registry.call_tool = AsyncMock()
+
+    first_round = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "ask_user",
+                                    "arguments": (
+                                        '{"question": "Which algorithm family?", '
+                                        '"options": ['
+                                        '{"value": "scikit-learn", "label": "scikit-learn"}, '
+                                        '{"value": "xgboost", "label": "XGBoost"}'
+                                        "]}"
+                                    ),
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(first_round)
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    # ask_user is never a real MCP call (no tool_call event, no dispatch)
+    # and `done.message` stays empty so the drawer doesn't render the
+    # question a second time as a plain bubble.
+    assert events == [
+        {
+            "type": "clarifying_question",
+            "question": "Which algorithm family?",
+            "options": [
+                {"value": "scikit-learn", "label": "scikit-learn"},
+                {"value": "xgboost", "label": "XGBoost"},
+            ],
+        },
+        {"type": "done", "message": ""},
+    ]
+    mock_registry.call_tool.assert_not_awaited()
     mock_gateway.chat_completion_stream.assert_called_once()
 
 
@@ -412,3 +493,285 @@ async def test_llm_gateway_error_emits_error_event_instead_of_raising() -> None:
 
 def test_warmup_returns_ok() -> None:
     assert portal_assistant_warmup(user={}) == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_current_form_values_are_injected_and_marked_already_settled() -> None:
+    chat_request = PortalAssistantChatRequest(
+        messages=[ChatMessage(role="user", content="continue")],
+        scope=ChatScope(
+            currentTemplate="train-track-register",
+            currentFormValues={"modelName": "my-model", "algorithm": "RandomForestClassifier"},
+        ),
+    )
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+        patch(
+            "routers.portal_assistant.summarize_golden_path_schema",
+            return_value="## fields",
+        ),
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "ok"}}]}]
+        )
+
+        await _collect(chat_request, _http_request(mock_registry))
+
+    system_message = mock_gateway.chat_completion_stream.call_args.kwargs["messages"][0]
+    assert system_message["role"] == "system"
+    assert "my-model" in system_message["content"]
+    assert "RandomForestClassifier" in system_message["content"]
+    assert "already settled" in system_message["content"]
+
+
+@pytest.mark.asyncio
+async def test_no_current_form_values_means_no_extra_prompt_section() -> None:
+    chat_request = PortalAssistantChatRequest(
+        messages=[ChatMessage(role="user", content="continue")],
+        scope=ChatScope(currentTemplate="train-track-register"),
+    )
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+        patch(
+            "routers.portal_assistant.summarize_golden_path_schema",
+            return_value="## fields",
+        ),
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "ok"}}]}]
+        )
+
+        await _collect(chat_request, _http_request(mock_registry))
+
+    system_message = mock_gateway.chat_completion_stream.call_args.kwargs["messages"][0]
+    assert "already settled" not in system_message["content"]
+
+
+@pytest.mark.asyncio
+async def test_normal_reply_gets_followup_suggestions_from_a_separate_call() -> None:
+    chat_request = PortalAssistantChatRequest(messages=[ChatMessage(role="user", content="hi")])
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "hello"}}]}]
+        )
+        mock_gateway.chat_completion.return_value = {
+            "id": "x",
+            "model": "m",
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": '["What is the cost?", "How do I run it?"]',
+                    },
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    assert events == [
+        {"type": "message_chunk", "content": "hello"},
+        {
+            "type": "done",
+            "message": "hello",
+            "suggestions": ["What is the cost?", "How do I run it?"],
+        },
+    ]
+    # A separate, single-purpose call — not the same one that produced the
+    # reply — and it never streams (a short JSON answer doesn't need it).
+    mock_gateway.chat_completion.assert_called_once()
+    call_kwargs = mock_gateway.chat_completion.call_args.kwargs
+    assert call_kwargs["model"] == settings.portal_assistant_model
+    assert "hello" in call_kwargs["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_followup_call_failure_omits_suggestions_without_failing_the_turn() -> None:
+    chat_request = PortalAssistantChatRequest(messages=[ChatMessage(role="user", content="hi")])
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "hello"}}]}]
+        )
+        mock_gateway.chat_completion.side_effect = RuntimeError("upstream boom")
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    assert events == [
+        {"type": "message_chunk", "content": "hello"},
+        {"type": "done", "message": "hello"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_malformed_suggestions_json_is_treated_as_no_suggestions() -> None:
+    chat_request = PortalAssistantChatRequest(messages=[ChatMessage(role="user", content="hi")])
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "hello"}}]}]
+        )
+        mock_gateway.chat_completion.return_value = {
+            "id": "x",
+            "model": "m",
+            "choices": [
+                {"message": {"role": "assistant", "content": "not json"}, "finish_reason": "stop"}
+            ],
+        }
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    assert events == [
+        {"type": "message_chunk", "content": "hello"},
+        {"type": "done", "message": "hello"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_ask_user_turn_never_triggers_a_followup_call() -> None:
+    chat_request = PortalAssistantChatRequest(
+        messages=[ChatMessage(role="user", content="run train-track-register for me")]
+    )
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = [{"type": "function", "function": {"name": "t"}}]
+    mock_registry.is_destructive.return_value = False
+    mock_registry.call_tool = AsyncMock()
+
+    first_round = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "ask_user",
+                                    "arguments": '{"question": "Which one?", "options": []}',
+                                },
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(first_round)
+
+        await _collect(chat_request, _http_request(mock_registry))
+
+    mock_gateway.chat_completion.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_long_conversation_is_truncated_before_reaching_the_model() -> None:
+    # More turns than portal_assistant._MAX_HISTORY_MESSAGES (20).
+    history = [
+        ChatMessage(role="user" if i % 2 == 0 else "assistant", content=f"turn {i}")
+        for i in range(30)
+    ]
+    chat_request = PortalAssistantChatRequest(messages=history)
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = []
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(
+            [{"choices": [{"delta": {"content": "ok"}}]}]
+        )
+
+        await _collect(chat_request, _http_request(mock_registry))
+
+    sent_messages = mock_gateway.chat_completion_stream.call_args.kwargs["messages"]
+    # 1 system prompt + the last 20 of the 30 history turns — the oldest
+    # 10 never reach the model at all.
+    assert len(sent_messages) == 1 + 20
+    assert sent_messages[1]["content"] == "turn 10"
+    assert sent_messages[-1]["content"] == "turn 29"
+
+
+@pytest.mark.asyncio
+async def test_round_budget_exhausted_mid_flow_gets_a_clear_message() -> None:
+    chat_request = PortalAssistantChatRequest(messages=[ChatMessage(role="user", content="go")])
+    mock_registry = MagicMock()
+    mock_registry.list_tools.return_value = [{"type": "function", "function": {"name": "t"}}]
+    mock_registry.is_destructive.return_value = False
+    mock_registry.call_tool = AsyncMock(return_value="{}")
+
+    # Same tool_call shape every round — make_stream clamps to the last
+    # round supplied when called more times than rounds given, so the
+    # model "never" reaches a final answer across all of max_rounds.
+    every_round = [
+        {
+            "choices": [
+                {
+                    "delta": {
+                        "tool_calls": [
+                            {
+                                "index": 0,
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {"name": "list_golden_paths", "arguments": "{}"},
+                            }
+                        ]
+                    }
+                }
+            ]
+        }
+    ]
+
+    with (
+        patch("routers.portal_assistant.registry_adapter") as mock_prompt_registry,
+        patch("routers.portal_assistant.llm_gateway_adapter") as mock_gateway,
+    ):
+        mock_prompt_registry.get_active_version.return_value = "1"
+        mock_prompt_registry.get_version.return_value = {"content": "system prompt"}
+        mock_gateway.chat_completion_stream.side_effect = make_stream(every_round)
+
+        events = await _collect(chat_request, _http_request(mock_registry))
+
+    done_event = events[-1]
+    assert done_event["type"] == "done"
+    assert "ran out of steps" in done_event["message"]

@@ -30,7 +30,7 @@ SERVICE_REQS := requirements-dev.txt \
 	gitleaks checkov trivy security \
 	run-orchestration-api run-ai-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
 	run-mlops-golden-paths-mcp port-forward-ai-platform port-forward-mcp-servers port-forward-dev \
-	port-forward-orchestration-api \
+	port-forward-orchestration-api test-portal-assistant-scenarios \
 	dvc-pull dvc-push \
 	clean-venv
 
@@ -134,6 +134,13 @@ port-forward-dev:
 ## up code changes. Run in its own terminal, leave it up.
 port-forward-orchestration-api:
 	bash scripts/port-forward-orchestration-api.sh
+
+# Smoke-tests portal_assistant.py's chat endpoint against a real LLM — see
+# the script's own docstring for prerequisites (port-forward + Backstage
+# both up) and what it checks. Not part of `make check`: it needs a live
+# deployment and a real model, neither of which CI has.
+test-portal-assistant-scenarios:
+	$(PY) scripts/test-portal-assistant-scenarios.py
 
 run-ai-observability-mcp:
 	bash scripts/run-mcp-local.sh ai-observability

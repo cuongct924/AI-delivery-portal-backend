@@ -49,6 +49,7 @@ include = [
     "services/orchestration-api",
     "infra/argo-workflows/training-image",
     "tests",
+    "scripts",
 ]
 exclude = [
     "**/__pycache__",

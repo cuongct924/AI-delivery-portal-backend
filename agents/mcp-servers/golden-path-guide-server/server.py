@@ -86,15 +86,18 @@ def get_golden_path_guide(name: str) -> GoldenPathGuide:
 
 
 @mcp.tool(annotations=READ_ONLY)
-def get_golden_path_schema(name: str) -> list[dict[str, object]]:
-    """The raw JSON schema of one Golden Path template's input parameters —
-    types, enums, defaults and allOf/if branching. Use this (not
+def get_golden_path_schema(name: str) -> str:
+    """One Golden Path template's input parameters — types, enums, defaults
+    and allOf/if branching, condensed to plain text (same information as
+    the raw JSON Schema, ~58% fewer tokens). Use this (not
     get_golden_path_guide, which flattens the fields) when you need to fill
-    the form: it tells you exactly which fields exist per branch. `name` is
-    a value from list_golden_paths, e.g. "train-track-register"."""
-    response = httpx.get(f"{ORCHESTRATION_API_URL}/golden-paths/{name}/schema", timeout=10)
+    the form: it tells you exactly which fields exist per branch.
+    propose_golden_path_draft still validates against the full schema, so a
+    field this omits (e.g. read-only ones) was never fillable anyway.
+    `name` is a value from list_golden_paths, e.g. "train-track-register"."""
+    response = httpx.get(f"{ORCHESTRATION_API_URL}/golden-paths/{name}/schema/summary", timeout=10)
     response.raise_for_status()
-    return response.json()
+    return response.json()["summary"]
 
 
 @mcp.tool(annotations=READ_ONLY)
