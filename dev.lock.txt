@@ -1011,7 +1011,7 @@ urllib3==2.7.0
     #   requests
 uuid6==2025.0.1
     # via evidently
-uv==0.12.5
+uv==0.12.16
     # via -r requirements-dev.txt
 uvicorn==0.52.4
     # via
