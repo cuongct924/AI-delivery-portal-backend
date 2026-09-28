@@ -11,7 +11,12 @@ spec:
     projectName: telco-fraud-detection
     componentName: feature-store
   container:
-    image: feast-serve:local
+    # Same tag scripts/setup-3node-infra.sh builds and `k3d image import`s
+    # (and infra/ai-platform-zone/feast-serve.yaml uses). This image never
+    # exists in a registry — a tag that wasn't imported (it used to say
+    # `feast-serve:local`) falls through to a docker.io pull and the pod
+    # sits in ImagePullBackOff.
+    image: feast-serve:openchoreo-local
   endpoints:
     http:
       type: HTTP

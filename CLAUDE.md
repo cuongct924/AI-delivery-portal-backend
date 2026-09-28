@@ -21,11 +21,41 @@ make check      # lint + format-check + typecheck + test (what CI runs)
 make run-orchestration-api / run-ai-observability-mcp / run-llmops-golden-paths-mcp \
      / run-golden-path-guide-mcp / run-mlops-golden-paths-mcp
 make port-forward-ai-platform   # Qdrant/MLflow/LiteLLM/MinIO/Feast -> localhost (own terminal)
+make port-forward-mcp-servers   # golden-path-guide/llmops/mlops/observability MCP servers -> localhost (own terminal)
+make port-forward-dev           # both of the above in one terminal — self-healing, reconnects a dropped forward on its own
+make port-forward-orchestration-api  # alternative: use the IN-CLUSTER orchestration-api instead of a host-run one (forwarded to localhost:8000)
 ```
 
 The host-run orchestration-api reaches the AI Platform zone (worker2) through
-`make port-forward-ai-platform` — their ClusterIPs aren't routable from the
-host, and `.env`'s `*_URL` defaults all point at `localhost`.
+`make port-forward-ai-platform` (or `make port-forward-dev` for both at
+once) — their ClusterIPs aren't routable from the host, and `.env`'s
+`*_URL` defaults all point at `localhost`. `kubectl port-forward` has no
+reconnect logic of its own — a pod restart, laptop sleep/wake, or any
+network blip kills it silently and it stays dead until something restarts
+it — so every forward these scripts start now runs in its own retry loop
+(`supervise_forward` in each script) instead of a one-shot invocation.
+
+The host-run orchestration-api's MCP tool-calling (portal-assistant's Golden
+Path auto-fill, chat.py's tool-using personas) needs `make port-forward-mcp-servers`
+too — `McpToolRegistry.connect_all()` discovers servers from the Backstage
+Catalog (`catalog_client.discover_mcp_servers`), and those `mcp/endpoint`
+annotations are in-cluster Service *names* (e.g.
+`http://golden-path-guide-server:9003/mcp`), not `.env`-configurable, so a
+port-forward alone isn't enough — each Service name also needs to resolve to
+`127.0.0.1` in `/etc/hosts` (see the script's header for the exact lines).
+Without both, `connect_all()` degrades silently (by design, never raises) to
+zero tools — chat still works, but the LLM never calls a tool and the
+template-fill feature has nothing to stream.
+
+Alternatively, skip the host-run API entirely: `make port-forward-orchestration-api`
+forwards the in-cluster one (worker1) to `localhost:8000`, and it reaches the
+AI Platform zone and MCP servers over cluster DNS — no other forwards or
+`/etc/hosts` entries needed. Two catches: code changes only land after
+rebuilding + `k3d image import`ing its image (setup script step 3/6) and
+deleting its pod (same tag), and it reads the in-cluster MLflow's Prompt
+Registry, so a prompt change in `routers/prompts.py` must be drafted +
+activated there too (the seed only runs when no version is active). Its env
+comes from `workload-orchestration-api.yaml`, not `.env`.
 
 `make test`/`make check` need a real MLflow reachable at `MLFLOW_TRACKING_URI`
 (default `http://localhost:5000`) — `routers/prompts.py` seeds its default

@@ -5,7 +5,8 @@
 #   kubectl create secret generic litellm-secrets -n ai-platform-zone \
 #     --from-literal=anthropic-api-key="$ANTHROPIC_API_KEY" \
 #     --from-literal=voyage-api-key="${VOYAGE_API_KEY:-}" \
-#     --from-literal=litellm-master-key="${LITELLM_MASTER_KEY:-sk-local-dev}"
+#     --from-literal=litellm-master-key="${LITELLM_MASTER_KEY:-sk-local-dev}" \
+#     --from-literal=model-canary-api-key="${MODEL_CANARY_API_KEY:-}"
 # (scripts/setup-3node-infra.sh does this from .env automatically.)
 #
 # 1.99.1, not main-v1.66.0-stable: that pin dropped `tool_calls` for
@@ -42,6 +43,10 @@ spec:
               valueFrom: {secretKeyRef: {name: litellm-secrets, key: voyage-api-key}}
             - name: LITELLM_MASTER_KEY
               valueFrom: {secretKeyRef: {name: litellm-secrets, key: litellm-master-key}}
+            - name: MODEL_CANARY_API_KEY
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: model-canary-api-key}}
+            - name: GEMINI_API_KEY
+              valueFrom: {secretKeyRef: {name: litellm-secrets, key: gemini-api-key, optional: true}}
           ports:
             - {containerPort: 4000}
           volumeMounts:

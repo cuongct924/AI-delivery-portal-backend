@@ -9,41 +9,54 @@ model_list:
     litellm_params:
       model: voyage/voyage-3
       api_key: os.environ/VOYAGE_API_KEY
-  # Free, local, no API key — embedding fallback so RAG ingest/evaluate works
-  # when VOYAGE_API_KEY is unset (same rationale as the local chat fallbacks
-  # below). NOTE: 768-dim vs voyage-3's 1024 — a collection must stay on one
-  # backend, since Qdrant fixes the vector size at creation.
-  - model_name: nomic-embed-local
+  # Internal company inference gateway — reliable structured tool_calls
+  # (verified: proper finish_reason="tool_calls", not JSON-in-content like
+  # llama3.1-local below used to give). Actually routes to a MiniMax M3
+  # deployment behind the "model-canary" alias — see its own /v1/models.
+  # PORTAL_ASSISTANT_MODEL=model-canary in .env selects this for
+  # routers/portal_assistant.py's chat loop.
+  - model_name: model-canary
     litellm_params:
-      model: ollama/nomic-embed-text
-      api_base: http://host.docker.internal:11434
-  # Free, local, no API key — for testing when ANTHROPIC_API_KEY has no
-  # credit. "ollama_chat/" (not "ollama/") is required for tool-calling:
-  # it hits Ollama's /api/chat endpoint, which supports `tools`; the
-  # legacy "ollama/" prefix uses /api/generate and silently drops them.
-  # Reaches the host's `ollama serve` (:11434) — litellm runs in this
-  # container, not on the host.
-  - model_name: llama3.1-local
+      model: openai/model-canary
+      api_base: http://10.23.101.225:8085/v1
+      api_key: os.environ/MODEL_CANARY_API_KEY
+  # For working off the company network, where model-canary's internal
+  # gateway above isn't reachable. Google AI Studio free tier — its free-tier
+  # terms let Google use requests to improve their models, so keep real or
+  # sensitive data out of it. PORTAL_ASSISTANT_MODEL=gemini-flash in .env
+  # selects it; key goes in .env as GEMINI_API_KEY.
+  # Pinned, not the gemini-flash-latest alias, so the model can't change
+  # underneath a test run. gemini-2.5-flash was the first pick but Google
+  # 404s it for new API keys ("no longer available to new users").
+  - model_name: gemini-flash
     litellm_params:
-      model: ollama_chat/llama3.1:8b
-      api_base: http://host.docker.internal:11434
-  # llama3.1:8b (above) understands when to call a tool but doesn't
-  # reliably emit litellm's structured `tool_calls` field — it just
-  # writes the call as JSON text in `content` instead, which
-  # routers/chat.py's tool loop never sees. qwen2.5 has more reliable
-  # native tool-calling support in Ollama.
-  - model_name: qwen2.5-local
+      model: gemini/gemini-3.8-flash
+      api_key: os.environ/GEMINI_API_KEY
+  # Free-tier models intermittently 503 with "experiencing high demand"
+  # (observed on gemini-3.8-flash) — a sibling model is a separate capacity
+  # pool, so it's the fallback below rather than just more retries.
+  - model_name: gemini-flash-fallback
     litellm_params:
-      model: ollama_chat/qwen2.5:7b
-      api_base: http://host.docker.internal:11434
+      model: gemini/gemini-3.7-flash
+      api_key: os.environ/GEMINI_API_KEY
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
 
-# When the Anthropic key has no credit (or is rate-limited), fall back to the
-# free local Ollama model instead of 400'ing the whole chat. qwen2.5-local is
-# the tool-calling-capable one (see its note above).
+# When the Anthropic key has no credit (or is rate-limited), fall back to
+# model-canary instead of 400'ing the whole chat.
+#
+# The local Ollama fallbacks (llama3.1-local, qwen2.5-local,
+# nomic-embed-local) were retired: llama3.1:8b never reliably emitted
+# structured tool_calls, and qwen2.5:7b did emit them but couldn't
+# reliably chain the 3 sequential tool calls the golden-path draft flow
+# needs (verified via routers/portal_assistant.py testing — it would stop
+# after 1-2 calls with an empty final message, or hallucinate a
+# differently-named tool instead of calling propose_golden_path_draft).
 litellm_settings:
+  # Retries transient upstream errors (e.g. a free-tier 503) before a
+  # fallback kicks in or the chat turn fails.
+  num_retries: 2
   fallbacks:
-    - claude-sonnet-5: ["qwen2.5-local"]
-    - voyage-3: ["nomic-embed-local"]
+    - claude-sonnet-5: ["model-canary"]
+    - gemini-flash: ["gemini-flash-fallback"]

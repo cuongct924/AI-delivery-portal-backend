@@ -17,8 +17,14 @@ case "$SERVER" in
   *) echo "Unrecognized: $SERVER (only ai-observability|llmops-golden-paths|golden-path-guide|mlops-golden-paths are supported)"; exit 1 ;;
 esac
 
+VENV_PY="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.venv/bin/python"
+if [ ! -x "$VENV_PY" ]; then
+  echo "$VENV_PY not found — run 'make install' first" >&2
+  exit 1
+fi
+
 echo "=== Installing dependencies for $SERVER-server ==="
-pip install -q -r "$DIR/requirements.txt"
+"$VENV_PY" -m pip install -q -r "$DIR/requirements.txt"
 
 echo "=== Running $SERVER-server (PYTHONPATH=. so adapters/ can be imported) ==="
-PYTHONPATH=. python "$DIR/server.py"
+PYTHONPATH=. "$VENV_PY" "$DIR/server.py"

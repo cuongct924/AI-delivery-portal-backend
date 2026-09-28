@@ -46,6 +46,16 @@ if ! k3d node list worker2-0 >/dev/null 2>&1; then
     --k3s-node-label plane.viettel.vn=ai-platform-workflow --wait
 fi
 
+# `k3d node create` agents come up without /etc/machine-id (the server node
+# has one). The observability plane's fluent-bit DaemonSet mounts it as a
+# `type: File` hostPath, so its pods on worker1/worker2 stay stuck in Init
+# forever ("hostPath type check failed: /etc/machine-id is not a file").
+# Seed a unique id per node; left alone if one already exists.
+for node in "$WORKER1" "$WORKER2"; do
+  docker exec "$node" sh -c \
+    '[ -s /etc/machine-id ] || cat /proc/sys/kernel/random/uuid | tr -d "-" > /etc/machine-id'
+done
+
 kubectl --context "$CTX" label node "k3d-${CLUSTER}-server-0" plane.viettel.vn=control-plane --overwrite
 kubectl --context "$CTX" taint node "$WORKER1" dedicated.viettel.vn=data-plane-portal:NoSchedule --overwrite
 kubectl --context "$CTX" taint node "$WORKER2" dedicated.viettel.vn=ai-platform-workflow:NoSchedule --overwrite
@@ -93,6 +103,8 @@ kubectl --context "$CTX" -n ai-platform-zone create secret generic litellm-secre
   --from-literal=anthropic-api-key="${ANTHROPIC_API_KEY:-}" \
   --from-literal=voyage-api-key="${VOYAGE_API_KEY:-}" \
   --from-literal=litellm-master-key="${LITELLM_MASTER_KEY:-sk-local-dev}" \
+  --from-literal=model-canary-api-key="${MODEL_CANARY_API_KEY:-}" \
+  --from-literal=gemini-api-key="${GEMINI_API_KEY:-}" \
   --dry-run=client -o yaml | kubectl --context "$CTX" apply -f -
 kubectl --context "$CTX" apply -f infra/ai-platform-zone/namespace.yaml -f infra/ai-platform-zone/mlflow.yaml \
   -f infra/ai-platform-zone/qdrant.yaml -f infra/ai-platform-zone/minio.yaml -f infra/ai-platform-zone/litellm.yaml \

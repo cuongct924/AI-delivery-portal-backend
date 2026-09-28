@@ -29,7 +29,8 @@ SERVICE_REQS := requirements-dev.txt \
 .PHONY: venv install lock hooks lint format format-check typecheck test check \
 	gitleaks checkov trivy security \
 	run-orchestration-api run-ai-observability-mcp run-llmops-golden-paths-mcp run-golden-path-guide-mcp \
-	run-mlops-golden-paths-mcp port-forward-ai-platform \
+	run-mlops-golden-paths-mcp port-forward-ai-platform port-forward-mcp-servers port-forward-dev \
+	port-forward-orchestration-api \
 	dvc-pull dvc-push \
 	clean-venv
 
@@ -114,6 +115,25 @@ run-orchestration-api:
 ## terminal. For a subset, call the script directly with service names.
 port-forward-ai-platform:
 	bash scripts/port-forward-ai-platform.sh
+
+## Forwards the 4 platform-project MCP servers (worker1) to localhost so a
+## host-run orchestration-api can discover/call their tools — see the
+## script's header for the /etc/hosts entries this also needs.
+port-forward-mcp-servers:
+	bash scripts/port-forward-mcp-servers.sh
+
+## One-command version of the two targets above — both self-healing (a
+## dropped forward reconnects on its own; see each script's
+## supervise_forward). Run in its own terminal, leave it up.
+port-forward-dev:
+	bash scripts/port-forward-dev.sh
+
+## Alternative to `run-orchestration-api` + `port-forward-dev`: use the
+## in-cluster orchestration-api (worker1) instead of a host-run one, forwarded
+## to localhost:8000 for Backstage. Needs its image rebuilt + imported to pick
+## up code changes. Run in its own terminal, leave it up.
+port-forward-orchestration-api:
+	bash scripts/port-forward-orchestration-api.sh
 
 run-ai-observability-mcp:
 	bash scripts/run-mcp-local.sh ai-observability

@@ -136,7 +136,9 @@ jinja2==3.1.6
 joblib==1.5.3
     # via scikit-learn
 jsonschema==4.26.0
-    # via mcp
+    # via
+    #   -r services/orchestration-api/requirements.txt
+    #   mcp
 jsonschema-specifications==2025.9.1
     # via jsonschema
 kiwisolver==1.5.1
@@ -165,6 +167,8 @@ multidict==6.7.1
     # via
     #   aiohttp
     #   yarl
+mypy-extensions==1.1.0
+    # via typing-inspect
 narwhals==2.25.0
     # via scikit-learn
 numpy==2.5.2
@@ -198,9 +202,12 @@ packaging==26.3
     #   matplotlib
     #   mlflow-skinny
     #   mlflow-tracing
+    #   pandera
     #   skops
 pandas==2.3.3
     # via mlflow
+pandera==0.33.1
+    # via -r services/orchestration-api/requirements.txt
 pillow==12.3.0
     # via matplotlib
 prettytable==3.18.0
@@ -239,6 +246,7 @@ pydantic==2.13.4
     #   mcp-types
     #   mlflow-skinny
     #   mlflow-tracing
+    #   pandera
     #   pydantic-settings
 pydantic-core==2.46.4
     # via pydantic
@@ -321,6 +329,8 @@ truststore==0.10.4
     # via
     #   httpcore2
     #   httpx2
+typeguard==4.6.0
+    # via pandera
 typing-extensions==4.16.0
     # via
     #   aiohttp
@@ -336,12 +346,17 @@ typing-extensions==4.16.0
     #   opentelemetry-api
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+    #   pandera
     #   pydantic
     #   pydantic-core
     #   referencing
     #   sqlalchemy
     #   starlette
+    #   typeguard
+    #   typing-inspect
     #   typing-inspection
+typing-inspect==0.9.0
+    # via pandera
 typing-inspection==0.4.4
     # via
     #   fastapi

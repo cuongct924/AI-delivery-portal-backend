@@ -121,9 +121,14 @@ def _chunk_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
 
 
 # Repo root, derived from this file (services/orchestration-api/routers/rag.py
-# -> parents[3]). In the Docker image the service is copied to /app, so this
-# resolves to "/" there — DOCS_ROOT (set in the image) covers that case.
-_REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[3]
+# -> parents[3]). In the Docker image the service is copied to /app, so
+# routers/rag.py only has 2 parents (/app/routers -> /app -> /) — indexing
+# parents[3] there raises IndexError at import time and takes the whole app
+# down with it. DOCS_ROOT (set in the image) is what actually matters there;
+# this fallback just needs to resolve to *something*, so clamp to the
+# shallowest parent instead of crashing.
+_file_parents: Final = Path(__file__).resolve().parents
+_REPO_ROOT: Final[Path] = _file_parents[min(3, len(_file_parents) - 1)]
 
 
 def _docs_roots() -> list[Path]:

@@ -32,6 +32,19 @@ spec:
         value: http://mlflow.ai-platform-zone.svc.cluster.local:5000
       - key: LITELLM_GATEWAY_URL
         value: http://litellm.ai-platform-zone.svc.cluster.local:4000
+      # LiteLLMGatewayAdapter sends it as the Bearer token; unset, every LLM
+      # call went out as "Authorization: Bearer " and httpx rejected it before
+      # leaving the pod ("Illegal header value"). Must match litellm-secrets'
+      # litellm-master-key — setup-3node-infra.sh's local-dev default, already
+      # plain in that script, same threat model as the dev creds below.
+      - key: LITELLM_MASTER_KEY
+        value: sk-local-dev
+      # Which litellm-config.yaml model_list entry portal_assistant.py's chat
+      # loop calls. gemini-flash (free tier) for working off the company
+      # network; model-canary only resolves on it, and claude-sonnet-5 needs
+      # Anthropic credit. Unset falls back to core/config.py's claude-sonnet-5.
+      - key: PORTAL_ASSISTANT_MODEL
+        value: gemini-flash
       - key: QDRANT_URL
         value: http://qdrant.ai-platform-zone.svc.cluster.local:6333
       - key: MINIO_ENDPOINT_URL
@@ -57,6 +70,22 @@ spec:
       # k3d node's pods the same way it does for a docker-compose container.
       - key: BACKSTAGE_BASE_URL
         value: http://host.docker.internal:7007
+      # Without this, every Catalog call (golden-path lookup, MCP server
+      # discovery) gets a 401 from Backstage's externalAccess and
+      # catalog_client.py's own try/except silently degrades to an empty
+      # result — no crash, no tools, no golden paths. Must match the
+      # BACKEND_SECRET the frontend repo's Backstage backend runs with
+      # (app-config.local.yaml's backend.auth.externalAccess).
+      #
+      # Inlined as a plain value, same as MCP_CLIENT_SECRET/AWS_* above —
+      # not the workload-portal.yaml secretKeyRef shape (tried that first:
+      # OpenChoreo's SecretReference CRD here resolves through an external
+      # secret store via remoteRef, not a plain in-cluster k8s Secret, so
+      # there is no working shortcut and that path isn't set up in this
+      # local cluster). Local-cluster-only dev token, same threat model as
+      # the other dev creds in this file.
+      - key: BACKSTAGE_SERVICE_TOKEN
+        value: 7BRtbEyC17xrw36Sw4hFdnJBPa4ejKj1O_qQgO7-E7s
       # Our identity when calling the golden-paths MCP servers — register by hand
       # in Thunder first.
       - key: MCP_CLIENT_ID
