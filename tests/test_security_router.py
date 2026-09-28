@@ -117,7 +117,10 @@ def test_scan_endpoint_records_an_audit_event() -> None:
     assert len(events) == before + 1
     event = events[-1]
     assert event["action"] == "security.scan"
-    assert event["category"] == "security"
+    # Audit Logs page's category filter is a closed set (management/
+    # authorization/access — see AUDIT_CATEGORIES in the frontend repo);
+    # a scan-gate decision is recorded as authorization so it's filterable.
+    assert event["category"] == "authorization"
     assert event["result"] == "denied"
     resource = event["resource"]
     assert isinstance(resource, dict)

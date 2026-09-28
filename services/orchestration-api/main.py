@@ -128,6 +128,11 @@ def _audit_action(path: str) -> str | None:
         return "llm.serve"
     if path.startswith("/notebooks"):
         return "notebook.create"
+    # Checked before the generic "/promote" match below — the rollback
+    # endpoint is `/models/{name}/promote-rollback`, which also contains
+    # "/promote" and would otherwise be mislabeled model.promote.
+    if "/promote-rollback" in path:
+        return "model.rollback"
     if "/promote" in path:
         return "model.promote"
     if "/rollback" in path:
@@ -140,16 +145,26 @@ def _audit_action(path: str) -> str | None:
 @app.middleware("http")
 async def audit_middleware(request, call_next):  # type: ignore[no-untyped-def]
     """Record one audit event per mutating golden-path request, so the Audit
-    Logs page reflects real platform activity. Never blocks the request."""
+    Logs page reflects real platform activity. Never blocks the request.
+
+    The caller's real identity (`X-Actor-Ref`, e.g. "user:default/jane") is
+    forwarded by Backstage's Scaffolder actions, since the Bearer token on
+    these requests is a service credential, not a delegated end-user token
+    (see actionsHttpClient.ts's authHeaders doc comment in the frontend repo)
+    — without it every event here would default to the generic
+    "orchestration-api" service actor regardless of who triggered the run.
+    """
     response = await call_next(request)
     if request.method in ("POST", "PUT", "DELETE"):
         action = _audit_action(request.url.path)
         if action:
+            actor_ref = request.headers.get("x-actor-ref")
             record_audit_event(
                 action=action,
                 resource={"name": request.url.path},
                 result="success" if response.status_code < 400 else "failure",
                 metadata={"method": request.method, "path": request.url.path},
+                **({"actor_id": actor_ref, "actor_type": "user"} if actor_ref else {}),
             )
     return response
 

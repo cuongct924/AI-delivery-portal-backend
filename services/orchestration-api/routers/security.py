@@ -101,7 +101,11 @@ def scan_security(
     )
     record_audit_event(
         action="security.scan",
-        category="security",
+        # The Audit Logs page's category filter is a closed set
+        # (management/authorization/access — types.ts's AUDIT_CATEGORIES);
+        # "security" isn't one of them and would be unfilterable there, so
+        # this scan-gate decision is recorded as an authorization event.
+        category="authorization",
         result="success" if result.passed else "denied",
         resource={
             "type": "GoldenPath",
